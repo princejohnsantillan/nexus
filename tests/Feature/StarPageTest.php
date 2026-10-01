@@ -39,8 +39,9 @@ it('shows the Star\'s endpoint, access mode, tools and sub-pages', function (): 
     $this->get(route('stars.show', $star))
         ->assertOk()
         ->assertSee('<title>Star · Nexus</title>', escape: false)
-        ->assertSeeTextInOrder(['Stars', 'Work', 'For the work laptop', 'Overview', 'Tools'])
+        ->assertSeeTextInOrder(['Stars', 'Work', 'For the work laptop', 'Overview', 'Tools', 'Prompts', 'Access'])
         ->assertSee(route('stars.tools', $star))
+        ->assertSee(route('stars.prompts', $star))
         ->assertSee('value="'.url('/mcp/'.$star->public_id).'"', escape: false)
         ->assertSeeTextInOrder(['Access', 'Bearer token', 'Tools on', '1 of 2'])
         ->assertSeeTextInOrder(['Connections', 'DeepWiki', 'deepwiki', '2 tools']);
@@ -118,14 +119,14 @@ it('does not find another user\'s Star', function (string $route): void {
     $star = Star::factory()->create();
 
     $this->get(route($route, $star))->assertNotFound();
-})->with(['stars.show', 'stars.tools', 'stars.access']);
+})->with(['stars.show', 'stars.tools', 'stars.prompts', 'stars.access']);
 
 it('sends guests to the welcome page', function (string $route): void {
     $star = Star::factory()->for($this->user)->create();
     auth()->logout();
 
     $this->get(route($route, $star))->assertRedirect(route('home'));
-})->with(['stars.show', 'stars.tools', 'stars.access']);
+})->with(['stars.show', 'stars.tools', 'stars.prompts', 'stars.access']);
 
 it('changes which Connections the Star includes', function (): void {
     $wiki = Connection::factory()->for($this->user)->create(['name' => 'DeepWiki']);

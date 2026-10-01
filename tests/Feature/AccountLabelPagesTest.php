@@ -54,7 +54,7 @@ it('shows the account on every page of a Connection, and on its overview', funct
     if ($route === 'connections.show') {
         $response->assertSeeTextInOrder(['Sign-in', 'Your own token', 'Account', 'octocat', 'Tools', '1 tool']);
     }
-})->with(['connections.show', 'connections.tools']);
+})->with(['connections.show', 'connections.tools', 'connections.prompts']);
 
 it('says when it doesn\'t know which account a Connection signed in as', function (): void {
     $connection = Connection::factory()->for($this->user)->create(['name' => 'DeepWiki']);

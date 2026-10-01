@@ -16,6 +16,7 @@ use InvalidArgumentException;
  * kernel, as a 2026-07-28 client by default:
  *
  *     $response = StarClient::for($star)->withToken($token)->callTool('wiki__search', '{"q":"x"}');
+ *     $response = StarClient::for($star)->withToken($token)->getPrompt('wiki__summarize', '{"topic":"x"}');
  *
  * - speaking('2025-11-25') makes it a client of the older era: it connects
  *   with `initialize` and sends no protocol `_meta`. A 2026-07-28 client
@@ -114,6 +115,21 @@ final class StarClient
         $params = '{"name":'.json_encode($name).($arguments === null ? '' : ',"arguments":'.$arguments).'}';
 
         return $this->send('tools/call', $params);
+    }
+
+    public function listPrompts(): TestResponse
+    {
+        return $this->send('prompts/list');
+    }
+
+    /**
+     * @param  string|null  $arguments  The arguments' JSON, sent as written, or null to send none.
+     */
+    public function getPrompt(string $name, ?string $arguments = '{}'): TestResponse
+    {
+        $params = '{"name":'.json_encode($name).($arguments === null ? '' : ',"arguments":'.$arguments).'}';
+
+        return $this->send('prompts/get', $params);
     }
 
     /**

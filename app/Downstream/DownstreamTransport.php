@@ -41,10 +41,11 @@ use Throwable;
  *   and never falls back to the older handshake.
  * - Server-sent events are read as the SSE format defines them: an event's
  *   `data:` lines are joined, and comments and other fields are skipped.
- * - It keeps every raw message it receives, and can send a tool call's
- *   arguments as raw JSON. The protocol decodes and encodes JSON as PHP
- *   values, which turns `{}` into `[]` and rounds long numbers, so the
- *   session reads results from, and writes arguments into, the raw text.
+ * - It keeps every raw message it receives, and can send the arguments of
+ *   a tool call or a prompt as raw JSON. The protocol decodes and encodes
+ *   JSON as PHP values, which turns `{}` into `[]` and rounds long numbers,
+ *   so the session reads results from, and writes arguments into, the raw
+ *   text.
  *
  * It holds the Connection's credentials, so it can't be serialized.
  */
@@ -60,6 +61,13 @@ final class DownstreamTransport extends HttpTransport
     private const array HANDSHAKE_METHODS = ['server/discover', 'initialize', 'notifications/initialized'];
 
     /**
+     * Requests whose `arguments` sendingArguments() writes as raw JSON.
+     *
+     * @var list<string>
+     */
+    private const array METHODS_WITH_ARGUMENTS = ['tools/call', 'prompts/get'];
+
+    /**
      * Raw messages received since the last result was taken.
      *
      * @var list<string>
@@ -67,9 +75,9 @@ final class DownstreamTransport extends HttpTransport
     private array $received = [];
 
     /**
-     * The JSON object to send as the arguments of the tool call being made.
+     * The JSON object to send as the arguments of the tool call or prompt being requested.
      */
-    private ?string $toolArguments = null;
+    private ?string $arguments = null;
 
     /**
      * The id of the last request sent, whose response takeResult() returns.
@@ -98,8 +106,8 @@ final class DownstreamTransport extends HttpTransport
         $hadSession = $this->sessionId !== null;
         $alreadyQueued = count($this->queue);
 
-        if ($method === 'tools/call' && $this->toolArguments !== null) {
-            $message = $this->withToolArguments($message, $this->toolArguments);
+        if (in_array($method, self::METHODS_WITH_ARGUMENTS, true) && $this->arguments !== null) {
+            $message = $this->withArguments($message, $this->arguments);
         }
 
         if (is_string($method) && (is_int($requestId) || is_string($requestId))) {
@@ -193,22 +201,23 @@ final class DownstreamTransport extends HttpTransport
     }
 
     /**
-     * Make a request whose `tools/call` messages carry these arguments, the
-     * JSON object exactly as given, in place of the `{}` the protocol encodes.
+     * Make a request whose `tools/call` or `prompts/get` messages carry these
+     * arguments, the JSON object exactly as given, in place of the `{}` the
+     * protocol encodes.
      *
      * @template TResult
      *
      * @param  Closure(): TResult  $request
      * @return TResult
      */
-    public function sendingToolArguments(string $arguments, Closure $request): mixed
+    public function sendingArguments(string $arguments, Closure $request): mixed
     {
-        $this->toolArguments = $arguments;
+        $this->arguments = $arguments;
 
         try {
             return $request();
         } finally {
-            $this->toolArguments = null;
+            $this->arguments = null;
         }
     }
 
@@ -273,12 +282,12 @@ final class DownstreamTransport extends HttpTransport
     }
 
     /**
-     * Put the arguments into a `tools/call` message in place of the empty
-     * object the protocol encoded. The first `"arguments":{}` in the message
-     * is that one: only the tool's name comes before it, and a JSON string
-     * can't contain an unescaped quote.
+     * Put the arguments into a `tools/call` or `prompts/get` message in place
+     * of the empty object the protocol encoded. The first `"arguments":{}` in
+     * the message is that one: only the tool's or prompt's name comes before
+     * it, and a JSON string can't contain an unescaped quote.
      */
-    private function withToolArguments(string $message, string $arguments): string
+    private function withArguments(string $message, string $arguments): string
     {
         $placeholder = '"arguments":{}';
         $at = strpos($message, $placeholder);

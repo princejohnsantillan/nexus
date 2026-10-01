@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Actions\CreateStarToken;
+use App\Actions\SwitchStarPrompts;
 use App\Actions\SwitchStarTools;
 use App\Downstream\RawJson;
 use App\Enums\ActivityKind;
@@ -11,6 +12,7 @@ use App\Enums\NewToolPolicy;
 use App\Enums\StarAccessMode;
 use App\Models\ActivityEntry;
 use App\Models\Connection;
+use App\Models\ConnectionPrompt;
 use App\Models\ConnectionTool;
 use App\Models\Star;
 use App\Models\User;
@@ -40,6 +42,14 @@ function catalogTool(Connection $connection, string $definition): ConnectionTool
         'definition_hash' => hash('sha256', $definition),
         'read_only' => $decoded->annotations->readOnlyHint ?? null,
     ]);
+}
+
+/**
+ * Store a prompt in the Connection's catalog exactly as its server listed it.
+ */
+function catalogPrompt(Connection $connection, string $definition): ConnectionPrompt
+{
+    return ConnectionPrompt::factory()->for($connection)->definedAs($definition)->create();
 }
 
 /**
@@ -74,7 +84,7 @@ describe('connecting', function (): void {
         $this->client->connect()
             ->assertOk()
             ->assertJsonPath('result.supportedVersions', ['2026-07-28'])
-            ->assertJsonPath('result.capabilities', ['tools' => ['listChanged' => false]])
+            ->assertJsonPath('result.capabilities', ['tools' => ['listChanged' => false], 'prompts' => ['listChanged' => false]])
             ->assertJsonPath('result._meta', ['io.modelcontextprotocol/serverInfo' => ['name' => 'Nexus: Work', 'version' => '1.0.0']])
             ->assertJsonPath('result.instructions', fn (string $instructions): bool => str_contains($instructions, '"Work" Star'));
     });
@@ -83,16 +93,16 @@ describe('connecting', function (): void {
         $this->client->speaking('2025-11-25')->connect()
             ->assertOk()
             ->assertJsonPath('result.protocolVersion', '2025-11-25')
-            ->assertJsonPath('result.capabilities', ['tools' => ['listChanged' => false]])
+            ->assertJsonPath('result.capabilities', ['tools' => ['listChanged' => false], 'prompts' => ['listChanged' => false]])
             ->assertJsonPath('result.serverInfo.name', 'Nexus: Work')
             ->assertJsonPath('result.instructions', fn (string $instructions): bool => str_contains($instructions, '"Work" Star'));
     });
 
-    it('offers no resources or prompts', function (string $method): void {
+    it('offers no resources or completions', function (string $method): void {
         $this->client->send($method)
             ->assertNotFound()
             ->assertJsonPath('error.code', -32601);
-    })->with(['resources/list', 'prompts/list', 'completion/complete']);
+    })->with(['resources/list', 'completion/complete']);
 
     it('refuses a 2026-07-28 request whose headers do not mirror its body', function (): void {
         $this->client->withHeader('Mcp-Name', 'wiki__other')->callTool('wiki__search')
@@ -407,5 +417,223 @@ describe('activity', function (): void {
         $this->client->listTools();
 
         expect(ActivityEntry::query()->count())->toBe(0);
+    });
+});
+
+describe('prompts/list', function (): void {
+    it('lists the Star\'s prompts that are on, with their arguments as their server sent them', function (string $protocolVersion): void {
+        catalogPrompt($this->wiki, '{"name":"summarize","title":"Summarize","description":"Summarize a page.","arguments":[{"name":"page","required":true}],"_meta":{"x":{}}}');
+        catalogPrompt($this->wiki, '{"name":"explain"}');
+        resolve(SwitchStarPrompts::class)->handle($this->star, $this->wiki, false, ['explain']);
+
+        $response = $this->client->speaking($protocolVersion)->listPrompts()->assertOk();
+
+        expect(rawResult($response))->toStartWith('{"prompts":[{"name":"wiki__summarize","title":"Summarize","description":"Summarize a page.","arguments":[{"name":"page","required":true}],"_meta":{"x":{}}}]')
+            ->and($response->json('result.resultType'))->toBe('complete');
+    })->with(['2026-07-28', '2025-11-25']);
+
+    it('lists every prompt as on until the user switches it off, whatever the new-tool policy', function (): void {
+        catalogPrompt($this->wiki, '{"name":"summarize"}');
+        $this->star->update(['new_tool_policy' => NewToolPolicy::None]);
+
+        $this->client->listPrompts()->assertJsonPath('result.prompts.*.name', ['wiki__summarize']);
+    });
+
+    it('lists no prompts of Connections the Star does not include', function (): void {
+        catalogPrompt(Connection::factory()->for($this->user)->create(['handle' => 'other']), '{"name":"summarize"}');
+
+        $this->client->listPrompts()->assertJsonPath('result.prompts', []);
+    });
+
+    it('starts each prompt\'s description with its account when the Star has two accounts of a service', function (): void {
+        $work = Connection::factory()->for($this->user)->fromConnector('github')->connected()->create(['name' => 'GitHub', 'handle' => 'github', 'account_identity' => 'octocat', 'description' => 'work repositories']);
+        $personal = Connection::factory()->for($this->user)->fromConnector('github')->connected()->create(['name' => 'GitHub 2', 'handle' => 'github-2', 'account_identity' => 'hubot']);
+        catalogPrompt($work, '{"name":"triage","description":"Triage an issue.","arguments":[]}');
+        catalogPrompt($personal, '{"name":"triage"}');
+
+        $response = clientForStarIncluding($this->user, $work, $personal)->listPrompts()->assertOk();
+
+        expect(rawResult($response))->toStartWith('{"prompts":['
+            .'{"name":"github__triage","description":"From GitHub · octocat — use for: work repositories\n\nTriage an issue.","arguments":[]},'
+            .'{"name":"github-2__triage","description":"From GitHub 2 · hubot"}'
+            .']');
+    });
+
+    it('records no activity for listing prompts', function (): void {
+        catalogPrompt($this->wiki, '{"name":"summarize"}');
+
+        $this->client->listPrompts()->assertOk();
+
+        expect(ActivityEntry::query()->count())->toBe(0);
+    });
+});
+
+describe('prompts/get', function (): void {
+    beforeEach(function (): void {
+        catalogPrompt($this->wiki, '{"name":"summarize","arguments":[{"name":"page","required":true}]}');
+    });
+
+    it('forwards the arguments exactly as sent and returns the server\'s messages exactly as it sent them', function (string $protocolVersion): void {
+        $server = FakeMcpServer::at()->withPrompts([['name' => 'summarize']])
+            ->onGetPrompt('summarize', fn (): string => '{"description":"A summary","messages":[{"role":"user","content":{"type":"text","text":"Summarize Laravel"}},{"role":"assistant","content":{"type":"resource","resource":{"uri":"wiki://laravel","text":"…","_meta":{}}}}]}');
+
+        $response = $this->client->speaking($protocolVersion)->getPrompt('wiki__summarize', '{"page":"laravel","extra":"1e400"}')->assertOk();
+
+        $sent = collect($server->requests())->first(fn (Request $request): bool => (json_decode($request->body())->method ?? null) === 'prompts/get');
+
+        expect(RawJson::member(RawJson::member($sent->body(), 'params') ?? '', 'arguments'))->toBe('{"page":"laravel","extra":"1e400"}')
+            ->and($server->received('prompts/get')[0]->params->name)->toBe('summarize')
+            ->and(rawResult($response))->toStartWith('{"description":"A summary","messages":[{"role":"user","content":{"type":"text","text":"Summarize Laravel"}},{"role":"assistant","content":{"type":"resource","resource":{"uri":"wiki://laravel","text":"…","_meta":{}}}}],')
+            ->and($response->json('result.resultType'))->toBe('complete')
+            ->and($response->json('result._meta'))->toBe(['io.modelcontextprotocol/serverInfo' => ['name' => 'Nexus: Work', 'version' => '1.0.0']]);
+    })->with(['2026-07-28', '2025-11-25']);
+
+    it('sends {} when the client sends no arguments', function (): void {
+        $server = FakeMcpServer::at()->withPrompts([['name' => 'summarize']]);
+
+        $this->client->getPrompt('wiki__summarize', null)->assertOk();
+
+        expect($server->received('prompts/get')[0]->params->arguments)->toEqual(new stdClass);
+    });
+
+    it('refuses a prompt that is switched off, like one the Star does not have', function (string $name): void {
+        resolve(SwitchStarPrompts::class)->handle($this->star, $this->wiki, false, ['summarize']);
+        $server = FakeMcpServer::at()->withPrompts([['name' => 'summarize']]);
+
+        $this->client->getPrompt($name)
+            ->assertStatus(400)
+            ->assertJsonPath('error.code', -32602)
+            ->assertJsonPath('error.message', "Prompt [{$name}] not found.");
+
+        expect($server->requests())->toBeEmpty();
+    })->with(['switched off' => 'wiki__summarize', 'unknown prompt' => 'wiki__nope', 'unknown handle' => 'nope__summarize', 'no handle' => 'summarize']);
+
+    it('refuses a tool\'s name, since prompts and tools are separate', function (): void {
+        catalogTool($this->wiki, '{"name":"search","inputSchema":{"type":"object"},"annotations":{"readOnlyHint":true}}');
+
+        $this->client->getPrompt('wiki__search')
+            ->assertStatus(400)
+            ->assertJsonPath('error.message', 'Prompt [wiki__search] not found.');
+    });
+
+    it('refuses arguments that are not an object', function (string $arguments): void {
+        $server = FakeMcpServer::at()->withPrompts([['name' => 'summarize']]);
+
+        $this->client->getPrompt('wiki__summarize', $arguments)
+            ->assertStatus(400)
+            ->assertJsonPath('error.code', -32602)
+            ->assertJsonPath('error.message', 'Invalid params: The [arguments] member must be an object.');
+
+        expect($server->requests())->toBeEmpty();
+    })->with(['empty array' => '[]', 'list' => '["x"]', 'string' => '"x"', 'null' => 'null']);
+
+    it('refuses a request without a name', function (): void {
+        $this->client->speaking('2025-11-25')->send('prompts/get', '{"arguments":{}}')
+            ->assertStatus(400)
+            ->assertJsonPath('error.message', 'Missing [name] parameter.');
+    });
+
+    it('answers a server that wants signing in again with an internal error saying where to reconnect', function (): void {
+        FakeMcpServer::at()->withPrompts([['name' => 'summarize']])->requireHeader('Authorization', 'Bearer never-sent');
+
+        $this->client->getPrompt('wiki__summarize')
+            ->assertStatus(500)
+            ->assertJsonPath('error.code', -32603)
+            ->assertJsonPath('error.message', 'Nexus could not get wiki__summarize from DeepWiki. The server requires sign-in (HTTP 401). The DeepWiki Connection needs signing in again: ask the user to reconnect it in Nexus at '.route('connections.connect', $this->wiki));
+    });
+
+    it('answers other failures with Nexus\'s own message, never the server\'s text', function (Closure $responder, string $message): void {
+        FakeMcpServer::at()->withPrompts([['name' => 'summarize']])->respondTo('prompts/get', $responder);
+
+        $response = $this->client->getPrompt('wiki__summarize')
+            ->assertStatus(500)
+            ->assertJsonPath('error.code', -32603)
+            ->assertJsonPath('error.message', "Nexus could not get wiki__summarize from DeepWiki. {$message}");
+
+        expect($response->getContent())->not->toContain('secret downstream text');
+    })->with([
+        'timeout' => [FakeMcpServer::timeout(), 'The server took too long to answer, so Nexus stopped waiting.'],
+        'unreachable' => [FakeMcpServer::unreachable(), 'Nexus could not connect to the server.'],
+        'server error' => [FakeMcpServer::httpStatus(503, 'secret downstream text'), 'The server answered with HTTP 503.'],
+        'JSON-RPC error' => [FakeMcpServer::error(-32602, 'secret downstream text'), 'The server answered with a JSON-RPC error (code -32602).'],
+        'a result that is not an object' => [FakeMcpServer::jsonRpcResult('[]'), 'The server did not answer like an MCP server.'],
+    ]);
+
+    it('refuses a result that asks the client for more input', function (): void {
+        FakeMcpServer::at()->withPrompts([['name' => 'summarize']])
+            ->onGetPrompt('summarize', fn (): array => ['resultType' => 'incomplete', 'inputRequests' => ['ask' => ['method' => 'elicitation/create']]]);
+
+        $this->client->getPrompt('wiki__summarize')
+            ->assertStatus(500)
+            ->assertJsonPath('error.code', -32603)
+            ->assertJsonPath('error.message', 'Nexus could not get wiki__summarize from DeepWiki. The server asked for more input before answering, which Nexus does not support yet.');
+
+        expect(ActivityEntry::query()->sole()->status)->toBe(ActivityStatus::Error);
+    });
+});
+
+describe('prompt activity', function (): void {
+    beforeEach(function (): void {
+        catalogPrompt($this->wiki, '{"name":"summarize"}');
+    });
+
+    it('records each prompt fetch as a prompt, with nothing it sent or got back', function (): void {
+        FakeMcpServer::at()->withPrompts([['name' => 'summarize']])
+            ->onGetPrompt('summarize', fn (): array => ['messages' => [['role' => 'user', 'content' => ['type' => 'text', 'text' => 'the secret result']]]]);
+
+        $this->client->getPrompt('wiki__summarize', '{"page":"the secret argument"}')->assertOk();
+
+        $entry = ActivityEntry::query()->sole();
+
+        expect($entry->only(['user_id', 'star_id', 'connection_id', 'exposed_name', 'downstream_name', 'client_name']))->toBe([
+            'user_id' => $this->user->id,
+            'star_id' => $this->star->id,
+            'connection_id' => $this->wiki->id,
+            'exposed_name' => 'wiki__summarize',
+            'downstream_name' => 'summarize',
+            'client_name' => 'Laptop',
+        ])
+            ->and($entry->kind)->toBe(ActivityKind::Prompt)
+            ->and($entry->status)->toBe(ActivityStatus::Ok)
+            ->and($entry->via)->toBe(StarAccessMode::Token)
+            ->and(json_encode($entry->getAttributes()))->not->toContain('secret');
+    });
+
+    it('records how each failed fetch ended', function (Closure $responder, ActivityStatus $status): void {
+        FakeMcpServer::at()->withPrompts([['name' => 'summarize']])->respondTo('prompts/get', $responder);
+
+        $this->client->getPrompt('wiki__summarize')->assertStatus(500);
+
+        expect(ActivityEntry::query()->sole()->only(['kind', 'status']))->toBe(['kind' => ActivityKind::Prompt, 'status' => $status]);
+    })->with([
+        'needs sign-in' => [FakeMcpServer::httpStatus(401), ActivityStatus::NeedsAuth],
+        'timeout' => [FakeMcpServer::timeout(), ActivityStatus::Timeout],
+        'JSON-RPC error' => [FakeMcpServer::error(-32603), ActivityStatus::Error],
+    ]);
+
+    it('records refused fetches as denied, with the Connection when the prompt is only switched off', function (): void {
+        resolve(SwitchStarPrompts::class)->handle($this->star, $this->wiki, false, ['summarize']);
+
+        $this->client->getPrompt('wiki__summarize')->assertStatus(400);
+        $this->client->getPrompt('nope__summarize')->assertStatus(400);
+        $this->client->speaking('2025-11-25')->send('prompts/get', '{"arguments":{}}')->assertStatus(400);
+
+        expect(ActivityEntry::query()->orderBy('id')->get()->map->only(['kind', 'exposed_name', 'connection_id', 'downstream_name', 'status'])->all())->toBe([
+            ['kind' => ActivityKind::Prompt, 'exposed_name' => 'wiki__summarize', 'connection_id' => $this->wiki->id, 'downstream_name' => 'summarize', 'status' => ActivityStatus::Denied],
+            ['kind' => ActivityKind::Prompt, 'exposed_name' => 'nope__summarize', 'connection_id' => null, 'downstream_name' => null, 'status' => ActivityStatus::Denied],
+            ['kind' => ActivityKind::Prompt, 'exposed_name' => null, 'connection_id' => null, 'downstream_name' => null, 'status' => ActivityStatus::Denied],
+        ]);
+    });
+
+    it('returns the messages and records the fetch when the Connection is deleted while the server answers', function (): void {
+        FakeMcpServer::at()->withPrompts([['name' => 'summarize']])
+            ->beforeAnswering('prompts/get', fn (): ?bool => $this->wiki->delete());
+
+        $this->client->getPrompt('wiki__summarize')
+            ->assertOk()
+            ->assertJsonPath('result.messages.0.content.text', 'ok');
+
+        expect(ActivityEntry::query()->sole()->only(['star_id', 'connection_id', 'status']))
+            ->toBe(['star_id' => $this->star->id, 'connection_id' => null, 'status' => ActivityStatus::Ok]);
     });
 });

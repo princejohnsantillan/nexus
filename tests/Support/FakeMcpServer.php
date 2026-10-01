@@ -22,14 +22,20 @@ use stdClass;
  *         ->onCall('search', fn (stdClass $arguments): array => ['content' => [['type' => 'text', 'text' => 'Found it']]]);
  *
  * Out of the box it is a 2025-11-25 server, like most today: it answers
- * `server/discover` with "method not found", then `initialize`, and lists no
- * tools. Script it further with:
+ * `server/discover` with "method not found", then `initialize`, lists no
+ * tools and has no prompts. Script it further with:
  *
  * - withTools() and paginate(): what `tools/list` returns, page by page.
  *   Pass a JSON string to send each tool's text exactly as written (`{}`,
  *   long numbers and all); arrays are encoded, so `[]` stays `[]`.
  * - onCall(): what `tools/call` returns for a tool. Unknown tools get a
  *   JSON-RPC "invalid params" error; tools without a handler return "ok".
+ * - withPrompts(): the server has prompts (the `prompts` capability), and
+ *   what `prompts/list` returns, paginated like the tools. Without it,
+ *   `prompts/list` and `prompts/get` are "method not found".
+ * - onGetPrompt(): what `prompts/get` returns for a prompt. Unknown prompts
+ *   get a JSON-RPC "invalid params" error; prompts without a handler return
+ *   one user message saying "ok".
  * - speaking(): the protocol era. '2026-07-28' answers `server/discover`;
  *   2025-11-25, 2025-06-18 and 2025-03-26 answer `initialize` with that version.
  * - requireHeader() and challengingWith(): an auth challenge (401 or 403
@@ -62,6 +68,18 @@ final class FakeMcpServer
      * @var list<string>
      */
     private array $tools = [];
+
+    /**
+     * Each prompt's JSON, as it is sent, or null when the server has no prompts.
+     *
+     * @var list<string>|null
+     */
+    private ?array $prompts = null;
+
+    /**
+     * @var array<string, Closure(stdClass, stdClass): (array<array-key, mixed>|stdClass|string)>
+     */
+    private array $promptHandlers = [];
 
     private ?int $pageSize = null;
 
@@ -146,7 +164,33 @@ final class FakeMcpServer
     }
 
     /**
-     * List tools this many to a page, with cursors.
+     * Have prompts, and list these.
+     *
+     * @param  list<array<string, mixed>|stdClass>|string  $prompts  Prompt definitions, or their JSON array.
+     */
+    public function withPrompts(array|string $prompts): self
+    {
+        $this->prompts = is_string($prompts)
+            ? RawJson::elements($prompts) ?? throw new InvalidArgumentException('The prompts must be a JSON array.')
+            : array_map(fn (array|stdClass $prompt): string => (string) json_encode($prompt), $prompts);
+
+        return $this;
+    }
+
+    /**
+     * Answer `prompts/get` for a prompt with what the handler returns: the result's JSON, or a value to encode.
+     *
+     * @param  Closure(stdClass $arguments, stdClass $message): (array<array-key, mixed>|stdClass|string)  $handler
+     */
+    public function onGetPrompt(string $prompt, Closure $handler): self
+    {
+        $this->promptHandlers[$prompt] = $handler;
+
+        return $this;
+    }
+
+    /**
+     * List tools and prompts this many to a page, with cursors.
      */
     public function paginate(int $pageSize): self
     {
@@ -453,33 +497,54 @@ final class FakeMcpServer
         }
 
         $modern = $this->protocolVersion === '2026-07-28';
+        $capabilities = ['tools' => new stdClass, ...$this->prompts === null ? [] : ['prompts' => new stdClass]];
 
         return match ($method) {
             'server/discover' => $modern
                 ? $this->result($message, [
                     'supportedVersions' => ['2026-07-28'],
-                    'capabilities' => ['tools' => new stdClass],
+                    'capabilities' => $capabilities,
                     '_meta' => ['io.modelcontextprotocol/serverInfo' => ['name' => 'fake', 'version' => '1.0.0']],
                 ])
                 : self::error(-32601, 'Method not found')($message, $request),
             'initialize' => $this->result($message, [
                 'protocolVersion' => $this->protocolVersion,
-                'capabilities' => ['tools' => new stdClass],
+                'capabilities' => $capabilities,
                 'serverInfo' => ['name' => 'fake', 'version' => '1.0.0'],
             ], ['Mcp-Session-Id' => 'fake-session']),
-            'tools/list' => $this->listTools($message),
+            'tools/list' => $this->listPage($message, 'tools', $this->tools),
             'tools/call' => $this->callTool($message, $request),
+            'prompts/list' => $this->prompts === null ? self::error(-32601, 'Method not found')($message, $request) : $this->listPage($message, 'prompts', $this->prompts),
+            'prompts/get' => $this->prompts === null ? self::error(-32601, 'Method not found')($message, $request) : $this->getPrompt($message, $request),
             default => self::error(-32601, 'Method not found')($message, $request),
         };
     }
 
-    private function listTools(stdClass $message): PromiseInterface
+    /**
+     * @param  list<string>  $entries  Each entry's JSON.
+     */
+    private function listPage(stdClass $message, string $member, array $entries): PromiseInterface
     {
         $offset = (int) ($message->params->cursor ?? 0);
-        $tools = $this->pageSize === null ? $this->tools : array_slice($this->tools, $offset, $this->pageSize);
-        $next = $this->pageSize !== null && $offset + $this->pageSize < count($this->tools) ? (string) ($offset + $this->pageSize) : null;
+        $page = $this->pageSize === null ? $entries : array_slice($entries, $offset, $this->pageSize);
+        $next = $this->pageSize !== null && $offset + $this->pageSize < count($entries) ? (string) ($offset + $this->pageSize) : null;
 
-        return $this->result($message, '{"tools":['.implode(',', $tools).']'.($next === null ? '' : ',"nextCursor":'.json_encode($next)).'}');
+        return $this->result($message, '{"'.$member.'":['.implode(',', $page).']'.($next === null ? '' : ',"nextCursor":'.json_encode($next)).'}');
+    }
+
+    private function getPrompt(stdClass $message, Request $request): PromiseInterface
+    {
+        $name = $message->params->name ?? null;
+        $arguments = ($message->params->arguments ?? null) instanceof stdClass ? $message->params->arguments : new stdClass;
+        $listed = array_map(fn (string $prompt): mixed => json_decode($prompt)->name ?? null, $this->prompts ?? []);
+
+        if (! is_string($name) || (! in_array($name, $listed, true) && ! isset($this->promptHandlers[$name]))) {
+            return self::error(-32602, 'Unknown prompt: '.(is_string($name) ? $name : ''))($message, $request);
+        }
+
+        $handler = $this->promptHandlers[$name] ?? fn (): array => ['messages' => [['role' => 'user', 'content' => ['type' => 'text', 'text' => 'ok']]]];
+
+        return $this->result($message, $handler($arguments, $message));
     }
 
     private function callTool(stdClass $message, Request $request): PromiseInterface

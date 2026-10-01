@@ -51,7 +51,7 @@ it('shows the connector logo on every page of a Connection', function (string $r
     $this->get(route($route, $connection))
         ->assertOk()
         ->assertSee(githubLogo('size-6'), escape: false);
-})->with(['connections.show', 'connections.tools']);
+})->with(['connections.show', 'connections.tools', 'connections.prompts']);
 
 it('describes a token sign-in and offers to replace the token instead of changing the server', function (): void {
     $connection = Connection::factory()->for($this->user)->fromConnector('github')->withHeader('Bearer github_pat_old')->connected()->create();

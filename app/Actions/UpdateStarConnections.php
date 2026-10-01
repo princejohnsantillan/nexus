@@ -14,8 +14,9 @@ class UpdateStarConnections
     /**
      * Make the Star include exactly those of the given Connections that
      * belong to its user; anyone else's are ignored. A Connection taken out
-     * loses the switches the user set for its tools in this Star, so adding
-     * it back starts again from the new-tool policy.
+     * loses the switches the user set for its tools and prompts in this
+     * Star, so adding it back starts again from the new-tool policy, with
+     * every prompt on.
      *
      * The Star's row and the chosen Connections' rows are held while the
      * change is written, so neither can be deleted halfway through.
@@ -36,6 +37,7 @@ class UpdateStarConnections
 
             if ($changes['detached'] !== []) {
                 $star->toolSwitches()->whereIn('connection_id', $changes['detached'])->delete();
+                $star->promptSwitches()->whereIn('connection_id', $changes['detached'])->delete();
             }
         });
     }

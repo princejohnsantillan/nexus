@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Actions;
 
 use App\Downstream\DownstreamClient;
+use App\Downstream\DownstreamSession;
 use App\Enums\ConnectionAuthType;
 use App\Enums\ConnectionStatus;
 use App\Enums\DownstreamFailure;
@@ -20,9 +21,11 @@ use stdClass;
 class RefreshCatalog
 {
     /**
-     * Tool names the MCP specification allows.
+     * Tool names the MCP specification allows. Prompt names are held to the
+     * same rule, so that every name a Star exposes is as safe to show and
+     * to type, as a slash command, say.
      */
-    private const string TOOL_NAME_PATTERN = '/^[A-Za-z0-9_.-]{1,128}$/';
+    private const string NAME_PATTERN = '/^[A-Za-z0-9_.-]{1,128}$/';
 
     /**
      * The columns that say which server a refresh asks and how it signs in:
@@ -46,6 +49,11 @@ class RefreshCatalog
      * server sent. The Connection is then connected, with no last error,
      * and labelled with the account its connector's profile tool names (such
      * as GitHub's login), when it has one that answers.
+     *
+     * Its prompts are stored the same way when the server says it has some
+     * (the `prompts` capability), and removed when it doesn't. When listing
+     * them fails, the previous prompts stay and the refresh still succeeds:
+     * the tools are what matter most.
      *
      * When the server can't be listed, the previous catalog stays, and the
      * Connection's status and last error (a Nexus-authored message) say why.
@@ -76,8 +84,9 @@ class RefreshCatalog
         }
 
         $identity = $this->detectAccountIdentity->fromProfileTool($connection, $session, $tools);
+        $prompts = $this->listPrompts($session);
 
-        return $this->storeIfCurrent($connection, $signIn, function () use ($connection, $tools, $identity): void {
+        return $this->storeIfCurrent($connection, $signIn, function () use ($connection, $tools, $identity, $prompts): void {
             $storedHashes = $connection->tools()->pluck('definition_hash', 'name');
             $names = [];
 
@@ -85,7 +94,7 @@ class RefreshCatalog
                 $tool = json_decode($definition);
                 $name = $tool instanceof stdClass ? $tool->name ?? null : null;
 
-                if (! $tool instanceof stdClass || ! is_string($name) || preg_match(self::TOOL_NAME_PATTERN, $name) !== 1) {
+                if (! $tool instanceof stdClass || ! is_string($name) || preg_match(self::NAME_PATTERN, $name) !== 1) {
                     continue;
                 }
 
@@ -105,6 +114,10 @@ class RefreshCatalog
 
             $connection->tools()->whereNotIn('name', $names)->delete();
 
+            if ($prompts !== null) {
+                $this->storePrompts($connection, $prompts);
+            }
+
             $connection->forceFill([
                 'status' => ConnectionStatus::Connected,
                 'last_error' => null,
@@ -112,6 +125,58 @@ class RefreshCatalog
                 ...$identity === null ? [] : ['account_identity' => $identity],
             ])->save();
         });
+    }
+
+    /**
+     * The prompts the server lists: none when it doesn't say it has any, or
+     * null when listing them failed, so the previous ones stay.
+     *
+     * @return list<string>|null
+     */
+    private function listPrompts(DownstreamSession $session): ?array
+    {
+        try {
+            return $session->offersPrompts() ? $session->listPrompts() : [];
+        } catch (DownstreamRequestFailed) {
+            return null;
+        }
+    }
+
+    /**
+     * Store the prompts as the Connection's, as the tools are: matched by
+     * name, changed ones rewritten, vanished ones removed, and ones with
+     * names outside NAME_PATTERN skipped.
+     *
+     * @param  list<string>  $prompts  Each prompt's JSON, as the server sent it.
+     */
+    private function storePrompts(Connection $connection, array $prompts): void
+    {
+        $storedHashes = $connection->prompts()->pluck('definition_hash', 'name');
+        $names = [];
+
+        foreach ($prompts as $definition) {
+            $prompt = json_decode($definition);
+            $name = $prompt instanceof stdClass ? $prompt->name ?? null : null;
+
+            if (! $prompt instanceof stdClass || ! is_string($name) || preg_match(self::NAME_PATTERN, $name) !== 1) {
+                continue;
+            }
+
+            $names[] = $name;
+            $hash = hash('sha256', $definition);
+
+            if ($storedHashes->get($name) === $hash) {
+                continue;
+            }
+
+            $connection->prompts()->updateOrCreate(['name' => $name], [
+                ...$this->describe($prompt),
+                'definition' => $definition,
+                'definition_hash' => $hash,
+            ]);
+        }
+
+        $connection->prompts()->whereNotIn('name', $names)->delete();
     }
 
     /**
@@ -203,21 +268,41 @@ class RefreshCatalog
 
         $hint = fn (string $name): ?bool => is_bool($annotations->{$name} ?? null) ? $annotations->{$name} : null;
 
-        $text = function (mixed $value): ?string {
-            $value = is_string($value) ? str_replace("\0", '', $value) : '';
-
-            return $value === '' ? null : $value;
-        };
-
-        $title = $text($tool->title ?? null) ?? $text($annotations->title ?? null);
+        $title = $this->text($tool->title ?? null) ?? $this->text($annotations->title ?? null);
 
         return [
             'title' => $title === null ? null : Str::limit($title, 255, ''),
-            'description' => $text($tool->description ?? null),
+            'description' => $this->text($tool->description ?? null),
             'read_only' => $hint('readOnlyHint'),
             'destructive' => $hint('destructiveHint'),
             'idempotent' => $hint('idempotentHint'),
             'open_world' => $hint('openWorldHint'),
         ];
+    }
+
+    /**
+     * The columns Nexus shows for a prompt: its title and description.
+     *
+     * @return array{title: string|null, description: string|null}
+     */
+    private function describe(stdClass $prompt): array
+    {
+        $title = $this->text($prompt->title ?? null);
+
+        return [
+            'title' => $title === null ? null : Str::limit($title, 255, ''),
+            'description' => $this->text($prompt->description ?? null),
+        ];
+    }
+
+    /**
+     * The value as text to show, without NUL characters, which some
+     * databases refuse in text; null when it isn't a string or is empty.
+     */
+    private function text(mixed $value): ?string
+    {
+        $value = is_string($value) ? str_replace("\0", '', $value) : '';
+
+        return $value === '' ? null : $value;
     }
 }

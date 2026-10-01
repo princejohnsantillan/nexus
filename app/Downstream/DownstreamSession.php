@@ -17,18 +17,19 @@ use Throwable;
  * One conversation with a Connection's MCP server. It connects on the first
  * request and reuses that connection for the rest.
  *
- * Tools and results come back as the exact JSON text the server sent, and
- * tool arguments go out as the exact JSON text given, so nothing is lost to
- * decoding and encoding: `{}` stays `{}` and long numbers keep every digit.
+ * Tools, prompts and results come back as the exact JSON text the server
+ * sent, and the arguments of tool calls and prompts go out as the exact JSON
+ * text given, so nothing is lost to decoding and encoding: `{}` stays `{}`
+ * and long numbers keep every digit.
  * Every failure throws DownstreamRequestFailed, whose message never contains
  * text from the server.
  */
 final readonly class DownstreamSession
 {
     /**
-     * How many pages of tools Nexus reads before deciding the server never stops.
+     * How many pages of tools or prompts Nexus reads before deciding the server never stops.
      */
-    private const int MAX_TOOL_PAGES = 100;
+    private const int MAX_PAGES = 100;
 
     public function __construct(
         private DownstreamMcpClient $client,
@@ -46,40 +47,56 @@ final readonly class DownstreamSession
      */
     public function listTools(): array
     {
+        return $this->listEvery('tools/list', 'tools');
+    }
+
+    /**
+     * Whether the server said it has prompts (the `prompts` capability) when
+     * the session connected.
+     *
+     * @throws DownstreamRequestFailed
+     */
+    public function offersPrompts(): bool
+    {
         $this->connect();
 
-        return $this->attempt(function (): array {
-            $tools = [];
-            $cursor = null;
-            $seenCursors = [];
+        return array_key_exists('prompts', $this->client->capabilities());
+    }
 
-            for ($page = 1; ; $page++) {
-                $this->client->send(new RawRequest('tools/list', $cursor === null ? [] : ['cursor' => $cursor]));
+    /**
+     * Every prompt the server lists, as the JSON object it sent for each,
+     * following its cursors page by page. Each prompt appears once, the last
+     * one listed under its name; entries without a name are skipped.
+     *
+     * @return list<string>
+     *
+     * @throws DownstreamRequestFailed
+     */
+    public function listPrompts(): array
+    {
+        return $this->listEvery('prompts/list', 'prompts');
+    }
 
-                $result = $this->transport->takeResult() ?? throw DownstreamRequestFailed::protocolError();
-                $listed = RawJson::elements(RawJson::member($result, 'tools') ?? '') ?? throw DownstreamRequestFailed::protocolError();
+    /**
+     * Get a prompt with its arguments, a JSON object sent exactly as given,
+     * and return the server's result (its messages) exactly as it sent it.
+     *
+     * @throws InvalidArgumentException when the arguments aren't a JSON object
+     * @throws DownstreamRequestFailed
+     */
+    public function getPrompt(string $name, string $arguments): string
+    {
+        if (! RawJson::isObject($arguments)) {
+            throw new InvalidArgumentException('Prompt arguments must be a JSON object.');
+        }
 
-                foreach ($listed as $tool) {
-                    $decoded = json_decode($tool);
+        $this->connect();
 
-                    if ($decoded instanceof stdClass && is_string($decoded->name ?? null)) {
-                        $tools[$decoded->name] = $tool;
-                    }
-                }
+        return $this->attempt(fn (): string => $this->transport->sendingArguments($arguments, function () use ($name): string {
+            $this->client->send(new RawRequest('prompts/get', ['name' => $name, 'arguments' => new stdClass]));
 
-                $cursor = json_decode(RawJson::member($result, 'nextCursor') ?? 'null');
-
-                if (! is_string($cursor) || $cursor === '') {
-                    return array_values($tools);
-                }
-
-                if (isset($seenCursors[$cursor]) || $page === self::MAX_TOOL_PAGES) {
-                    throw DownstreamRequestFailed::protocolError();
-                }
-
-                $seenCursors[$cursor] = true;
-            }
-        });
+            return $this->transport->takeResult() ?? throw DownstreamRequestFailed::protocolError();
+        }));
     }
 
     /**
@@ -99,11 +116,61 @@ final readonly class DownstreamSession
 
         $this->connect();
 
-        return $this->attempt(fn (): string => $this->transport->sendingToolArguments($arguments, function () use ($name): string {
+        return $this->attempt(fn (): string => $this->transport->sendingArguments($arguments, function () use ($name): string {
             $this->client->send(new RawRequest('tools/call', ['name' => $name, 'arguments' => new stdClass]));
 
             return $this->transport->takeResult() ?? throw DownstreamRequestFailed::protocolError();
         }), isToolCall: true);
+    }
+
+    /**
+     * Every entry a list method returns under the member, as the JSON object
+     * the server sent for each, following its cursors page by page. Each
+     * entry appears once, the last one listed under its name; entries
+     * without a name are skipped.
+     *
+     * @param  string  $method  `tools/list` or `prompts/list`.
+     * @param  string  $member  The member of each page's result that lists them.
+     * @return list<string>
+     *
+     * @throws DownstreamRequestFailed
+     */
+    private function listEvery(string $method, string $member): array
+    {
+        $this->connect();
+
+        return $this->attempt(function () use ($method, $member): array {
+            $entries = [];
+            $cursor = null;
+            $seenCursors = [];
+
+            for ($page = 1; ; $page++) {
+                $this->client->send(new RawRequest($method, $cursor === null ? [] : ['cursor' => $cursor]));
+
+                $result = $this->transport->takeResult() ?? throw DownstreamRequestFailed::protocolError();
+                $listed = RawJson::elements(RawJson::member($result, $member) ?? '') ?? throw DownstreamRequestFailed::protocolError();
+
+                foreach ($listed as $entry) {
+                    $decoded = json_decode($entry);
+
+                    if ($decoded instanceof stdClass && is_string($decoded->name ?? null)) {
+                        $entries[$decoded->name] = $entry;
+                    }
+                }
+
+                $cursor = json_decode(RawJson::member($result, 'nextCursor') ?? 'null');
+
+                if (! is_string($cursor) || $cursor === '') {
+                    return array_values($entries);
+                }
+
+                if (isset($seenCursors[$cursor]) || $page === self::MAX_PAGES) {
+                    throw DownstreamRequestFailed::protocolError();
+                }
+
+                $seenCursors[$cursor] = true;
+            }
+        });
     }
 
     /**
