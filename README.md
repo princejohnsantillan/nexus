@@ -17,14 +17,14 @@ The product spec lives in [issue #1](https://github.com/princejohnsantillan/nexu
 You need PHP 8.4, Composer 2, Node 22 and [Laravel Herd](https://herd.laravel.com).
 
 ```bash
-git clone --branch stars https://github.com/princejohnsantillan/nexus.git
+git clone https://github.com/princejohnsantillan/nexus.git
 cd nexus
 composer setup
 herd link nexus
 herd secure nexus
 ```
 
-The rewrite lives on the `stars` branch until it replaces `main`, which still holds the first version of Nexus.
+This is the second version of Nexus, built on the `stars` branch. The first version is preserved at the tag `v1`.
 
 `composer setup` installs the PHP and Node dependencies, creates `.env` from `.env.example`, generates the app key, creates the SQLite database at `database/database.sqlite`, runs the migrations, creates the key pair Nexus signs OAuth access tokens with (`php artisan passport:keys`, into `storage/oauth-*.key`, unless they exist) and builds the front end. In a checkout set up before OAuth to Nexus existed, run `php artisan passport:keys` once.
 
@@ -454,7 +454,7 @@ Only these, at their smallest sizes, all in one region:
 
 | Resource | Settings |
 | --- | --- |
-| Application | From `princejohnsantillan/nexus` on GitHub, with one environment, `production`, deploying the `stars` branch (`main` once `stars` replaces it). PHP 8.4, Node 22. |
+| Application | From `princejohnsantillan/nexus` on GitHub, with one environment, `production`, deploying the `main` branch. PHP 8.4, Node 22. |
 | App cluster | The smallest Flex size, 1 replica, Scale-to-Zero on, Scheduler on, Octane off. |
 | Database | Serverless Postgres 18, 0.25 compute units as both minimum and maximum, Scale-to-Zero on, the shortest backup retention offered. |
 | Cache | Laravel Valkey, the smallest Flex size, Scale-to-Zero on if offered, the default eviction policy. |
@@ -589,4 +589,4 @@ On the deployed URL:
 
 ## Continuous integration
 
-[`.github/workflows/qa.yml`](.github/workflows/qa.yml) runs on every push and pull request targeting `stars`. Its `qa` job installs the PHP and Node dependencies, builds the front end and runs `composer qa` on PHP 8.4. Its `postgres` job runs the test suite again on Postgres 18, the database production uses.
+[`.github/workflows/qa.yml`](.github/workflows/qa.yml) runs on every push and pull request targeting `main` or `stars`. Its `qa` job installs the PHP and Node dependencies, builds the front end and runs `composer qa` on PHP 8.4. Its `postgres` job runs the test suite again on Postgres 18, the database production uses.

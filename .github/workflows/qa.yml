@@ -3,9 +3,11 @@ name: qa
 on:
   push:
     branches:
+      - main
       - stars
   pull_request:
     branches:
+      - main
       - stars
 
 permissions:
