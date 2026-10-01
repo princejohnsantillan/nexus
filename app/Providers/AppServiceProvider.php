@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Providers;
 
 use App\Auth\GitHubSignInProvider;
+use App\Auth\PassportClientRepository;
 use App\Connectors\ConnectorCatalog;
 use App\Mcp\StarCaller;
 use App\Models\Connection;
@@ -33,6 +34,7 @@ use Illuminate\Support\ServiceProvider;
 use Illuminate\Validation\Rules\Password;
 use Laravel\Mcp\Server\Registrar;
 use Laravel\Passport\Client;
+use Laravel\Passport\ClientRepository;
 use Laravel\Passport\Passport;
 use Laravel\Socialite\Facades\Socialite;
 use Laravel\Socialite\Two\AbstractProvider;
@@ -49,6 +51,7 @@ class AppServiceProvider extends ServiceProvider
         $this->registerStarCaller();
 
         Passport::ignoreRoutes();
+        $this->app->singleton(ClientRepository::class, PassportClientRepository::class);
     }
 
     /**
