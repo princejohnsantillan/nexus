@@ -16,6 +16,7 @@ use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use LogicException;
 
@@ -67,6 +68,9 @@ use LogicException;
  * @method static \Illuminate\Database\Eloquent\Builder<static>|Connection whereUpdatedAt($value)
  * @method static \Illuminate\Database\Eloquent\Builder<static>|Connection whereUrl($value)
  * @method static \Illuminate\Database\Eloquent\Builder<static>|Connection whereUserId($value)
+ *
+ * @property-read Collection<int, Star> $stars
+ * @property-read int|null $stars_count
  *
  * @mixin \Eloquent
  */
@@ -135,6 +139,16 @@ class Connection extends Model
     public function tools(): HasMany
     {
         return $this->hasMany(ConnectionTool::class);
+    }
+
+    /**
+     * The Stars that include this Connection's tools.
+     *
+     * @return BelongsToMany<Star, $this>
+     */
+    public function stars(): BelongsToMany
+    {
+        return $this->belongsToMany(Star::class);
     }
 
     /**

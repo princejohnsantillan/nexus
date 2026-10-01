@@ -6,9 +6,11 @@ use App\Actions\RefreshCatalog;
 use App\Actions\UpdateConnectionServer;
 use App\Enums\ConnectionAuthType;
 use App\Models\Connection;
+use App\Models\Star;
 use App\Rules\HeaderName;
 use App\Rules\McpServerUrl;
 use Flux\Flux;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Validation\Rule;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Title;
@@ -47,6 +49,17 @@ return new #[Title('Connection')] class extends Component
     public function toolCount(): int
     {
         return $this->connection->tools()->count();
+    }
+
+    /**
+     * The Stars that include this Connection, which lose its tools when it is deleted.
+     *
+     * @return Collection<int, Star>
+     */
+    #[Computed]
+    public function stars(): Collection
+    {
+        return $this->connection->stars()->orderBy('name')->orderBy('stars.id')->get();
     }
 
     /**

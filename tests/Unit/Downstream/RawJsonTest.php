@@ -48,3 +48,25 @@ it('tells whether JSON is an object', function (string $json, bool $isObject): v
     'array' => ['[]', false],
     'malformed' => ['{"a":', false],
 ]);
+
+it('replaces one member\'s value and keeps the rest of the text exactly as sent', function (string $json, string $key, string $value, string $replaced): void {
+    expect(RawJson::withMember($json, $key, $value))->toBe($replaced);
+})->with([
+    'first member' => ['{"name":"search","inputSchema":{"type":"object","properties":{}}}', 'name', '"wiki__search"', '{"name":"wiki__search","inputSchema":{"type":"object","properties":{}}}'],
+    'last member' => ['{"a":1,"name":"x"}', 'name', '"y"', '{"a":1,"name":"y"}'],
+    'long numbers stay' => ['{"name":"n","max":18446744073709551615,"big":1e400}', 'name', '"m"', '{"name":"m","max":18446744073709551615,"big":1e400}'],
+    'whitespace stays' => ["{ \"name\" : \"x\" ,\n \"a\" : {} }", 'name', '"y"', "{ \"name\" : \"y\" ,\n \"a\" : {} }"],
+    'nested members stay' => ['{"annotations":{"name":"inner"},"name":"outer"}', 'name', '"new"', '{"annotations":{"name":"inner"},"name":"new"}'],
+    'every duplicate' => ['{"name":"a","x":1,"name":"b"}', 'name', '"c"', '{"name":"c","x":1,"name":"c"}'],
+    'escaped key' => ['{"name":"x"}', 'name', '"y"', '{"name":"y"}'],
+]);
+
+it('replaces nothing in JSON that is not an object or lacks the member', function (string $json): void {
+    expect(RawJson::withMember($json, 'name', '"y"'))->toBeNull();
+})->with([
+    'missing' => ['{"title":"x"}'],
+    'empty object' => ['{}'],
+    'array' => ['[{"name":"x"}]'],
+    'unterminated' => ['{"name":"x",'],
+    'empty' => [''],
+]);

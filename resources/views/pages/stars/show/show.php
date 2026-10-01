@@ -1,0 +1,124 @@
+<?php
+
+declare(strict_types=1);
+
+use App\Actions\UpdateStarConnections;
+use App\Models\Connection;
+use App\Models\Star;
+use App\Stars\StarTool;
+use App\Stars\StarToolset;
+use Flux\Flux;
+use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Validation\Rule;
+use Livewire\Attributes\Computed;
+use Livewire\Attributes\Title;
+use Livewire\Component;
+
+return new #[Title('Star')] class extends Component
+{
+    public Star $star;
+
+    public string $name = '';
+
+    public string $description = '';
+
+    /**
+     * The ids of the Connections the Star includes.
+     *
+     * @var list<string>
+     */
+    public array $connectionIds = [];
+
+    public function mount(): void
+    {
+        $this->name = $this->star->name;
+        $this->description = $this->star->description ?? '';
+        $this->resetConnections();
+    }
+
+    /**
+     * The Connections the Star can include: every one of its user's.
+     *
+     * @return Collection<int, Connection>
+     */
+    #[Computed]
+    public function connections(): Collection
+    {
+        return $this->star->user->connections()->withCount('tools')->orderBy('name')->orderBy('id')->get();
+    }
+
+    /**
+     * How many of the Star's tools are on, and how many it has.
+     *
+     * @return array{enabled: int, total: int}
+     */
+    #[Computed]
+    public function toolCounts(): array
+    {
+        $tools = resolve(StarToolset::class)->tools($this->star);
+
+        return [
+            'enabled' => count(array_filter($tools, fn (StarTool $tool): bool => $tool->enabled)),
+            'total' => count($tools),
+        ];
+    }
+
+    public function saveConnections(UpdateStarConnections $updateStarConnections): void
+    {
+        $this->validate(
+            [
+                'connectionIds' => ['array'],
+                'connectionIds.*' => ['integer', Rule::exists('connections', 'id')->where('user_id', $this->star->user_id)],
+            ],
+            ['connectionIds.*.exists' => __('Choose only your own Connections.')],
+        );
+
+        $updateStarConnections->handle($this->star, array_map(intval(...), $this->connectionIds));
+
+        unset($this->toolCounts);
+        $this->resetConnections();
+
+        Flux::toast(variant: 'success', text: __('Saved. The Star includes :count.', [
+            'count' => trans_choice(':count Connection|:count Connections', count($this->connectionIds)),
+        ]));
+    }
+
+    public function saveDetails(): void
+    {
+        $this->name = trim($this->name);
+        $this->description = trim($this->description);
+
+        $this->validate([
+            'name' => ['required', 'string', 'max:100'],
+            'description' => ['nullable', 'string', 'max:500'],
+        ]);
+
+        $this->star->update([
+            'name' => $this->name,
+            'description' => $this->description === '' ? null : $this->description,
+        ]);
+
+        Flux::toast(variant: 'success', text: __('Saved.'));
+    }
+
+    public function delete(): void
+    {
+        $this->star->delete();
+
+        session()->flash('toast', ['variant' => 'success', 'text' => __('Deleted :name.', ['name' => $this->star->name])]);
+
+        $this->redirectRoute('stars.index', navigate: true);
+    }
+
+    /**
+     * Fill the Connections picker from the Star as stored.
+     */
+    private function resetConnections(): void
+    {
+        $this->connectionIds = array_values(array_map(
+            fn (Connection $connection): string => (string) $connection->id,
+            $this->star->connections()->orderBy('connections.id')->get()->all(),
+        ));
+        $this->resetValidation(['connectionIds', 'connectionIds.*']);
+    }
+};

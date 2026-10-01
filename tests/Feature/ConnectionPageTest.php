@@ -2,10 +2,12 @@
 
 declare(strict_types=1);
 
+use App\Actions\SwitchStarTools;
 use App\Enums\ConnectionAuthType;
 use App\Enums\ConnectionStatus;
 use App\Models\Connection;
 use App\Models\ConnectionTool;
+use App\Models\Star;
 use App\Models\User;
 use Livewire\Livewire;
 use Tests\Support\FakeMcpServer;
@@ -252,4 +254,38 @@ it('deletes the Connection and its tools after confirming', function (): void {
     $this->assertModelMissing($connection);
     expect(ConnectionTool::query()->count())->toBe(0);
     $this->get(route('connections.index'))->assertSeeText('Deleted DeepWiki.');
+});
+
+it('lists the Stars that use the Connection in its delete confirmation', function (): void {
+    $connection = Connection::factory()->for($this->user)->create(['name' => 'DeepWiki']);
+    Star::factory()->for($this->user)->including($connection)->create(['name' => 'Work']);
+    Star::factory()->for($this->user)->including($connection)->create(['name' => 'Home']);
+    Star::factory()->for($this->user)->create(['name' => 'Unrelated']);
+
+    Livewire::test('pages::connections.show', ['connection' => $connection])
+        ->assertSeeTextInOrder(['Delete DeepWiki?', 'It is removed from these Stars:', 'Home', 'Work'])
+        ->assertDontSeeText('Unrelated');
+});
+
+it('says nothing about Stars when no Star uses the Connection', function (): void {
+    $connection = Connection::factory()->for($this->user)->create();
+
+    Livewire::test('pages::connections.show', ['connection' => $connection])
+        ->assertDontSeeText('It is removed from');
+});
+
+it('removes a deleted Connection from its Stars, with its switches', function (): void {
+    $connection = Connection::factory()->for($this->user)->create();
+    $kept = Connection::factory()->for($this->user)->create();
+    ConnectionTool::factory()->for($connection)->create(['name' => 'write_page']);
+    ConnectionTool::factory()->for($kept)->create(['name' => 'write_doc']);
+    $star = Star::factory()->for($this->user)->including($connection, $kept)->create();
+    resolve(SwitchStarTools::class)->handle($star, $connection, true);
+    resolve(SwitchStarTools::class)->handle($star, $kept, true);
+
+    Livewire::test('pages::connections.show', ['connection' => $connection])->call('delete');
+
+    $this->assertModelExists($star);
+    expect($star->connections()->pluck('connections.id')->all())->toBe([$kept->id])
+        ->and($star->toolSwitches()->pluck('tool_name')->all())->toBe(['write_doc']);
 });

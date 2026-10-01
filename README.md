@@ -116,7 +116,7 @@ Set the page title with `#[Title('…')]` on the class. Pages use the app layout
 - `layouts::app` ([`resources/views/layouts/app.blade.php`](resources/views/layouts/app.blade.php)) is the signed-in app: a Flux sidebar with Stars, Connections and Activity that collapses into a menu on small screens, and a profile menu with the appearance switch. It is the default page layout.
 - `layouts::public` is for public pages such as the welcome page. Choose it with `#[Layout('layouts::public')]`.
 - Both include [`partials/head.blade.php`](resources/views/partials/head.blade.php), which loads the Inter font, the Vite assets and `@fluxAppearance`; both end with `@fluxScripts`.
-- Shared pieces live in `resources/views/components`: `<x-empty-state>` (every list needs a helpful empty state), `<x-appearance-switch>`, `<x-app-logo>`, `<x-icons.github>`, `<x-connection-header>` (a Connection's name, status and row of sub-page links), `<x-connection-status>` and `<x-tool-hint>`.
+- Shared pieces live in `resources/views/components`: `<x-empty-state>` (every list needs a helpful empty state), `<x-appearance-switch>`, `<x-app-logo>`, `<x-icons.github>`, `<x-connection-header>` (a Connection's name, status and row of sub-page links), `<x-connection-status>`, `<x-tool-hint>` (one hint as yes, no or not stated), `<x-tool-hints>` (the hints a tool declared true, as badges), `<x-star-header>` (a Star's name, description and row of sub-page links) and `<x-connection-picker>` (checkbox cards for choosing a Star's Connections; bind it like a checkbox group).
 - Route parameters for records resolve only within the signed-in user's own data (`bindOwnRecords()` in `AppServiceProvider`), so another user's Connection is a 404, never a 403. Bind each new record type there the same way.
 - Every page except the welcome page requires sign-in: add app routes inside the `auth` group in [`routes/web.php`](routes/web.php). Guests are sent to the welcome page, and signed-in visitors to the welcome page go to the app.
 - Toasts: in a Livewire action call `Flux::toast(...)`. To show one after a redirect, flash `toast` with its text and a variant (`success`, `warning` or `danger`): `to_route('home')->with('toast', ['variant' => 'success', 'text' => __('Saved.')])`. Both layouts render it with `<x-flash-toast>`.
@@ -124,6 +124,8 @@ Set the page title with `#[Title('…')]` on the class. Pages use the app layout
 ### UI with Flux free
 
 Use only Flux's free components (layouts, navlist and navbar, button, input, textarea, native select, checkbox, radio, switch, field, heading and text, badge, callout, card, table, pagination, modal, toast, dropdown and menu, tooltip, avatar, profile, separator, icon, brand) with the default theme. Pro components (tabs, accordion, popover, command, autocomplete, searchable or multiple select, date picker, chart) are not available. Icons are [Heroicons](https://heroicons.com) by name, e.g. `<flux:icon.star />`. Dark mode follows Flux's appearance setting (light, dark or system), stored in the browser.
+
+Flux's switch keeps its own on/off state once drawn, and doesn't follow a changed `checked` attribute when Livewire updates the page. When the server decides a switch's state (as on a Star's Tools page, where one click can change many), key it by that state, e.g. `wire:key="switch-{{ $id }}-{{ $on ? 'on' : 'off' }}"`, so a changed switch is drawn afresh.
 
 ### Tests
 
@@ -194,6 +196,28 @@ $loaded = $refreshCatalog->handle($connection);  // bool
 It matches tools by name, rewrites only the ones whose definition hash changed, removes vanished ones, skips names the MCP specification doesn't allow, stores each definition as the exact JSON received with its four behaviour hints (null when the server didn't state one), and marks the Connection connected. When the server can't be listed, the previous catalog stays and the Connection's status (`needs_auth` or `error`) and last error say why; nothing is logged.
 
 Asking the server takes time, so the outcome is written in one transaction holding the Connection's row, and only if the Connection still exists with the same URL, sign-in method, settings and credentials (the stored ciphertext, which changes with every new value); a refresh overtaken by a delete, a new server or a replaced header is dropped, whether it succeeded or failed. A database error while storing is reported as `CatalogNotStored`, which names the Connection and the SQLSTATE but none of the values (they came from the server), and recorded on the Connection under the same check. Adding a Connection and its "Refresh tools" button run it straight away; changing a Connection's URL clears its stored credentials and its catalog first.
+
+### Stars and their tools
+
+A Star (`App\Models\Star`) is one MCP server endpoint owned by a user, bundling some of their Connections. Its URLs use its `public_id`, 20 random lowercase letters and digits (`/stars/{public_id}`, and `/mcp/{public_id}` for clients), never its numeric id, so they stay the same when it is renamed. Its `slug` comes from its name when it is created ("work", then "work-2" for the user's next "Work"), is unique among the user's Stars, names it in client configuration, and is kept when the Star is renamed. `nexus.limits.stars_per_user` (`NEXUS_STARS_PER_USER`, 10) caps how many a user may have.
+
+Change Stars through the actions, which keep their rules:
+
+- `App\Actions\CreateStar` holds a per-user cache lock while it counts and inserts, like `SaveNewConnection`; `limitMessage()` is what the user is told.
+- `App\Actions\UpdateStarConnections` sets which Connections a Star includes, ignoring anyone else's. A Connection taken out loses its switches in that Star. Deleting a Connection removes it, and its switches, from every Star.
+- `App\Actions\SwitchStarTools` gives tools of one of the Star's Connections the user's own switch (on or off), or takes it away (null). Given tool names it changes only those; without, it changes the whole Connection and drops switches for tools its server no longer lists.
+
+[`App\Stars\StarToolset`](app/Stars/StarToolset.php) is how anything reads a Star's tools:
+
+```php
+$toolset->tools($star);                                     // list<StarTool>: every tool of its Connections, on or off
+$toolset->enabledTools($star);                              // list<StarTool>: only the ones that are on
+$toolset->enabledTool($star, 'deepwiki__ask_wiki_question'); // ?StarTool: the tool with this exposed name, or null when it is unknown or off
+```
+
+A `StarTool` holds the Connection, its catalog entry (`ConnectionTool`), the exposed name `{handle}__{tool}`, whether it is `enabled`, and the user's own `switch` (null when the policy decides). `definition()` is the tool's JSON exactly as the server sent it, schemas and annotations untouched, with the exposed name in place of the server's.
+
+A tool is on when the user switched it on in that Star and off when they switched it off. Otherwise the Star's new-tool policy (`App\Enums\NewToolPolicy`) decides, by the tool's annotations at the last refresh: `read_only` (the default) turns on only tools whose server declares `readOnlyHint: true`, so a tool that stops being read-only stops being on; `all` turns every tool on; `none` turns every tool off. Switches are stored by tool name, not catalog row, so they survive catalog refreshes, even a tool disappearing and coming back.
 
 ### Architecture rules and banned functions
 

@@ -6,6 +6,7 @@ namespace App\Providers;
 
 use App\Auth\GitHubSignInProvider;
 use App\Models\Connection;
+use App\Models\Star;
 use App\Models\User;
 use App\Outbound\DnsResolver;
 use App\Outbound\GuardOutboundRequests;
@@ -118,6 +119,16 @@ class AppServiceProvider extends ServiceProvider
             abort_unless($user instanceof User, 404);
 
             return $user->connections()->findOrFail($id);
+        });
+
+        Route::pattern('star', '[a-z0-9]{'.Star::PUBLIC_ID_LENGTH.'}');
+
+        Route::bind('star', function (string $publicId): Star {
+            $user = Auth::user();
+
+            abort_unless($user instanceof User, 404);
+
+            return $user->stars()->where('public_id', $publicId)->firstOrFail();
         });
     }
 }
