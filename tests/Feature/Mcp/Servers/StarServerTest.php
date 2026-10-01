@@ -202,8 +202,8 @@ describe('tools/call', function (): void {
             ->assertJsonPath('result.isError', true);
 
         expect(resultText($response))
-            ->toContain('Nexus could not call wiki__search on DeepWiki. The server requires sign-in (HTTP 401).')
-            ->toContain(route('connections.show', $this->wiki));
+            ->toBe('Nexus could not call wiki__search on DeepWiki. The server requires sign-in (HTTP 401). The DeepWiki Connection needs signing in again: ask the user to reconnect it in Nexus at '.url("/connections/{$this->wiki->id}/connect"))
+            ->toContain(route('connections.connect', $this->wiki));
     });
 
     it('says when the server took too long', function (): void {
