@@ -14,6 +14,7 @@ use Illuminate\Support\Facades\File;
 use Illuminate\Support\Str;
 use Livewire\Features\SupportLockedProperties\CannotUpdateLockedPropertyException;
 use Livewire\Livewire;
+use Tests\Support\ConnectorFixture;
 use Tests\Support\FakeMcpServer;
 
 const GITHUB_MCP_URL = 'https://api.githubcopilot.com/mcp/';
@@ -62,39 +63,42 @@ it('shows a card for each connector with its official logo, summary and docs, th
 });
 
 it('shows a connector added as one JSON file and one logo, names it in the notice and connects it', function (): void {
+    $key = ConnectorFixture::unshippedKey();
+    $name = Str::headline($key);
+    $url = "https://{$key}.example.com/mcp";
     $directory = sys_get_temp_dir().'/nexus-connectors-'.Str::random(12);
     File::copyDirectory(resource_path('connectors'), $directory);
-    File::put("{$directory}/sentry.json", json_encode([
-        'name' => 'Sentry',
+    File::put("{$directory}/{$key}.json", json_encode([
+        'name' => $name,
         'summary' => 'Issues, events and releases from your organization.',
-        'url' => 'https://mcp.sentry.dev/mcp',
-        'docs_url' => 'https://docs.sentry.io/product/sentry-mcp/',
+        'url' => $url,
+        'docs_url' => 'https://docs.example.com/mcp',
         'registration' => 'automatic',
-        'token' => ['console_url' => 'https://sentry.io/settings/account/api/auth-tokens/', 'instructions' => 'Create a user auth token.'],
+        'token' => ['console_url' => 'https://example.com/settings/tokens', 'instructions' => 'Create a user auth token.'],
     ]));
-    File::put("{$directory}/logos/sentry.svg", '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 72 66"><path fill="currentColor" d="M0 0h72v66H0z"/></svg>');
+    File::put("{$directory}/logos/{$key}.svg", '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 72 66"><path fill="currentColor" d="M0 0h72v66H0z"/></svg>');
     $this->app->instance(ConnectorCatalog::class, new ConnectorCatalog($directory));
-    FakeMcpServer::at('https://mcp.sentry.dev/mcp')->requireHeader('Authorization', 'Bearer sntryu_good')->withTools([['name' => 'find_issues']]);
+    FakeMcpServer::at($url)->requireHeader('Authorization', 'Bearer fixture_good')->withTools([['name' => 'find_issues']]);
 
     try {
         $this->get(route('connections.add'))
             ->assertOk()
-            ->assertSeeTextInOrder(['GitHub', 'Linear', 'Notion', 'Sentry', 'Issues, events and releases from your organization.', 'Custom MCP server'])
+            ->assertSeeTextInOrder([$name, 'Issues, events and releases from your organization.', 'Custom MCP server'])
             ->assertSee('<svg aria-hidden="true" focusable="false" class="size-6" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 72 66">', escape: false);
 
-        expect(trademarkNotice())->toContain('GitHub', 'Linear', 'Notion', 'Sentry');
+        expect(trademarkNotice())->toContain('GitHub', 'Linear', 'Notion', $name);
 
         Livewire::test('pages::connections.add')
-            ->assertSeeHtml('wire:click="startConnecting(\'sentry\')"')
-            ->call('startConnecting', 'sentry')
-            ->assertSet('name', 'Sentry')
-            ->assertSet('handle', 'sentry')
-            ->set('token', 'sntryu_good')
+            ->assertSeeHtml("wire:click=\"startConnecting('{$key}')\"")
+            ->call('startConnecting', $key)
+            ->assertSet('name', $name)
+            ->assertSet('handle', $key)
+            ->set('token', 'fixture_good')
             ->call('connect')
             ->assertHasNoErrors();
 
         $connection = $this->user->connections()->sole();
-        expect($connection->connector_key)->toBe('sentry')
+        expect($connection->connector_key)->toBe($key)
             ->and($connection->status)->toBe(ConnectionStatus::Connected);
 
         $this->get(route('connections.index'))->assertSee('viewBox="0 0 72 66"', escape: false);

@@ -9,6 +9,7 @@ use App\Enums\SignInMethod;
 use App\Exceptions\InvalidConnectorDefinition;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Str;
+use Tests\Support\ConnectorFixture;
 
 const TEST_CONNECTOR_LOGO = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="currentColor" d="M0 0h24v24H0z"/></svg>';
 
@@ -118,16 +119,18 @@ it('validates every shipped connector, GitHub, Linear and Notion among them, and
 });
 
 it('adds a connector from one JSON file and one logo, alongside the shipped ones', function (): void {
+    $key = ConnectorFixture::unshippedKey();
+    $name = Str::headline($key);
     File::copyDirectory(resource_path('connectors'), $this->directory);
-    writeConnector($this->directory, 'sentry', minimalDefinition());
+    writeConnector($this->directory, $key, [...minimalDefinition(), 'name' => $name]);
 
     $catalog = new ConnectorCatalog($this->directory);
 
-    expect(array_keys($catalog->all()))->toContain('github', 'linear', 'notion', 'sentry')
+    expect(array_keys($catalog->all()))->toContain('github', 'linear', 'notion', $key)
         ->toHaveCount(count(File::glob(resource_path('connectors/*.json'))) + 1)
-        ->and(connectorNames($catalog))->toContain('GitHub', 'Linear', 'Notion', 'Sentry')
+        ->and(connectorNames($catalog))->toContain('GitHub', 'Linear', 'Notion', $name)
         ->toBe(sortedByName(connectorNames($catalog)))
-        ->and($catalog->find('sentry')->logoSvg)->toBe(TEST_CONNECTOR_LOGO)
+        ->and($catalog->find($key)->logoSvg)->toBe(TEST_CONNECTOR_LOGO)
         ->and($catalog->find('github'))->toEqual(app(ConnectorCatalog::class)->find('github'));
 });
 
