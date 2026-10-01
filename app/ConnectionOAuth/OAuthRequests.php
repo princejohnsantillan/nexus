@@ -7,6 +7,7 @@ namespace App\ConnectionOAuth;
 use App\Exceptions\ConnectionSignInFailed;
 use App\Exceptions\OutboundRequestBlocked;
 use Closure;
+use GuzzleHttp\Psr7\Exception\MalformedUriException;
 use Illuminate\Http\Client\HttpClientException;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\Response;
@@ -18,8 +19,11 @@ use SensitiveParameter;
  *
  * They go through Laravel's HTTP client, so the outbound guard checks and
  * pins every one, and they ask for JSON within the downstream connect
- * timeout. A server Nexus can't reach fails with ConnectionSignInFailed;
- * any answer, whatever its status, is the caller's to judge.
+ * timeout. A server Nexus can't reach fails with ConnectionSignInFailed,
+ * and so does an address the HTTP client can't parse (the servers give
+ * most of them); any answer, whatever its status, is the caller's to judge.
+ * None of the HTTP client's exceptions escapes: they quote the address, or
+ * the body of the response.
  */
 final readonly class OAuthRequests
 {
@@ -102,6 +106,8 @@ final readonly class OAuthRequests
             throw ConnectionSignInFailed::because(__('Nexus won\'t contact the server\'s sign-in service: :reason', ['reason' => $blocked->getMessage()]));
         } catch (HttpClientException) {
             throw ConnectionSignInFailed::because(__('Nexus couldn\'t reach the server\'s sign-in service.'));
+        } catch (MalformedUriException) {
+            throw ConnectionSignInFailed::because(__('Nexus won\'t contact the server\'s sign-in service: the address it gave isn\'t a valid URL.'));
         }
     }
 }

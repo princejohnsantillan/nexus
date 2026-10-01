@@ -103,6 +103,16 @@ final class DownstreamRequestFailed extends RuntimeException
     }
 
     /**
+     * The HTTP client couldn't build the request: the Connection's URL, or
+     * a credential it sends in a header, holds characters a request can't
+     * carry.
+     */
+    public static function unsendable(): self
+    {
+        return new self(DownstreamFailure::NeedsSignIn, __('Nexus can\'t send a request with this Connection\'s URL or credentials: they hold characters a request can\'t carry. Update them, or sign in again.'));
+    }
+
+    /**
      * The server answered HTTP 404 or a server error.
      */
     public static function httpError(int $status): self

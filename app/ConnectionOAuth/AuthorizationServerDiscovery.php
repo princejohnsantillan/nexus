@@ -197,9 +197,14 @@ final readonly class AuthorizationServerDiscovery
         return $scheme.'://'.strtolower($parts['host']).($port === null || $port === $defaultPort ? '' : ':'.$port);
     }
 
+    /**
+     * Whether a URL is a well-formed HTTPS URL. parse_url() accepts some
+     * that Laravel's Uri refuses with an exception quoting them, such as an
+     * unclosed IPv6 host, and the sign-in page's URL is built with Uri.
+     */
     private function isHttpsUrl(string $url): bool
     {
-        return str_starts_with(self::origin($url), 'https://');
+        return str_starts_with(self::origin($url), 'https://') && filter_var($url, FILTER_VALIDATE_URL) !== false;
     }
 
     /**

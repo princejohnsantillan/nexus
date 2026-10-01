@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace App\Stars;
 
+use App\Exceptions\StarListsNotCached;
 use App\Models\Connection;
 use App\Models\Star;
 use Closure;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -51,7 +53,10 @@ final readonly class StarListCache
 
     /**
      * One of the Star's lists as cached under its current version, or else
-     * as computed now, which is then cached under that version.
+     * as computed now, which is then cached under that version. A database
+     * cache that refuses to store it is reported as StarListsNotCached,
+     * without the list, which holds the servers' catalogs; the list is
+     * returned all the same.
      *
      * @template TList
      *
@@ -71,7 +76,11 @@ final readonly class StarListCache
 
         $value = $compute();
 
-        Cache::put($key, $value, self::TTL);
+        try {
+            Cache::put($key, $value, self::TTL);
+        } catch (QueryException $exception) {
+            report(StarListsNotCached::for($star, $list, $exception));
+        }
 
         return $value;
     }
