@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Enums\ConnectionStatus;
 use App\Models\Connection;
+use App\Models\Star;
 use App\Models\User;
 use Livewire\Livewire;
 use Tests\Support\FakeMcpServer;
@@ -113,4 +114,27 @@ it('has no token to replace on a custom server', function (): void {
         ->assertNotFound();
 
     expect($connection->refresh()->headerValue())->toBe('Bearer sk-live-123');
+});
+
+it('shows connector logos in the Star Connection pickers', function (string $route): void {
+    $github = Connection::factory()->for($this->user)->fromConnector('github')->create(['name' => 'GitHub']);
+    Connection::factory()->for($this->user)->create(['name' => 'Wiki']);
+    $star = Star::factory()->for($this->user)->including($github)->create();
+
+    $this->get($route === 'stars.index' ? route($route) : route($route, $star))
+        ->assertOk()
+        ->assertSeeInOrder([githubLogo('size-4'), 'GitHub', 'Wiki'], escape: false);
+})->with(['stars.index', 'stars.show']);
+
+it('shows each Connection\'s logo in the Stars list and on a Star\'s Tools page', function (): void {
+    $github = Connection::factory()->for($this->user)->fromConnector('github')->create(['name' => 'GitHub']);
+    $star = Star::factory()->for($this->user)->including($github)->create();
+
+    $this->get(route('stars.index'))
+        ->assertOk()
+        ->assertSee(githubLogo('size-3.5'), escape: false);
+
+    $this->get(route('stars.tools', $star))
+        ->assertOk()
+        ->assertSeeInOrder([githubLogo('size-4'), 'GitHub'], escape: false);
 });
