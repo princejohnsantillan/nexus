@@ -1,0 +1,7 @@
+{
+    "name": "Linear",
+    "summary": "Find, create and update issues, projects and comments.",
+    "url": "https://mcp.linear.app/mcp",
+    "docs_url": "https://linear.app/docs/mcp",
+    "registration": "automatic"
+}

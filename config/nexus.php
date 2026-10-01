@@ -56,6 +56,29 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Connectors
+    |--------------------------------------------------------------------------
+    |
+    | The OAuth app this deployment registered for each gallery connector,
+    | if any, keyed by connector. Each `resources/connectors/{key}.json` gets
+    | its own pair of variables, NEXUS_{KEY}_CLIENT_ID and
+    | NEXUS_{KEY}_CLIENT_SECRET, with dashes in the key as underscores.
+    | Credentials never live in the JSON files, which are public.
+    |
+    */
+
+    'connectors' => array_merge(...array_map(function (string $file): array {
+        $key = basename($file, '.json');
+        $prefix = 'NEXUS_'.strtoupper(str_replace('-', '_', $key));
+
+        return [$key => [
+            'client_id' => env($prefix.'_CLIENT_ID'),
+            'client_secret' => env($prefix.'_CLIENT_SECRET'),
+        ]];
+    }, glob(resource_path('connectors/*.json')) ?: [])),
+
+    /*
+    |--------------------------------------------------------------------------
     | Dev Sign-in
     |--------------------------------------------------------------------------
     |

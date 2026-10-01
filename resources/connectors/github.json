@@ -1,0 +1,21 @@
+{
+    "name": "GitHub",
+    "summary": "Repositories, issues, pull requests, code search and Actions.",
+    "url": "https://api.githubcopilot.com/mcp/",
+    "docs_url": "https://github.com/github/github-mcp-server/blob/main/docs/remote-server.md",
+    "registration": "pre_registered",
+    "scopes": [
+        "repo",
+        "read:org",
+        "read:user",
+        "user:email"
+    ],
+    "app": {
+        "console_url": "https://github.com/settings/applications/new",
+        "instructions": "GitHub only accepts OAuth apps registered in its developer settings. Register one with the callback URL below, then enter its client ID and secret. Organizations may need to approve the app before their repositories are visible."
+    },
+    "token": {
+        "console_url": "https://github.com/settings/personal-access-tokens/new",
+        "instructions": "Create a fine-grained personal access token: choose the account that owns the repositories, pick the repositories it can see, and grant only the permissions your tools need, such as Contents, Issues and Pull requests. Nexus then acts as you, with exactly that access. Organizations may need to approve the token. A classic token works too."
+    }
+}

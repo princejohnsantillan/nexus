@@ -1,0 +1,7 @@
+{
+    "name": "Notion",
+    "summary": "Search, read and edit pages and databases in your workspace.",
+    "url": "https://mcp.notion.com/mcp",
+    "docs_url": "https://developers.notion.com/docs/mcp",
+    "registration": "automatic"
+}

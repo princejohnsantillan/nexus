@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Providers;
 
 use App\Auth\GitHubSignInProvider;
+use App\Connectors\ConnectorCatalog;
 use App\Models\Connection;
 use App\Models\Star;
 use App\Models\User;
@@ -32,6 +33,7 @@ class AppServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->registerOutboundGuard();
+        $this->registerConnectorCatalog();
     }
 
     /**
@@ -80,6 +82,15 @@ class AppServiceProvider extends ServiceProvider
             blockPrivateNetworks: ! $this->app->isLocal() || config()->boolean('nexus.outbound.block_private_networks'),
             requireHttps: ! $this->app->isLocal() || config()->boolean('nexus.outbound.require_https'),
         ));
+    }
+
+    /**
+     * The gallery's connectors, read once per request from
+     * `resources/connectors`.
+     */
+    protected function registerConnectorCatalog(): void
+    {
+        $this->app->singleton(ConnectorCatalog::class, fn (): ConnectorCatalog => new ConnectorCatalog(resource_path('connectors')));
     }
 
     /**

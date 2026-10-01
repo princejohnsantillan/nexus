@@ -34,11 +34,17 @@
                 @foreach ($this->connections as $connection)
                     <flux:table.row :key="$connection->id">
                         <flux:table.cell>
-                            <flux:link :href="route('connections.show', $connection)" wire:navigate class="font-medium">{{ $connection->name }}</flux:link>
+                            <div class="flex items-center gap-3">
+                                <x-connector-logo :connector="$connection->connector()" size="sm" />
 
-                            @if (filled($connection->description))
-                                <flux:text size="sm" class="mt-0.5 max-w-xs truncate">{{ __('Use for: :description', ['description' => $connection->description]) }}</flux:text>
-                            @endif
+                                <div class="min-w-0">
+                                    <flux:link :href="route('connections.show', $connection)" wire:navigate class="font-medium">{{ $connection->name }}</flux:link>
+
+                                    @if (filled($connection->description))
+                                        <flux:text size="sm" class="mt-0.5 max-w-xs truncate">{{ __('Use for: :description', ['description' => $connection->description]) }}</flux:text>
+                                    @endif
+                                </div>
+                            </div>
                         </flux:table.cell>
                         <flux:table.cell class="font-mono">{{ $connection->handle }}</flux:table.cell>
                         <flux:table.cell><x-connection-status :status="$connection->status" /></flux:table.cell>

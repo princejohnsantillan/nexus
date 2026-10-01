@@ -2,9 +2,18 @@
 
 declare(strict_types=1);
 
+use App\Enums\ConnectionAuthType;
+use App\Enums\ConnectionStatus;
 use App\Models\Connection;
 use App\Models\User;
+use Illuminate\Log\Events\MessageLogged;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
+use Livewire\Features\SupportLockedProperties\CannotUpdateLockedPropertyException;
 use Livewire\Livewire;
+use Tests\Support\FakeMcpServer;
+
+const GITHUB_MCP_URL = 'https://api.githubcopilot.com/mcp/';
 
 beforeEach(function (): void {
     $this->user = User::factory()->create();
@@ -20,6 +29,204 @@ it('offers a custom MCP server card that leads to the custom form', function ():
         ->assertSee(route('connections.add-custom'));
 });
 
+it('shows a card for each connector with its official logo, summary and docs, then the trademark notice', function (): void {
+    $this->get(route('connections.add'))
+        ->assertOk()
+        ->assertSeeTextInOrder([
+            'GitHub', 'Repositories, issues, pull requests, code search and Actions.',
+            'Linear', 'Find, create and update issues, projects and comments.',
+            'Notion', 'Search, read and edit pages and databases in your workspace.',
+            'Custom MCP server',
+            'GitHub, Linear and Notion and their logos are trademarks of their respective owners, shown only to identify each service. Nexus is not affiliated with or endorsed by them.',
+        ])
+        ->assertSee('<svg aria-hidden="true" focusable="false" class="size-6" xmlns="http://www.w3.org/2000/svg" viewBox="0 -1 98 98"><path fill="currentColor"', escape: false)
+        ->assertSee('https://github.com/github/github-mcp-server/blob/main/docs/remote-server.md')
+        ->assertSeeText('Connecting a service you already use adds another account.');
+});
+
+it('explains that Notion and Linear can\'t be connected until Nexus signs in with OAuth', function (): void {
+    Livewire::test('pages::connections.add')
+        ->assertSeeHtml('wire:click="startConnecting(\'github\')"')
+        ->assertDontSeeHtml('wire:click="startConnecting(\'notion\')"')
+        ->assertDontSeeHtml('wire:click="startConnecting(\'linear\')"')
+        ->assertSeeText('Not available yet')
+        ->assertSeeText('Notion only supports signing in with OAuth. Nexus can\'t sign in with OAuth yet.')
+        ->assertSeeText('Linear only supports signing in with OAuth. Nexus can\'t sign in with OAuth yet.');
+});
+
+it('refuses to start connecting a connector that isn\'t available or doesn\'t exist', function (string $key): void {
+    Livewire::test('pages::connections.add')
+        ->call('startConnecting', $key)
+        ->assertNotFound();
+})->with(['notion', 'linear', 'missing']);
+
+it('opens the connect modal with a suggested name and handle and the token method chosen', function (): void {
+    Livewire::test('pages::connections.add')
+        ->call('startConnecting', 'github')
+        ->assertDispatched('modal-show', name: 'connect')
+        ->assertSet('connectorKey', 'github')
+        ->assertSet('name', 'GitHub')
+        ->assertSet('handle', 'github')
+        ->assertSet('method', 'token')
+        ->assertSeeText('Connect GitHub')
+        ->assertSeeText('Already connected GitHub? Connecting it again adds another account.')
+        ->assertSeeText('Your own token')
+        ->assertSeeText('Sign in with GitHub')
+        ->assertSeeText('Not available yet. Nexus can\'t sign in with OAuth yet.')
+        ->assertSeeText('Create a fine-grained personal access token')
+        ->assertSee('https://github.com/settings/personal-access-tokens/new')
+        ->assertSeeText('Stored encrypted. Nexus sends it as Authorization: Bearer … and checks it by loading the tools.');
+});
+
+it('suggests a unique name and handle for another account of the same service', function (): void {
+    Connection::factory()->for($this->user)->fromConnector('github')->create(['name' => 'GitHub', 'handle' => 'github']);
+
+    Livewire::test('pages::connections.add')
+        ->call('startConnecting', 'github')
+        ->assertSet('name', 'GitHub 2')
+        ->assertSet('handle', 'github-2');
+});
+
+it('skips names and handles the user already has when suggesting', function (): void {
+    Connection::factory()->for($this->user)->fromConnector('github')->create(['name' => 'Work', 'handle' => 'github']);
+    Connection::factory()->for($this->user)->create(['name' => 'github 2', 'handle' => 'deepwiki']);
+
+    Livewire::test('pages::connections.add')
+        ->call('startConnecting', 'github')
+        ->assertSet('name', 'GitHub 3')
+        ->assertSet('handle', 'github-3');
+});
+
+it('doesn\'t let the browser switch the connector being connected', function (): void {
+    Livewire::test('pages::connections.add')
+        ->call('startConnecting', 'github')
+        ->set('connectorKey', 'notion');
+})->throws(CannotUpdateLockedPropertyException::class);
+
+it('connects GitHub with a token, stored encrypted and sent as a bearer token, and loads its tools', function (): void {
+    $server = FakeMcpServer::at(GITHUB_MCP_URL)
+        ->requireHeader('Authorization', 'Bearer github_pat_good')
+        ->withTools([['name' => 'get_me', 'annotations' => ['readOnlyHint' => true]], ['name' => 'create_issue']]);
+
+    $component = Livewire::test('pages::connections.add')
+        ->call('startConnecting', 'github')
+        ->set('description', 'work repositories')
+        ->set('token', ' github_pat_good ')
+        ->call('connect');
+
+    $connection = $this->user->connections()->sole();
+    $component->assertHasNoErrors()->assertRedirect(route('connections.show', $connection));
+
+    expect($connection->only(['connector_key', 'name', 'handle', 'description', 'url', 'auth_type', 'settings', 'status', 'last_error']))->toBe([
+        'connector_key' => 'github',
+        'name' => 'GitHub',
+        'handle' => 'github',
+        'description' => 'work repositories',
+        'url' => GITHUB_MCP_URL,
+        'auth_type' => ConnectionAuthType::Header,
+        'settings' => ['header_name' => 'Authorization'],
+        'status' => ConnectionStatus::Connected,
+        'last_error' => null,
+    ])->and($connection->headerValue())->toBe('Bearer github_pat_good')
+        ->and(DB::table('connections')->value('secrets'))->not->toContain('github_pat_good')
+        ->and($connection->tools()->pluck('name')->all())->toEqualCanonicalizing(['get_me', 'create_issue'])
+        ->and($server->requests()[0]->header('Authorization'))->toBe(['Bearer github_pat_good']);
+
+    $this->get(route('connections.show', $connection))->assertOk()->assertSeeText('Connected. Nexus loaded 2 tools.');
+});
+
+it('doesn\'t send the prefix twice when the token is pasted with it', function (): void {
+    FakeMcpServer::at(GITHUB_MCP_URL)->requireHeader('Authorization', 'Bearer github_pat_good')->withTools([['name' => 'get_me']]);
+
+    Livewire::test('pages::connections.add')
+        ->call('startConnecting', 'github')
+        ->set('token', 'Bearer github_pat_good')
+        ->call('connect')
+        ->assertHasNoErrors();
+
+    expect($this->user->connections()->sole()->headerValue())->toBe('Bearer github_pat_good');
+});
+
+it('keeps the modal open with a clear error and saves nothing when GitHub refuses the token', function (): void {
+    $logged = [];
+    Event::listen(MessageLogged::class, function (MessageLogged $message) use (&$logged): void {
+        $logged[] = $message->message;
+    });
+    FakeMcpServer::at(GITHUB_MCP_URL)->requireHeader('Authorization', 'Bearer github_pat_good');
+
+    Livewire::test('pages::connections.add')
+        ->call('startConnecting', 'github')
+        ->set('token', 'github_pat_expired')
+        ->call('connect')
+        ->assertHasErrors(['token' => 'GitHub didn\'t accept this token. Check that you copied all of it and that it hasn\'t expired or been revoked.'])
+        ->assertNoRedirect()
+        ->assertSeeText('GitHub didn\'t accept this token.');
+
+    expect(Connection::query()->count())->toBe(0)
+        ->and($logged)->toBe([]);
+});
+
+it('keeps the Connection with its error when the tools don\'t load for another reason', function (): void {
+    FakeMcpServer::at(GITHUB_MCP_URL)->respondTo('tools/list', FakeMcpServer::httpStatus(503));
+
+    Livewire::test('pages::connections.add')
+        ->call('startConnecting', 'github')
+        ->set('token', 'github_pat_good')
+        ->call('connect')
+        ->assertHasNoErrors();
+
+    $connection = $this->user->connections()->sole();
+    expect($connection->status)->toBe(ConnectionStatus::Error)
+        ->and($connection->last_error)->toBe('The server answered with HTTP 503.');
+
+    $this->get(route('connections.show', $connection))
+        ->assertOk()
+        ->assertSeeText('Saved, but Nexus couldn\'t load its tools. The Connection page says why.');
+});
+
+it('requires a name, a handle and a token', function (): void {
+    Livewire::test('pages::connections.add')
+        ->call('startConnecting', 'github')
+        ->set('name', ' ')
+        ->set('handle', '')
+        ->call('connect')
+        ->assertHasErrors(['name' => 'required', 'handle' => 'required', 'token' => 'required']);
+
+    expect(Connection::query()->count())->toBe(0);
+});
+
+it('refuses a handle that isn\'t valid or that the user already has', function (string $handle, string $message): void {
+    Connection::factory()->for($this->user)->create(['handle' => 'work']);
+
+    Livewire::test('pages::connections.add')
+        ->call('startConnecting', 'github')
+        ->set('handle', $handle)
+        ->set('token', 'github_pat_good')
+        ->call('connect')
+        ->assertHasErrors(['handle' => $message]);
+})->with([
+    'uppercase' => ['GitHub', 'Use lowercase letters, digits and dashes, starting with a letter.'],
+    'taken' => ['work', 'You already have a Connection with this handle.'],
+]);
+
+it('refuses a token with a line break inside it', function (): void {
+    Livewire::test('pages::connections.add')
+        ->call('startConnecting', 'github')
+        ->set('token', "github_pat_good\r\nX-Injected: yes")
+        ->call('connect')
+        ->assertHasErrors(['token' => 'The token can\'t contain line breaks or other control characters.']);
+});
+
+it('refuses OAuth sign-in until Nexus supports it', function (): void {
+    Livewire::test('pages::connections.add')
+        ->call('startConnecting', 'github')
+        ->set('method', 'oauth')
+        ->call('connect')
+        ->assertHasErrors(['method' => 'Signing in this way isn\'t available yet.']);
+
+    expect(Connection::query()->count())->toBe(0);
+});
+
 it('explains the limit once the user has as many Connections as an account may', function (): void {
     config(['nexus.limits.connections_per_user' => 2]);
     Connection::factory()->for($this->user)->count(2)->create();
@@ -27,5 +234,21 @@ it('explains the limit once the user has as many Connections as an account may',
     Livewire::test('pages::connections.add')
         ->assertSeeText('Connection limit reached')
         ->assertSeeText('You have 2 Connections, the most an account can have. Delete one to add another.')
-        ->assertDontSee(route('connections.add-custom'));
+        ->assertDontSee(route('connections.add-custom'))
+        ->assertDontSeeHtml('wire:click="startConnecting(\'github\')"');
+});
+
+it('refuses another Connection at the limit without sending the token anywhere', function (): void {
+    config(['nexus.limits.connections_per_user' => 1]);
+    $server = FakeMcpServer::at(GITHUB_MCP_URL);
+
+    $component = Livewire::test('pages::connections.add')->call('startConnecting', 'github');
+    Connection::factory()->for($this->user)->create();
+
+    $component->set('token', 'github_pat_good')
+        ->call('connect')
+        ->assertHasErrors(['limit' => 'You have 1 Connections, the most an account can have. Delete one to add another.']);
+
+    expect($this->user->connections()->count())->toBe(1)
+        ->and($server->requests())->toBeEmpty();
 });

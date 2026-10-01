@@ -1,6 +1,6 @@
 {{--
-    The top of every Connection page: its name, handle and status, and the row
-    of links to its sub-pages. `current` names the page being shown.
+    The top of every Connection page: its logo, name, handle and status, and
+    the row of links to its sub-pages. `current` names the page being shown.
 --}}
 @props([
     'connection',
@@ -11,6 +11,7 @@
     <flux:link :href="route('connections.index')" variant="subtle" class="text-sm" wire:navigate>&larr; {{ __('Connections') }}</flux:link>
 
     <div class="mt-3 flex flex-wrap items-center gap-3">
+        <x-connector-logo :connector="$connection->connector()" />
         <flux:heading size="xl" level="1" class="break-all">{{ $connection->name }}</flux:heading>
         <x-connection-status :status="$connection->status" />
     </div>

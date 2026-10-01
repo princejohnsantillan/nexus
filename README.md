@@ -116,7 +116,7 @@ Set the page title with `#[Title('…')]` on the class. Pages use the app layout
 - `layouts::app` ([`resources/views/layouts/app.blade.php`](resources/views/layouts/app.blade.php)) is the signed-in app: a Flux sidebar with Stars, Connections and Activity that collapses into a menu on small screens, and a profile menu with the appearance switch. It is the default page layout.
 - `layouts::public` is for public pages such as the welcome page. Choose it with `#[Layout('layouts::public')]`.
 - Both include [`partials/head.blade.php`](resources/views/partials/head.blade.php), which loads the Inter font, the Vite assets and `@fluxAppearance`; both end with `@fluxScripts`.
-- Shared pieces live in `resources/views/components`: `<x-empty-state>` (every list needs a helpful empty state), `<x-appearance-switch>`, `<x-app-logo>`, `<x-icons.github>`, `<x-connection-header>` (a Connection's name, status and row of sub-page links), `<x-connection-status>`, `<x-tool-hint>` (one hint as yes, no or not stated), `<x-tool-hints>` (the hints a tool declared true, as badges), `<x-star-header>` (a Star's name, description and row of sub-page links) and `<x-connection-picker>` (checkbox cards for choosing a Star's Connections; bind it like a checkbox group).
+- Shared pieces live in `resources/views/components`: `<x-empty-state>` (every list needs a helpful empty state), `<x-appearance-switch>`, `<x-app-logo>`, `<x-icons.github>`, `<x-connection-header>` (a Connection's logo, name, status and row of sub-page links), `<x-connection-status>`, `<x-tool-hint>` (one hint as yes, no or not stated), `<x-tool-hints>` (the hints a tool declared true, as badges), `<x-star-header>` (a Star's name, description and row of sub-page links), `<x-connection-picker>` (checkbox cards for choosing a Star's Connections; bind it like a checkbox group) and `<x-connector-logo>` (a service's logo on a tile: `:connector="$connection->connector()"`, `size="sm"` for lists and pickers; a server icon for a custom server).
 - Route parameters for records resolve only within the signed-in user's own data (`bindOwnRecords()` in `AppServiceProvider`), so another user's Connection is a 404, never a 403. Bind each new record type there the same way.
 - Every page except the welcome page requires sign-in: add app routes inside the `auth` group in [`routes/web.php`](routes/web.php). Guests are sent to the welcome page, and signed-in visitors to the welcome page go to the app.
 - Toasts: in a Livewire action call `Flux::toast(...)`. To show one after a redirect, flash `toast` with its text and a variant (`success`, `warning` or `danger`): `to_route('home')->with('toast', ['variant' => 'success', 'text' => __('Saved.')])`. Both layouts render it with `<x-flash-toast>`.
@@ -218,6 +218,34 @@ $toolset->enabledTool($star, 'deepwiki__ask_wiki_question'); // ?StarTool: the t
 A `StarTool` holds the Connection, its catalog entry (`ConnectionTool`), the exposed name `{handle}__{tool}`, whether it is `enabled`, and the user's own `switch` (null when the policy decides). `definition()` is the tool's JSON exactly as the server sent it, schemas and annotations untouched, with the exposed name in place of the server's.
 
 A tool is on when the user switched it on in that Star and off when they switched it off. Otherwise the Star's new-tool policy (`App\Enums\NewToolPolicy`) decides, by the tool's annotations at the last refresh: `read_only` (the default) turns on only tools whose server declares `readOnlyHint: true`, so a tool that stops being read-only stops being on; `all` turns every tool on; `none` turns every tool off. Switches are stored by tool name, not catalog row, so they survive catalog refreshes, even a tool disappearing and coming back.
+
+### Connectors
+
+The Add connection page is a gallery of **connectors**: services with an official remote MCP server, such as GitHub, Notion and Linear. [`App\Connectors\ConnectorCatalog`](app/Connectors/ConnectorCatalog.php) loads them from [`resources/connectors`](resources/connectors), and a Connection made from one keeps its key in `connector_key` (`$connection->connector()` returns it; custom servers have none).
+
+To add a connector, add two files, named after its key (lowercase letters, digits and dashes, at most 20 characters, since the key is also the handle suggested for its first Connection):
+
+1. `resources/connectors/{key}.json`, its definition:
+
+    ```json
+    {
+        "name": "Sentry",
+        "summary": "Issues, events and releases from your organization.",
+        "url": "https://mcp.sentry.dev/mcp",
+        "docs_url": "https://docs.sentry.io/product/sentry-mcp/",
+        "registration": "automatic"
+    }
+    ```
+
+    - Required: `name`, a one-line `summary`, the server's HTTPS `url`, a `docs_url`, and `registration`: `automatic` when the server lets clients register themselves, `pre_registered` when it only accepts OAuth apps registered in its developer console.
+    - Optional: `scopes` (a list; without it the server's challenge decides), `preview` (`true` for servers still in preview), `requires_deployment_app` (`true` when users can't bring their own OAuth app, so the connector is only available once the deployment has one), `app` (required for `pre_registered`: `console_url` where users register an app, `instructions`, and an optional `manifest`), and `token` for services that accept a token users create themselves (`console_url` where they create one, `instructions`, and optionally `header_name`, default `Authorization`, and `value_prefix`, default `"Bearer "`).
+    - Unknown fields are rejected, so a typo fails loudly, and credentials can't be added: the deployment's OAuth app for a connector comes from `NEXUS_{KEY}_CLIENT_ID` and `NEXUS_{KEY}_CLIENT_SECRET` (dashes in the key become underscores), which `config/nexus.php` reads for every JSON file. List the pair in `.env.example` for a connector whose server only accepts registered apps, as GitHub's is.
+
+2. `resources/connectors/logos/{key}.svg`, the service's official logo from its brand assets: one `<svg>` element with a `viewBox` and no `width`, `height`, `class` or `style`, cleaned of metadata. It is inlined into pages, so it must not contain scripts, styles, event handlers, links or anything external. Use `fill="currentColor"` for a monochrome mark so it follows the text colour in dark mode, as GitHub's and Linear's do.
+
+[`tests/Feature/Connectors/ConnectorCatalogTest.php`](tests/Feature/Connectors/ConnectorCatalogTest.php) validates every shipped definition and logo, so run it after adding one. The gallery's trademark notice names every connector automatically.
+
+A user connects a gallery service with the methods its definition allows and this Nexus supports. For a token, [`App\Actions\ConnectWithToken`](app/Actions/ConnectWithToken.php) saves a header Connection to the connector's server through `SaveNewConnection`, with the token after its value prefix (so `Authorization: Bearer …`) stored encrypted, then loads its tools; if the server refuses the token, the Connection is removed and the user is told at once. OAuth sign-in isn't built yet, so connectors that only sign in with OAuth (Notion, Linear) show as not available yet, with the reason.
 
 ### Architecture rules and banned functions
 

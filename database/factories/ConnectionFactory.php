@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Database\Factories;
 
+use App\Connectors\ConnectorCatalog;
 use App\Enums\ConnectionAuthType;
 use App\Enums\ConnectionStatus;
 use App\Models\Connection;
@@ -44,6 +45,18 @@ class ConnectionFactory extends Factory
         ])->afterMaking(function (Connection $connection) use ($value): void {
             $connection->secrets->put(['header_value' => $value]);
         });
+    }
+
+    /**
+     * Indicate that the Connection was made from a gallery connector, so it
+     * signs in to the connector's server.
+     */
+    public function fromConnector(string $key = 'github'): static
+    {
+        return $this->state(fn (array $attributes): array => [
+            'connector_key' => $key,
+            'url' => app(ConnectorCatalog::class)->find($key)->url ?? $attributes['url'],
+        ]);
     }
 
     /**
