@@ -54,10 +54,11 @@ final readonly class OAuthRequests
      *
      * @param  array<string, mixed>  $data
      * @param  array{0: string, 1: string}|null  $basicAuth  The client ID and secret.
+     * @param  float|null  $timeout  Seconds to wait, when that is less than usual.
      *
      * @throws ConnectionSignInFailed when the server can't be reached
      */
-    public function postForm(string $url, #[SensitiveParameter] array $data, #[SensitiveParameter] ?array $basicAuth = null): Response
+    public function postForm(string $url, #[SensitiveParameter] array $data, #[SensitiveParameter] ?array $basicAuth = null, ?float $timeout = null): Response
     {
         return $this->send(function (PendingRequest $request) use ($url, $data, $basicAuth): Response {
             if ($basicAuth !== null) {
@@ -65,7 +66,7 @@ final readonly class OAuthRequests
             }
 
             return $request->asForm()->post($url, $data);
-        });
+        }, $timeout);
     }
 
     /**
@@ -87,12 +88,13 @@ final readonly class OAuthRequests
 
     /**
      * @param  Closure(PendingRequest): Response  $request
+     * @param  float|null  $timeout  Seconds to wait, when that is less than the connect timeout.
      *
      * @throws ConnectionSignInFailed
      */
-    private function send(Closure $request): Response
+    private function send(Closure $request, ?float $timeout = null): Response
     {
-        $timeout = config()->float('nexus.downstream.connect_timeout');
+        $timeout = min(config()->float('nexus.downstream.connect_timeout'), $timeout ?? INF);
 
         try {
             return $request(Http::acceptJson()->connectTimeout($timeout)->timeout($timeout));

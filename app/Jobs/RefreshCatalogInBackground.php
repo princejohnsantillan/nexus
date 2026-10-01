@@ -51,7 +51,9 @@ use Throwable;
  * The worker can only stop it once the request in flight returns, so each
  * request to the server waits at most 20 seconds rather than the usual
  * call timeout (the handshake's 10-second connect timeout is unchanged):
- * even a request sent just before the 60th second ends by the 80th.
+ * even a request sent just before the 60th second ends by the 80th. The
+ * session's requests take the configured call timeout (55 seconds) at most
+ * altogether, as every session's do, so it usually ends before the 60th.
  */
 #[Tries(1)]
 #[Timeout(self::TIMEOUT)]

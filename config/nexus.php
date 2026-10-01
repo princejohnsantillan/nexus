@@ -30,8 +30,9 @@ return [
     | How long Nexus waits for a Connection's MCP server, in seconds. The
     | connect timeout covers opening the connection and the handshake; the
     | call timeout covers every other request, such as listing or calling
-    | tools. Laravel Cloud ends web requests after about 60 seconds, so the
-    | call timeout stays under that.
+    | tools, and is also the most one session's requests take altogether,
+    | handshake and OAuth renewal included. Laravel Cloud ends web requests
+    | after about 60 seconds, so the call timeout stays under that.
     |
     */
 

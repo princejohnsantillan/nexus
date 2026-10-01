@@ -68,16 +68,18 @@ final readonly class TokenEndpoint
      * Renew an access token. A server that rotates refresh tokens sends a
      * new one; otherwise the tokens carry none and the old one stays good.
      *
+     * @param  float|null  $timeout  Seconds to wait for the server, when that is less than usual.
+     *
      * @throws DownstreamRequestFailed signInExpired() when the server refuses the refresh token or the client, renewalFailed() when it can't be reached or answers unusably
      */
-    public function renew(string $endpoint, OAuthClient $client, #[SensitiveParameter] string $refreshToken, string $resource): IssuedTokens
+    public function renew(string $endpoint, OAuthClient $client, #[SensitiveParameter] string $refreshToken, string $resource, ?float $timeout = null): IssuedTokens
     {
         try {
             $response = $this->request($endpoint, $client, [
                 'grant_type' => 'refresh_token',
                 'refresh_token' => $refreshToken,
                 'resource' => $resource,
-            ]);
+            ], $timeout);
         } catch (ConnectionSignInFailed) {
             throw DownstreamRequestFailed::renewalFailed();
         }
@@ -102,10 +104,10 @@ final readonly class TokenEndpoint
      *
      * @throws ConnectionSignInFailed when the server can't be reached
      */
-    private function request(string $endpoint, OAuthClient $client, #[SensitiveParameter] array $parameters): Response
+    private function request(string $endpoint, OAuthClient $client, #[SensitiveParameter] array $parameters, ?float $timeout = null): Response
     {
         [$fields, $basicAuth] = $client->credentials();
 
-        return $this->requests->postForm($endpoint, [...$parameters, ...$fields], $basicAuth);
+        return $this->requests->postForm($endpoint, [...$parameters, ...$fields], $basicAuth, $timeout);
     }
 }

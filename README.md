@@ -137,6 +137,14 @@ Tests are written with Pest 5:
 
 `Tests\TestCase` calls `Http::preventStrayRequests()` and `withoutVite()`, so a test never reaches the network and doesn't need a front-end build. Fake the network edge (`Http::fake()`, Socialite fakes); don't mock our own classes. It also gives Passport an RSA key pair (`Tests\Support\PassportKeys`, made once per test process and never stored), so OAuth to Nexus runs for real in tests.
 
+Production runs on Postgres, so CI runs the suite on Postgres as well as SQLite. To run it on a local Postgres, point the `DB_*` variables at a database whose user may create databases (a parallel run makes one per process):
+
+```bash
+DB_CONNECTION=pgsql DB_HOST=127.0.0.1 DB_PORT=5432 DB_DATABASE=nexus_testing DB_USERNAME=nexus DB_PASSWORD=secret vendor/bin/pest --parallel
+```
+
+Write SQL that works on both. On Postgres a statement that fails aborts the transaction it ran in, and every later query in it fails too, so a write that may be refused and caught runs in its own `DB::transaction()` (a savepoint inside another transaction), as `App\Actions\RecordActivity` does.
+
 Faked requests pass through the [outbound guard](#outbound-requests) too, so fake `https://` URLs. `Tests\TestCase` fakes the guard's DNS so that every host resolves to a public address. To make a host resolve somewhere else, call `$this->fakeDns(['internal.example.com' => ['10.0.0.1']])`; an empty list makes the host unresolvable.
 
 #### The fake MCP server
@@ -193,7 +201,7 @@ $result = $session->getPrompt('summarize', '{"page":"x"}');     // JSON object i
 
 - Tools, prompts and results come back as the exact JSON text the server sent, and the arguments of a tool call or a prompt go out as the exact JSON object given. Nothing is decoded and encoded on the way, which would turn `{}` into `[]`, round long numbers and fail on ones like `1e400`. Decode a copy with `json_decode()` to read it; keep the text to store or forward it. `App\Downstream\RawJson` cuts members and elements out of JSON text without decoding them.
 - It speaks 2026-07-28 (`server/discover`) where the server does, and otherwise falls back to `initialize`, accepting servers that settle on 2025-11-25, 2025-06-18 or 2025-03-26. It follows `tools/list` and `prompts/list` cursors, pairs errors that come back with a placeholder or mismatched id with their request, and reads server-sent events as the SSE format defines them (an event's `data:` lines joined).
-- `NEXUS_DOWNSTREAM_CONNECT_TIMEOUT` (10 s) limits connecting and the handshake; `NEXUS_DOWNSTREAM_CALL_TIMEOUT` (55 s, under Laravel Cloud's 60-second request limit) limits listing and calling tools and listing and getting prompts.
+- `NEXUS_DOWNSTREAM_CONNECT_TIMEOUT` (10 s) limits connecting and the handshake; `NEXUS_DOWNSTREAM_CALL_TIMEOUT` (55 s, under Laravel Cloud's 60-second request limit) limits listing and calling tools and listing and getting prompts. The configured call timeout is also the most a session's requests take altogether, counted from when it is opened (just before its first request), even when `withCallTimeout()` shortens each request's wait: each request gets the time left when that is less, renewing an OAuth token waits for its lock and the token endpoint only that long, nothing more is sent once it has run out (that fails as `Timeout`), and ending the session is skipped. So a slow handshake can't push a tool call past the request limit.
 - An OAuth Connection's access token is read for every request and renewed first when it has expired or is about to (see [Signing in with OAuth](#signing-in-with-oauth)). A session stays bound to the server it was opened for: once the Connection signs in somewhere else, the session gets no token, so no server ever receives another's. A Connection that isn't signed in, or whose server refuses to renew its sign-in, fails as needing sign-in before anything is sent.
 - `$downstream->signInChallenge($connection)` asks the server, without signing in, how to sign in: the `WWW-Authenticate` challenge it refuses Nexus with, or null when it lets Nexus in.
 - Every failure throws `App\Exceptions\DownstreamRequestFailed`. Its `failure` (`App\Enums\DownstreamFailure`) says why: `NeedsSignIn` (401, 403 or an invalid-token challenge, whose `challenge` the exception keeps), `Timeout`, `Unreachable` (connection failed, blocked by the outbound guard, 404 or 5xx), `ProtocolError` (including a JSON-RPC error answering anything but a tool call, such as `prompts/get`) or `ToolError` (a JSON-RPC error instead of a tool result). Its message is Nexus's own and safe to show; it never contains text from the server, and no exception from the server is chained to it. A tool result with `isError: true` is a result, not a failure.
@@ -228,7 +236,7 @@ Catalogs also refresh themselves in the background, on the queue, through [`App\
 
 The job is unique per Connection: while one is queued or running, no other is queued. Its lock goes when it has run or failed, including when a worker dies during it, since the queue then hands it out again and it fails as attempted too many times. The lock lasts at most 30 days, so a lock whose job was lost from the queue clears itself. On Laravel Cloud's SQS-based queue no job waits that long (SQS keeps a message 14 days at most); the database queue keeps jobs however old, so only a backlog of more than 30 days could queue a second refresh there. It is tried once and carries only the Connection's id, so a Connection deleted meanwhile is skipped. A server that can't be listed is recorded on the Connection, as `RefreshCatalog` records it, and nothing is logged.
 
-The worker stops the job after 60 seconds, well before Laravel Cloud's 90-second Flex queue limit and the database queue's 90-second `retry_after`. PHP can only stop it once the request in flight returns, so the job waits at most 20 seconds for each request to the server (`DownstreamClient::withCallTimeout()`), rather than the 55 a "Refresh tools" click waits: a request sent just before the 60th second still ends by the 80th. A refresh the worker stops (it took too long, or a worker died during it) is recorded on the Connection by the job's `failed()`, and `bootstrap/app.php` keeps the worker's "attempted too many times" out of the log (`RefreshCatalogInBackground::isGivenUp()`). `failed()` compares the Connection with what it was when the refresh started (its server, sign-in, status, last error and refresh time, kept hashed in the cache under the refresh's own id, so a refresh queued once this one's lock is gone never shares it), so a newer sign-in or refresh is never overwritten, while a new name or note doesn't stop the failure being recorded.
+The worker stops the job after 60 seconds, well before Laravel Cloud's 90-second Flex queue limit and the database queue's 90-second `retry_after`. PHP can only stop it once the request in flight returns, so the job waits at most 20 seconds for each request to the server (`DownstreamClient::withCallTimeout()`), rather than the 55 a "Refresh tools" click waits: a request sent just before the 60th second still ends by the 80th. Its requests take 55 seconds at most altogether too, like any session's, so a refresh usually ends before the worker has to stop it. A refresh the worker stops (it took too long, or a worker died during it) is recorded on the Connection by the job's `failed()`, and `bootstrap/app.php` keeps the worker's "attempted too many times" out of the log (`RefreshCatalogInBackground::isGivenUp()`). `failed()` compares the Connection with what it was when the refresh started (its server, sign-in, status, last error and refresh time, kept hashed in the cache under the refresh's own id, so a refresh queued once this one's lock is gone never shares it), so a newer sign-in or refresh is never overwritten, while a new name or note doesn't stop the failure being recorded.
 
 Locally the queue is the database: `composer dev` runs a worker, or run `php artisan queue:work` on its own. To check a stale refresh by hand, make a Connection's catalog old (`php artisan tinker --execute 'App\Models\Connection::find(1)->forceFill(["catalog_refreshed_at" => now()->subDay()])->save();'`), list a Star's tools with a client or `curl`, and watch the worker run `RefreshCatalogInBackground` and the Connection's "Last refreshed" change. The daily refresh needs the scheduler (`php artisan schedule:work`); on Laravel Cloud it runs on the app cluster.
 
@@ -260,7 +268,7 @@ $connection = $signIn->finish($user, $query);  // when the server sends them bac
 - **The client** is the first that applies: the user's own OAuth app (its client ID in `settings.oauth_client_id`, its secret encrypted), the deployment's app for the connector (`NEXUS_{KEY}_CLIENT_ID`), Nexus's Client ID Metadata Document at `/oauth/client-metadata.json` when the server accepts one and Nexus is on a public HTTPS URL (a `.test` site isn't), else dynamic client registration (RFC 7591), whose client is stored on the Connection and reused. Configured credentials are always read where they are configured, never copied onto Connections.
 - **The request** uses PKCE S256, a random state, the `resource`, the connector's scopes (else the challenge's, else every scope the server lists) and, for connectors whose definition says `select_account`, `prompt=select_account`. Pending sign-ins live in the session by state, at most five, so several can run at once, even to the same server.
 - **The callback**, `/oauth/callback`, is one URL for every Connection: `NexusClient::callbackUrl()`, built from `APP_URL`. It checks the state and the Connection: the user's own, still on the same server and still set up to sign in as the same client (a sign-in started before the user changed their own OAuth app is dropped, before the code is exchanged and again when the tokens are stored). A refusal is reported as one; an approval must also come from the issuer Nexus sent the user to, named in `iss` when the server says it names itself. It then exchanges the code, stores the tokens encrypted with the account the token response names (see [Accounts and siblings](#accounts-and-siblings)), loads the tools and shows the Connection with a toast. Every failure is a `ConnectionSignInFailed`, whose message is Nexus's own: it names an HTTP status or a standard OAuth error code at most.
-- **Renewal**: [`App\ConnectionOAuth\ConnectionTokens`](app/ConnectionOAuth/ConnectionTokens.php) renews an access token within a minute of expiring, before the downstream client uses it, and stores the refresh token the server rotated. Renewal is single-flight per Connection: a cache lock lets one request renew at a time, and the request that gets it re-reads the tokens first, so a request that waited uses the token another one just stored instead of replaying a used refresh token. Every other change to a Connection's sign-in (storing a new sign-in or a registered client, and `UpdateConnectionServer`) holds the same lock, [`SignInLock`](app/ConnectionOAuth/SignInLock.php), and works on the Connection as re-read once it has it, so none acts on, or writes back, credentials another change replaced. As a last guard, for a renewal that outlives its lock, renewed tokens are only stored while the Connection still has the server, settings and credentials the renewal started from. When the server refuses to renew, the sign-in is forgotten and the Connection needs sign-in; a renewal that fails for a reason that may pass (no answer, a server error, rate limiting) keeps the sign-in.
+- **Renewal**: [`App\ConnectionOAuth\ConnectionTokens`](app/ConnectionOAuth/ConnectionTokens.php) renews an access token within a minute of expiring, before the downstream client uses it, and stores the refresh token the server rotated. Within a downstream session, a renewal gets only the session's time left (see [Downstream MCP servers](#downstream-mcp-servers)). Renewal is single-flight per Connection: a cache lock lets one request renew at a time, and the request that gets it re-reads the tokens first, so a request that waited uses the token another one just stored instead of replaying a used refresh token. Every other change to a Connection's sign-in (storing a new sign-in or a registered client, and `UpdateConnectionServer`) holds the same lock, [`SignInLock`](app/ConnectionOAuth/SignInLock.php), and works on the Connection as re-read once it has it, so none acts on, or writes back, credentials another change replaced. As a last guard, for a renewal that outlives its lock, renewed tokens are only stored while the Connection still has the server, settings and credentials the renewal started from. When the server refuses to renew, the sign-in is forgotten and the Connection needs sign-in; a renewal that fails for a reason that may pass (no answer, a server error, rate limiting) keeps the sign-in.
 - **Reconnect**: `/connections/{connection}/connect` (`connections.connect`) starts a sign-in; the Connection page links to it as "Reconnect" when the Connection needs sign-in, and MCP clients are given it in needs-sign-in errors. For a Connection that doesn't sign in with OAuth it leads to the Connection's page, where its header or token can be replaced.
 - Changing a custom server's URL forgets its tokens and registered client; changing the user's own OAuth app ends the sign-in, whose tokens were issued to the old one; switching away from OAuth clears both. A Connection left without a sign-in needs sign-in, and the page sends the user to sign in.
 
@@ -406,6 +414,156 @@ Laravel Boost writes guidelines (`CLAUDE.md`, `AGENTS.md`), skills (`.claude/ski
 php artisan boost:update
 ```
 
+## Deploying to Laravel Cloud
+
+Production runs on [Laravel Cloud](https://cloud.laravel.com) on the Starter plan. The code is ready for it:
+
+- **Database.** Serverless Postgres. Cloud injects `DB_CONNECTION` and the connection details when the database is attached. Migrations and the test suite run on Postgres in CI.
+- **Cache.** Laravel Valkey, with `CACHE_STORE=redis`, which Cloud sets when the cache is attached. It holds the cache locks (adding Connections, Stars and tokens, renewing OAuth tokens) and the MCP rate limiter's counts.
+- **Queue.** A Flex managed queue. Cloud sets `QUEUE_CONNECTION=cloud` and configures the connection itself; the framework's `cloud` driver needs `aws/aws-sdk-php`, which is installed. Flex workers stop a job after 90 seconds, so keep every job well under that.
+- **Scheduler.** On the App cluster, for the daily activity prune and catalog refresh. Cloud wakes a sleeping environment for each task listed by `php artisan schedule:list`, which it reads at every deploy.
+- **HTTPS.** On Laravel Cloud (`LARAVEL_CLOUD=1`) the framework trusts the edge's forwarded headers, so a request's scheme, host and address are the client's; anywhere else they are ignored. In production every URL Nexus writes is HTTPS whatever the request (`URL::forceHttps()` in `AppServiceProvider`), and `SESSION_SECURE_COOKIE=true` keeps cookies off plain HTTP.
+- **Time limit.** Cloud ends a web request after about 60 seconds, so a downstream session (the handshake, any OAuth renewal and the call together) gives up after `NEXUS_DOWNSTREAM_CALL_TIMEOUT` (55 s), and the client gets Nexus's own timeout error instead of a gateway error. The [smoke test](#smoke-test) checks the real limit.
+
+### What to create
+
+Only these, at their smallest sizes, all in one region:
+
+| Resource | Settings |
+| --- | --- |
+| Application | From `princejohnsantillan/nexus` on GitHub, with one environment, `production`, deploying the `stars` branch (`main` once `stars` replaces it). PHP 8.4, Node 22. |
+| App cluster | The smallest Flex size, 1 replica, Scale-to-Zero on, Scheduler on, Octane off. |
+| Database | Serverless Postgres 18, 0.25 compute units as both minimum and maximum, Scale-to-Zero on, the shortest backup retention offered. |
+| Cache | Laravel Valkey, the smallest Flex size, Scale-to-Zero on if offered, the default eviction policy. |
+| Managed queue | A standard queue named `default`: Flex, 256 MiB, at most 1 worker. |
+| Edge network | The defaults: no bot categories, no rate limiting, Under Attack Mode off. MCP clients are bots, so blocking or challenging them breaks every Star. |
+
+Create nothing else: no object storage bucket (attaching one injects global AWS settings), no worker cluster, no WebSockets and no custom domain.
+
+Build commands:
+
+```bash
+composer install --no-dev --no-interaction --prefer-dist
+npm ci --audit false
+npm run build
+php artisan optimize
+```
+
+Deploy command:
+
+```bash
+php artisan migrate --force
+```
+
+Don't add `queue:restart`, `optimize:clear` or `storage:link`: Cloud restarts the workers itself, and a deploy command's changes to the filesystem don't persist.
+
+### Variables and secrets
+
+Custom environment variables:
+
+```dotenv
+APP_ENV=production
+APP_DEBUG=false
+APP_URL=https://{the environment's laravel.cloud domain}
+SESSION_SECURE_COOKIE=true
+```
+
+Leave `NEXUS_DEV_SIGN_IN` unset (the dev sign-in exists only locally anyway). The `NEXUS_` limits and timeouts keep their defaults unless you set them.
+
+These are Cloud Secrets linked to the environment, never custom variables, files or commits:
+
+| Secret | Value |
+| --- | --- |
+| `APP_KEY` | A new key from `php artisan key:generate --show` |
+| `NEXUS_MASTER_KEY` | A new key from `php artisan nexus:master-key` (the `base64:…` value after `=`) |
+| `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | The GitHub sign-in app |
+| `NEXUS_GITHUB_CLIENT_ID`, `NEXUS_GITHUB_CLIENT_SECRET` | The GitHub connector app (optional: without it, users connect GitHub with their own token or OAuth app) |
+| `PASSPORT_PRIVATE_KEY`, `PASSPORT_PUBLIC_KEY` | A new RSA key pair for signing OAuth-to-Nexus access tokens, each the whole PEM text (see below) |
+
+Cloud never shows a secret's value again, and without the master key no stored credential can be decrypted, so keep a copy of `NEXUS_MASTER_KEY` in a password manager and never change it. Changing `APP_KEY` signs everyone out and breaks every signed URL unless the old key goes in `APP_PREVIOUS_KEYS`. A custom variable overrides a secret of the same name, so if the environment already has an `APP_KEY` custom variable, delete it.
+
+The CLI encrypts a secret before sending it. Pipe the value in, so it never appears in your shell history, then link the secrets and redeploy:
+
+```bash
+php artisan key:generate --show | cloud secret:create --name=APP_KEY --notes="Nexus production" --json -n
+pbpaste | cloud secret:create --name=NEXUS_MASTER_KEY --notes="Nexus production" --json -n  # copied from your password manager
+cloud secret:list --json -n                                  # the new secrets' IDs
+cloud environment-secret:attach production {id} {id} -n
+```
+
+Generate Passport's key pair in a temporary directory rather than with `php artisan passport:keys`, which would replace your local pair, and delete it once both secrets exist:
+
+```bash
+cd "$(mktemp -d)"
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:4096 -out oauth-private.key
+openssl pkey -in oauth-private.key -pubout -out oauth-public.key
+cloud secret:create --name=PASSPORT_PRIVATE_KEY --notes="Nexus production" --json -n < oauth-private.key
+cloud secret:create --name=PASSPORT_PUBLIC_KEY --notes="Nexus production" --json -n < oauth-public.key
+rm oauth-private.key oauth-public.key
+```
+
+### Runbook
+
+Steps marked **owner** need the owner's own accounts. Anyone signed in to the Cloud CLI can do the rest.
+
+1. **Owner:** install the Cloud CLI and sign in: `composer global require laravel/cloud-cli`, then `cloud auth` (it opens the browser). Cloud must be able to read `princejohnsantillan/nexus` on GitHub.
+2. Create the application, its `production` environment and the resources in [What to create](#what-to-create). The Cloud dashboard's canvas shows each size. The CLI can do the same (`application:create`, `database-cluster:create`, `cache:create`, `managed-queue:create`, `instance:update`; read each one's `-h` first, and `cloud instance:sizes --json -n` and `cloud cache:types --json -n` list the sizes). Don't use `cloud ship`, which provisions its own defaults.
+3. Set the build and deploy commands, the custom variables except `APP_URL`, and the `APP_KEY`, `NEXUS_MASTER_KEY`, `PASSPORT_PRIVATE_KEY` and `PASSPORT_PUBLIC_KEY` secrets.
+4. Deploy with `cloud deploy nexus production -n`, then follow it with `cloud deploy:monitor nexus production -n`. The first successful deploy gives the environment its `laravel.cloud` domain: set `APP_URL` to it.
+5. **Owner:** register two OAuth apps at <https://github.com/settings/developers> (OAuth Apps → New OAuth App), each with `APP_URL` as its homepage URL:
+    - **Nexus**, for signing in, with the callback URL `{APP_URL}/auth/github/callback`: its client ID and a new client secret are `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`.
+    - **Nexus GitHub connector**, for connecting GitHub, with the callback URL `{APP_URL}/oauth/callback`: `NEXUS_GITHUB_CLIENT_ID` and `NEXUS_GITHUB_CLIENT_SECRET`.
+
+    Store the four values as secrets (`pbpaste | cloud secret:create --name=GITHUB_CLIENT_SECRET --json -n`, and so on) and link them.
+6. Redeploy and monitor it, then check what the app sees:
+
+    ```bash
+    cloud tinker production -n --code='echo config("app.url"), " ", DB::connection()->getDriverName(), " ", config("cache.default"), " ", config("queue.default"), PHP_EOL; cache()->put("deploy-check", "ok", 60); echo cache()->get("deploy-check"), PHP_EOL;'
+    ```
+
+    It prints the HTTPS `APP_URL`, `pgsql`, `redis` and `cloud`, then `ok`. Then check that Passport can read its keys (a multi-line secret is easy to mangle):
+
+    ```bash
+    cloud tinker production -n --code='echo openssl_pkey_get_private(config("passport.private_key")) && openssl_pkey_get_public(config("passport.public_key")) ? "passport keys ok" : "passport keys unreadable", PHP_EOL;'
+    ```
+7. Run the smoke test and record the results on the deploy's pull request.
+
+After changing a variable, a secret or an attached resource, redeploy: Cloud applies them only to new deploys.
+
+### Smoke test
+
+On the deployed URL:
+
+1. Sign in with GitHub.
+2. Add a custom MCP server: DeepWiki, `https://mcp.deepwiki.com/mcp`, no sign-in. Its three tools load.
+3. Create a Star with DeepWiki in token mode, switch on `deepwiki__read_wiki_structure` on its Tools page (DeepWiki doesn't mark its tools read-only, so they start off), and create a token on its Access page.
+4. Call the tool from a real client: add the Star to Claude Code with the snippet on its overview and ask about a repository's wiki, or use the MCP Inspector CLI:
+
+    ```bash
+    npx @modelcontextprotocol/inspector --cli "$APP_URL/mcp/{public_id}" --transport http \
+      --header "Authorization: Bearer $NEXUS_WORK_TOKEN" \
+      --method tools/call --tool-name deepwiki__read_wiki_structure --tool-arg repoName=laravel/framework
+    ```
+
+    The call appears on the Activity page.
+5. Confirm the time limit with a deliberately slow server. The MCP reference server has a tool that waits as long as it is told. Run it behind any public HTTPS tunnel (ngrok, Herd's Expose, cloudflared):
+
+    ```bash
+    PORT=3917 npx -y @modelcontextprotocol/server-everything streamableHttp
+    ngrok http 3917
+    ```
+
+    Add it as a custom MCP server (handle `slow`, URL `https://{tunnel}/mcp`, no sign-in), include it in the Star and switch on `slow__trigger-long-running-operation`. Call it with curl, since MCP clients often give up after 60 seconds on their own and curl doesn't:
+
+    ```bash
+    curl -s -w '\nHTTP %{http_code} in %{time_total}s\n' "$APP_URL/mcp/{public_id}" \
+      -H "Authorization: Bearer $NEXUS_WORK_TOKEN" -H 'Content-Type: application/json' \
+      -H 'Accept: application/json, text/event-stream' -H 'MCP-Protocol-Version: 2025-11-25' \
+      -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"slow__trigger-long-running-operation","arguments":{"duration":50,"steps":1}}}'
+    ```
+
+    With `"duration":50` the server's result comes back after about 50 seconds. With `70`, a tool error ("The server took too long to answer, so Nexus stopped waiting.") comes back about 55 seconds after the request: Nexus gave up inside the platform's limit, handshake included. If the edge answers with a 5xx before then, the limit is lower: set `NEXUS_DOWNSTREAM_CALL_TIMEOUT` a few seconds under it. To measure the limit itself, set `NEXUS_DOWNSTREAM_CALL_TIMEOUT=120`, redeploy, call with `100` and note when and how the request ends, then remove the variable and redeploy. Delete the `slow` Connection afterwards.
+
 ## Continuous integration
 
-[`.github/workflows/qa.yml`](.github/workflows/qa.yml) runs on every push and pull request targeting `stars`: it installs the PHP and Node dependencies, builds the front end and runs `composer qa` on PHP 8.4.
+[`.github/workflows/qa.yml`](.github/workflows/qa.yml) runs on every push and pull request targeting `stars`. Its `qa` job installs the PHP and Node dependencies, builds the front end and runs `composer qa` on PHP 8.4. Its `postgres` job runs the test suite again on Postgres 18, the database production uses.

@@ -28,6 +28,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\URL;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Validation\Rules\Password;
 use Laravel\Mcp\Server\Registrar;
@@ -66,6 +67,11 @@ class AppServiceProvider extends ServiceProvider
 
     /**
      * Configure default behaviors for production-ready applications.
+     *
+     * Production is only ever served over HTTPS, so every URL Nexus writes
+     * (a Star's endpoint, OAuth metadata, redirects) is HTTPS, even for a
+     * request that reached it some other way. On Laravel Cloud the framework
+     * trusts the edge's forwarded headers by itself.
      */
     protected function configureDefaults(): void
     {
@@ -74,6 +80,8 @@ class AppServiceProvider extends ServiceProvider
         DB::prohibitDestructiveCommands(
             app()->isProduction(),
         );
+
+        URL::forceHttps(app()->isProduction());
 
         Password::defaults(fn (): ?Password => app()->isProduction()
             ? Password::min(12)

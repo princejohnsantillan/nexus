@@ -9,6 +9,7 @@ use App\Enums\ConnectionAuthType;
 use App\Enums\DownstreamFailure;
 use App\Exceptions\DownstreamRequestFailed;
 use App\Models\Connection;
+use Illuminate\Support\Facades\Date;
 use Laravel\Mcp\Client\OAuth\WwwAuthenticateChallenge;
 use Laravel\Mcp\Schema\Implementation;
 
@@ -22,7 +23,10 @@ use Laravel\Mcp\Schema\Implementation;
  * OAuth Connection's access token is read for every request, and renewed
  * first when it has expired (see ConnectionTokens). A session stays bound to
  * the server it was opened for: once the Connection signs in somewhere else,
- * the session gets no token and fails as needing sign-in.
+ * the session gets no token and fails as needing sign-in. A session's
+ * requests, and any renewal of its token, take at most the configured call
+ * timeout altogether from when it is opened, however short each request's
+ * own limit is.
  */
 final readonly class DownstreamClient
 {
@@ -75,11 +79,13 @@ final readonly class DownstreamClient
     private function open(Connection $connection, bool $signedIn): DownstreamSession
     {
         $serverUrl = $connection->url;
+        $deadline = Date::now()->getTimestampMs() + (int) round(config()->float('nexus.downstream.call_timeout') * 1000);
 
         $transport = new DownstreamTransport(
             $serverUrl,
             connectTimeout: config()->float('nexus.downstream.connect_timeout'),
             callTimeout: $this->callTimeout(),
+            deadline: $deadline,
         );
 
         if ($signedIn && $connection->auth_type === ConnectionAuthType::Header) {
@@ -87,7 +93,7 @@ final readonly class DownstreamClient
         }
 
         if ($signedIn && $connection->auth_type === ConnectionAuthType::OAuth) {
-            $transport->withToken(fn (): string => $this->tokens->accessToken($connection, $serverUrl));
+            $transport->withToken(fn (): string => $this->tokens->accessToken($connection, $serverUrl, $deadline));
         }
 
         $client = new DownstreamMcpClient($transport, new Implementation(

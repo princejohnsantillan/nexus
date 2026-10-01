@@ -74,6 +74,7 @@ it('waits at most 20 seconds for each request to the server, so a request in fli
 });
 
 it('keeps a configured call timeout shorter than 20 seconds', function (): void {
+    $this->freezeSecond();
     config(['nexus.downstream.call_timeout' => 7.0]);
     $server = FakeMcpServer::at()->withTools([['name' => 'search']]);
 
