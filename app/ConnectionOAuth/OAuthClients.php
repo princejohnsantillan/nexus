@@ -7,6 +7,8 @@ namespace App\ConnectionOAuth;
 use App\Enums\OAuthClientSource;
 use App\Exceptions\ConnectionSignInFailed;
 use App\Models\Connection;
+use Illuminate\Contracts\Cache\LockTimeoutException;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 
 /**
  * Which OAuth client Nexus signs in to a Connection's server as.
@@ -28,6 +30,7 @@ final readonly class OAuthClients
     public function __construct(
         private NexusClient $nexus,
         private OAuthRequests $requests,
+        private SignInLock $signInLock,
     ) {}
 
     /**
@@ -40,11 +43,12 @@ final readonly class OAuthClients
      * 4. a client the server registers for the Connection (RFC 7591): the
      *    one stored on it, when it was registered with this authorization
      *    server for the current callback URL, or else a new one, which is
-     *    stored on the Connection (the Connection is saved).
+     *    stored on the Connection (re-read and saved under its SignInLock,
+     *    and only while it is still on the same server).
      *
      * @param  string|null  $scope  The scopes the sign-in asks for, which a registration asks for too.
      *
-     * @throws ConnectionSignInFailed when none applies, or the server refuses to register Nexus
+     * @throws ConnectionSignInFailed when none applies, the server refuses to register Nexus, or the Connection changes meanwhile
      */
     public function forSignIn(Connection $connection, Discovery $server, ?string $scope): OAuthClient
     {
@@ -138,6 +142,7 @@ final readonly class OAuthClients
 
         $requestedMethod = $this->registrationAuthMethod($server);
         $callbackUrl = $this->nexus->callbackUrl();
+        $serverUrl = $connection->url;
 
         $response = $this->requests->postJson($server->registrationEndpoint, array_filter([
             'client_name' => config()->string('app.name'),
@@ -165,15 +170,33 @@ final readonly class OAuthClients
         $grantedMethod = $registration['token_endpoint_auth_method'] ?? $requestedMethod;
         $authMethod = $secret === null ? 'none' : (in_array($grantedMethod, self::AUTH_METHODS, true) ? $grantedMethod : $requestedMethod);
 
-        $connection->settings = [
-            ...$connection->settings ?? [],
-            'registered_client_id' => $clientId,
-            'registered_issuer' => $server->issuer,
-            'registered_redirect_uri' => $callbackUrl,
-            'registered_auth_method' => $authMethod,
-        ];
-        $connection->secrets->put(['registered_client_secret' => $secret]);
-        $connection->save();
+        try {
+            $stored = $this->signInLock->hold($connection, function () use ($connection, $serverUrl, $server, $clientId, $callbackUrl, $authMethod, $secret): bool {
+                if ($connection->url !== $serverUrl || ! $connection->usesOAuth()) {
+                    return false;
+                }
+
+                $connection->settings = [
+                    ...$connection->settings ?? [],
+                    'registered_client_id' => $clientId,
+                    'registered_issuer' => $server->issuer,
+                    'registered_redirect_uri' => $callbackUrl,
+                    'registered_auth_method' => $authMethod,
+                ];
+                $connection->secrets->put(['registered_client_secret' => $secret]);
+                $connection->save();
+
+                return true;
+            });
+        } catch (ModelNotFoundException) {
+            $stored = false;
+        } catch (LockTimeoutException) {
+            throw ConnectionSignInFailed::busy();
+        }
+
+        if (! $stored) {
+            throw ConnectionSignInFailed::because(__('The Connection changed while Nexus was registering with its server. Start again.'));
+        }
 
         return new OAuthClient($clientId, $secret, OAuthClientSource::Registered, $authMethod);
     }

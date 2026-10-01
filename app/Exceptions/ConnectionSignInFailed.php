@@ -50,6 +50,14 @@ final class ConnectionSignInFailed extends RuntimeException
     }
 
     /**
+     * A renewal of the Connection's sign-in held its lock too long.
+     */
+    public static function busy(): self
+    {
+        return new self(__('Nexus is renewing this Connection\'s sign-in. Try again in a moment.'));
+    }
+
+    /**
      * The server's sign-in page sent the user back with an error instead of
      * a code, e.g. because they didn't approve Nexus.
      */

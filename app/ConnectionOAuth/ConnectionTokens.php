@@ -11,16 +11,22 @@ use App\Models\Connection;
 use Closure;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
-use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Keeps OAuth Connections supplied with a current access token.
  *
- * Renewal is single-flight per Connection: a cache lock lets one request at
- * a time renew, and the request that gets the lock reads the tokens again
+ * Renewal is single-flight per Connection: it holds the Connection's
+ * SignInLock, and the request that gets the lock reads the tokens again
  * before deciding, so a request that waited uses the token another one just
  * stored instead of renewing it a second time. That matters for servers that
  * rotate refresh tokens: replaying a used one can end the whole sign-in.
+ *
+ * Every other change to a Connection's sign-in (a new sign-in, a client the
+ * server registered, a new server) holds the same lock. As a last guard, for
+ * a renewal that outlived its lock, renewed tokens are only stored while the
+ * Connection still has the server, settings and credentials the renewal
+ * started from; otherwise they belong to a sign-in that no longer applies.
  */
 final readonly class ConnectionTokens
 {
@@ -30,19 +36,18 @@ final readonly class ConnectionTokens
     private const int LEEWAY_SECONDS = 60;
 
     /**
-     * How long one request may hold a Connection's lock, in seconds: well
-     * over a token request's timeout.
+     * The columns that say which server a Connection signs in to and how:
+     * the URL, the sign-in method, its settings and its encrypted
+     * credentials, whose ciphertext changes with every new value.
+     *
+     * @var list<string>
      */
-    private const int LOCK_SECONDS = 30;
-
-    /**
-     * How long another request waits for the lock, in seconds.
-     */
-    private const int WAIT_SECONDS = 15;
+    private const array SIGN_IN_COLUMNS = ['url', 'auth_type', 'settings', 'secrets'];
 
     public function __construct(
         private OAuthClients $clients,
         private TokenEndpoint $tokenEndpoint,
+        private SignInLock $signInLock,
     ) {}
 
     /**
@@ -69,24 +74,24 @@ final readonly class ConnectionTokens
             throw DownstreamRequestFailed::notSignedIn();
         }
 
-        return $this->whileLocked($connection, function () use ($connection): string {
-            try {
-                $connection->refresh();
-            } catch (ModelNotFoundException) {
-                throw DownstreamRequestFailed::notSignedIn();
-            }
+        try {
+            return $this->signInLock->hold($connection, function () use ($connection): string {
+                if (! $connection->usesOAuth()) {
+                    throw DownstreamRequestFailed::notSignedIn();
+                }
 
-            if (! $connection->usesOAuth()) {
-                throw DownstreamRequestFailed::notSignedIn();
-            }
-
-            return $this->currentToken($connection) ?? $this->renew($connection);
-        });
+                return $this->currentToken($connection) ?? $this->renew($connection);
+            });
+        } catch (ModelNotFoundException) {
+            throw DownstreamRequestFailed::notSignedIn();
+        } catch (LockTimeoutException) {
+            throw DownstreamRequestFailed::renewalBusy();
+        }
     }
 
     /**
      * Store the tokens of a new sign-in, and the settings that say how to
-     * renew them, holding the same lock as renewals, so a renewal of the
+     * renew them, holding the Connection's SignInLock, so a renewal of the
      * previous sign-in that is still running can't overwrite them. The
      * Connection is re-read first and must still sign in to the same
      * server; it is then pending until its tools load.
@@ -94,32 +99,30 @@ final readonly class ConnectionTokens
      * @param  array<string, string>  $signIn  The settings describing the sign-in (see Connection::OAUTH_SIGN_IN_SETTINGS).
      * @return bool Whether the tokens were stored.
      *
-     * @throws DownstreamRequestFailed when a renewal holds the lock too long
+     * @throws LockTimeoutException when another change holds the lock too long
      */
     public function storeSignIn(Connection $connection, string $serverUrl, IssuedTokens $tokens, array $signIn): bool
     {
-        return $this->whileLocked($connection, function () use ($connection, $serverUrl, $tokens, $signIn): bool {
-            try {
-                $connection->refresh();
-            } catch (ModelNotFoundException) {
-                return false;
-            }
+        try {
+            return $this->signInLock->hold($connection, function () use ($connection, $serverUrl, $tokens, $signIn): bool {
+                if ($connection->url !== $serverUrl || ! $connection->usesOAuth()) {
+                    return false;
+                }
 
-            if ($connection->url !== $serverUrl || ! $connection->usesOAuth()) {
-                return false;
-            }
+                $connection->forgetOAuthSignIn();
+                $connection->settings = [...$connection->settings ?? [], ...$signIn];
+                $connection->secrets->put([
+                    'access_token' => $tokens->accessToken,
+                    'refresh_token' => $tokens->refreshToken,
+                    'expires_at' => $tokens->expiresAt,
+                ]);
+                $connection->forceFill(['status' => ConnectionStatus::Pending, 'last_error' => null])->save();
 
-            $connection->forgetOAuthSignIn();
-            $connection->settings = [...$connection->settings ?? [], ...$signIn];
-            $connection->secrets->put([
-                'access_token' => $tokens->accessToken,
-                'refresh_token' => $tokens->refreshToken,
-                'expires_at' => $tokens->expiresAt,
-            ]);
-            $connection->forceFill(['status' => ConnectionStatus::Pending, 'last_error' => null])->save();
-
-            return true;
-        });
+                return true;
+            });
+        } catch (ModelNotFoundException) {
+            return false;
+        }
     }
 
     /**
@@ -164,39 +167,67 @@ final readonly class ConnectionTokens
             throw $failed;
         }
 
-        $connection->secrets->put([
-            'access_token' => $tokens->accessToken,
-            'refresh_token' => $tokens->refreshToken ?? $refreshToken,
-            'expires_at' => $tokens->expiresAt,
-        ]);
-        $connection->save();
+        $stored = $this->whileUnchanged($connection, function () use ($connection, $tokens, $refreshToken): void {
+            $connection->secrets->put([
+                'access_token' => $tokens->accessToken,
+                'refresh_token' => $tokens->refreshToken ?? $refreshToken,
+                'expires_at' => $tokens->expiresAt,
+            ]);
+            $connection->save();
+        });
+
+        if (! $stored) {
+            throw DownstreamRequestFailed::notSignedIn();
+        }
 
         return $tokens->accessToken;
     }
 
     /**
-     * Forget a sign-in the server won't renew, and say why.
+     * Forget a sign-in the server won't renew, and say why, unless the
+     * Connection has changed since.
      */
     private function endSignIn(Connection $connection, DownstreamRequestFailed $failed): void
     {
-        $connection->forgetOAuthSignIn();
-        $connection->forceFill(['status' => ConnectionStatus::NeedsAuth, 'last_error' => $failed->getMessage()])->save();
+        $this->whileUnchanged($connection, function () use ($connection, $failed): void {
+            $connection->forgetOAuthSignIn();
+            $connection->forceFill(['status' => ConnectionStatus::NeedsAuth, 'last_error' => $failed->getMessage()])->save();
+        });
     }
 
     /**
-     * @template TResult
+     * Write to the Connection in one transaction holding its row, but only
+     * if it still has the server, settings and credentials it was read with.
+     * A change that didn't wait for the lock, because a hung renewal
+     * outlived it, wins over the renewal.
      *
-     * @param  Closure(): TResult  $callback
-     * @return TResult
-     *
-     * @throws DownstreamRequestFailed when another request holds the lock too long
+     * @param  Closure(): void  $write
+     * @return bool Whether the write ran.
      */
-    private function whileLocked(Connection $connection, Closure $callback): mixed
+    private function whileUnchanged(Connection $connection, Closure $write): bool
     {
-        try {
-            return Cache::lock("connections.{$connection->id}.oauth-tokens", self::LOCK_SECONDS)->block(self::WAIT_SECONDS, $callback);
-        } catch (LockTimeoutException) {
-            throw DownstreamRequestFailed::renewalBusy();
-        }
+        $read = $this->signInOf($connection);
+
+        return DB::transaction(function () use ($connection, $read, $write): bool {
+            $current = Connection::query()->whereKey($connection->id)->lockForUpdate()->first(['id', ...self::SIGN_IN_COLUMNS]);
+
+            if ($current === null || $this->signInOf($current) !== $read) {
+                return false;
+            }
+
+            $write();
+
+            return true;
+        });
+    }
+
+    /**
+     * The Connection's sign-in columns as stored, ciphertext and all.
+     *
+     * @return list<mixed>
+     */
+    private function signInOf(Connection $connection): array
+    {
+        return array_map(fn (string $column): mixed => $connection->getRawOriginal($column), self::SIGN_IN_COLUMNS);
     }
 }

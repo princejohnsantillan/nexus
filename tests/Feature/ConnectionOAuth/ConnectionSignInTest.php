@@ -436,6 +436,20 @@ it('says so, and keeps the Connection as it was, when the user doesn\'t approve 
     'anything else' => ['<script>alert(1)</script>', 'The server\'s sign-in page reported an error.'],
 ]);
 
+it('reports a refusal from a server that names itself on approvals but not on refusals, as Linear does', function (?string $issuer): void {
+    $authorizationServer = FakeAuthorizationServer::at()->namingItselfOnReturn();
+    FakeMcpServer::at()->requireOAuth($authorizationServer);
+    $connection = Connection::factory()->for($this->user)->oauth()->create();
+    $refusal = Uri::of($authorizationServer->deny(ConnectionOAuthFlow::start($this, $connection)))->withoutQuery(['iss']);
+
+    $this->get(($issuer === null ? $refusal : $refusal->withQuery(['iss' => $issuer]))->value())
+        ->assertRedirect(route('connections.show', $connection))
+        ->assertSessionHas('toast', ['variant' => 'danger', 'text' => 'You didn\'t approve Nexus, so it isn\'t signed in.']);
+
+    expect($authorizationServer->tokenRequests())->toBe([])
+        ->and($connection->refresh()->hasAccessToken())->toBeFalse();
+})->with(['without iss' => null, 'with another iss' => 'https://evil.example.com']);
+
 it('says so, without the server\'s text or a log entry, when the server refuses the code', function (): void {
     $logged = logged();
     $server = FakeMcpServer::at()->requireOAuth();

@@ -103,6 +103,8 @@
                         autocomplete="off"
                     />
 
+                    <flux:error name="server" />
+
                     <div class="flex flex-wrap items-center gap-4">
                         <flux:button type="submit">{{ __('Replace token and reload tools') }}</flux:button>
                         <flux:link :href="$this->connector->token->consoleUrl" external rel="noopener noreferrer" class="text-sm">{{ __('Create a token on :name', ['name' => $this->connector->name]) }} &nearr;</flux:link>
@@ -142,6 +144,8 @@
                     @if ($authType === 'oauth')
                         <x-own-oauth-app :callback-url="$this->callbackUrl" :has-stored-secret="$this->hasStoredClientSecret" />
                     @endif
+
+                    <flux:error name="server" />
 
                     <flux:button type="submit">{{ $authType === 'oauth' && ! $connection->hasAccessToken() ? __('Save and sign in') : __('Save and reload tools') }}</flux:button>
                 </form>

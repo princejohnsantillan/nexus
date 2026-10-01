@@ -39,6 +39,8 @@ use InvalidArgumentException;
  * - issuingTokensFor(): how long access tokens last (null: forever);
  *   keepingRefreshTokens() stops rotating them; withoutRefreshTokens().
  * - respondTo('token' | 'register', $responder): replace an endpoint's answer.
+ * - beforeAnswering('token' | 'register', $callback): run something while that
+ *   request is in flight, to play out a race.
  *
  * Afterwards, tokenRequests() and registrations() return what it received,
  * and accepts() says whether an access token is one it issued and still good.
@@ -81,6 +83,11 @@ final class FakeAuthorizationServer
      * @var array<string, Closure(Request): PromiseInterface>
      */
     private array $responders = [];
+
+    /**
+     * @var array<string, Closure(Request): mixed>
+     */
+    private array $beforeAnswering = [];
 
     /**
      * Codes not yet exchanged.
@@ -239,6 +246,19 @@ final class FakeAuthorizationServer
     }
 
     /**
+     * Run the callback when a request to the endpoint arrives, before answering it.
+     *
+     * @param  string  $endpoint  `token` or `register`.
+     * @param  Closure(Request): mixed  $callback
+     */
+    public function beforeAnswering(string $endpoint, Closure $callback): self
+    {
+        $this->beforeAnswering[$endpoint] = $callback;
+
+        return $this;
+    }
+
+    /**
      * The user approves the client on the sign-in page the URL points to:
      * the URL their browser is sent back to, with a code and the state.
      */
@@ -350,6 +370,10 @@ final class FakeAuthorizationServer
         $fields = json_decode($request->body(), true);
         $this->registrations[] = is_array($fields) ? $fields : [];
 
+        if (isset($this->beforeAnswering['register'])) {
+            ($this->beforeAnswering['register'])($request);
+        }
+
         if (isset($this->responders['register'])) {
             return ($this->responders['register'])($request);
         }
@@ -381,6 +405,10 @@ final class FakeAuthorizationServer
         }
 
         $this->tokenRequests[] = $fields;
+
+        if (isset($this->beforeAnswering['token'])) {
+            ($this->beforeAnswering['token'])($request);
+        }
 
         if (isset($this->responders['token'])) {
             return ($this->responders['token'])($request);

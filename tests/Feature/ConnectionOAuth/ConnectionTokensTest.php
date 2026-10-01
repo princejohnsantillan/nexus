@@ -3,8 +3,10 @@
 declare(strict_types=1);
 
 use App\Actions\RefreshCatalog;
+use App\Actions\UpdateConnectionServer;
 use App\ConnectionOAuth\ConnectionTokens;
 use App\Downstream\DownstreamClient;
+use App\Enums\ConnectionAuthType;
 use App\Enums\ConnectionStatus;
 use App\Enums\DownstreamFailure;
 use App\Exceptions\DownstreamRequestFailed;
@@ -17,6 +19,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Sleep;
+use Livewire\Livewire;
 use Tests\Support\ConnectionOAuthFlow;
 use Tests\Support\FakeAuthorizationServer;
 use Tests\Support\FakeMcpServer;
@@ -227,4 +230,106 @@ it('says the server refused the token when it no longer accepts it', function ()
 
     expect($failure?->failure)->toBe(DownstreamFailure::NeedsSignIn)
         ->and($failure?->getMessage())->toBe('The server refused the credentials Nexus sent (HTTP 401).');
+});
+
+/**
+ * Move the Connection to another server through the action the Connection
+ * page uses, as a request that doesn't hold the renewal's lock would: one
+ * that runs after a hung renewal's lock expired.
+ */
+function moveToAnotherServer(Connection $connection): void
+{
+    Cache::lock("connections.{$connection->id}.oauth-tokens")->forceRelease();
+
+    resolve(UpdateConnectionServer::class)->handle(Connection::query()->findOrFail($connection->id), [
+        'url' => 'https://other.example.com/mcp',
+        'auth_type' => ConnectionAuthType::OAuth,
+        'header_name' => null,
+    ]);
+}
+
+it('keeps none of a renewal\'s tokens when the Connection moves to another server while it runs', function (): void {
+    $this->travel(2)->hours();
+    $this->auth->beforeAnswering('token', fn () => moveToAnotherServer($this->connection));
+
+    $failure = listingFailure($this->connection);
+    $stored = Connection::query()->findOrFail($this->connection->id);
+
+    expect($this->auth->tokenRequests('refresh_token'))->toHaveCount(1)
+        ->and($failure?->failure)->toBe(DownstreamFailure::NeedsSignIn)
+        ->and($stored->url)->toBe('https://other.example.com/mcp')
+        ->and($stored->status)->toBe(ConnectionStatus::NeedsAuth)
+        ->and($stored->settings)->toBeNull()
+        ->and($stored->secrets->all())->toBe([]);
+});
+
+it('doesn\'t end the new sign-in when a renewal of the old one is refused after the Connection moved', function (): void {
+    $this->travel(2)->hours();
+    $this->auth->respondTo('token', function (): PromiseInterface {
+        moveToAnotherServer($this->connection);
+
+        return Http::response(['error' => 'invalid_grant'], 400);
+    });
+
+    listingFailure($this->connection);
+    $stored = Connection::query()->findOrFail($this->connection->id);
+
+    expect($stored->url)->toBe('https://other.example.com/mcp')
+        ->and($stored->last_error)->toBeNull();
+});
+
+it('keeps tokens renewed after the Connection was read when its server settings are saved', function (): void {
+    $stale = Connection::query()->findOrFail($this->connection->id);
+    $this->travel(2)->hours();
+    listingFailure($this->connection);
+
+    $loaded = resolve(UpdateConnectionServer::class)->handle($stale, [
+        'url' => FakeMcpServer::DEFAULT_URL,
+        'auth_type' => ConnectionAuthType::OAuth,
+        'header_name' => null,
+    ]);
+
+    $stored = Connection::query()->findOrFail($this->connection->id);
+
+    expect($loaded)->toBeTrue()
+        ->and($stored->status)->toBe(ConnectionStatus::Connected)
+        ->and($stored->secrets->get('access_token'))->toBe('access-token-2')
+        ->and($stored->secrets->get('refresh_token'))->toBe('refresh-token-2')
+        ->and($this->auth->tokenRequests('refresh_token'))->toHaveCount(1);
+});
+
+it('waits for a renewal in progress before changing the Connection\'s server, and says so if it takes too long', function (): void {
+    Sleep::fake(syncWithCarbon: true);
+    $lock = Cache::lock("connections.{$this->connection->id}.oauth-tokens", 30);
+    $lock->get();
+
+    try {
+        Livewire::test('pages::connections.show', ['connection' => $this->connection])
+            ->set('url', 'https://other.example.com/mcp')
+            ->call('saveServer')
+            ->assertHasErrors(['server' => 'Nexus is renewing this Connection\'s sign-in. Try again in a moment.'])
+            ->assertSeeText('Nexus is renewing this Connection\'s sign-in. Try again in a moment.')
+            ->assertNoRedirect();
+    } finally {
+        $lock->release();
+    }
+
+    expect($this->connection->refresh()->url)->toBe(FakeMcpServer::DEFAULT_URL)
+        ->and($this->connection->secrets->get('access_token'))->toBe('access-token-1');
+});
+
+it('doesn\'t keep a client registered with a server the Connection moved away from meanwhile', function (): void {
+    $server = FakeMcpServer::at('https://fresh.example.com/mcp')->requireOAuth(FakeAuthorizationServer::at('https://auth.fresh.example.com'));
+    $connection = Connection::factory()->for($this->user)->oauth()->create(['url' => 'https://fresh.example.com/mcp']);
+    $server->authorizationServer()->beforeAnswering('register', fn () => moveToAnotherServer($connection));
+
+    $this->get(route('connections.connect', $connection))
+        ->assertRedirect(route('connections.show', $connection))
+        ->assertSessionHas('toast.text', 'Nexus couldn\'t start signing in. The Connection changed while Nexus was registering with its server. Start again.');
+
+    $stored = $connection->refresh();
+
+    expect($stored->url)->toBe('https://other.example.com/mcp')
+        ->and($stored->settings)->toBeNull()
+        ->and($stored->secrets->all())->toBe([]);
 });

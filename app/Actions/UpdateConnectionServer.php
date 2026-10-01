@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace App\Actions;
 
+use App\ConnectionOAuth\SignInLock;
 use App\Enums\ConnectionAuthType;
 use App\Enums\ConnectionStatus;
 use App\Models\Connection;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -14,7 +16,10 @@ use SensitiveParameter;
 
 class UpdateConnectionServer
 {
-    public function __construct(private readonly RefreshCatalog $refreshCatalog) {}
+    public function __construct(
+        private readonly RefreshCatalog $refreshCatalog,
+        private readonly SignInLock $signInLock,
+    ) {}
 
     /**
      * Change where a Connection's server is and how Nexus signs in to it,
@@ -32,14 +37,37 @@ class UpdateConnectionServer
      * signed in needs sign-in, and its tools aren't reloaded: send the user to
      * its `connections.connect` route next.
      *
+     * The change holds the Connection's SignInLock and applies to the
+     * Connection as re-read once it has it, so it waits for a token renewal
+     * in progress and never writes back tokens that renewal replaced.
+     *
      * @param  array{url: string, auth_type: ConnectionAuthType, header_name: string|null, oauth_client_id?: string|null}  $server
      * @param  string|null  $headerValue  A new value for a header sign-in, or null to keep the stored one.
      * @param  string|null  $clientSecret  A new secret for the user's own OAuth app, or null to keep the stored one.
      * @return bool Whether the tools loaded.
      *
-     * @throws ValidationException when a header sign-in has no value to send
+     * @throws ValidationException when a header sign-in has no value to send, or (under `server`) a renewal holds the lock too long
      */
     public function handle(Connection $connection, array $server, #[SensitiveParameter] ?string $headerValue = null, #[SensitiveParameter] ?string $clientSecret = null): bool
+    {
+        try {
+            $awaitsSignIn = $this->signInLock->hold($connection, fn (): bool => $this->update($connection, $server, $headerValue, $clientSecret));
+        } catch (LockTimeoutException) {
+            throw ValidationException::withMessages(['server' => __('Nexus is renewing this Connection\'s sign-in. Try again in a moment.')]);
+        }
+
+        return ! $awaitsSignIn && $this->refreshCatalog->handle($connection);
+    }
+
+    /**
+     * Apply the change to the Connection, as re-read under the lock.
+     *
+     * @param  array{url: string, auth_type: ConnectionAuthType, header_name: string|null, oauth_client_id?: string|null}  $server
+     * @return bool Whether the Connection now waits for the user to sign in.
+     *
+     * @throws ValidationException when a header sign-in has no value to send
+     */
+    private function update(Connection $connection, array $server, #[SensitiveParameter] ?string $headerValue, #[SensitiveParameter] ?string $clientSecret): bool
     {
         $urlChanged = $server['url'] !== $connection->url;
 
@@ -95,7 +123,7 @@ class UpdateConnectionServer
             $connection->save();
         });
 
-        return ! $awaitsSignIn && $this->refreshCatalog->handle($connection);
+        return $awaitsSignIn;
     }
 
     /**

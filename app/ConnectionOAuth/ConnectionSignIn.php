@@ -10,6 +10,7 @@ use App\Exceptions\ConnectionSignInFailed;
 use App\Exceptions\DownstreamRequestFailed;
 use App\Models\Connection;
 use App\Models\User;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Str;
 use Illuminate\Support\Uri;
 use Laravel\Mcp\Client\OAuth\Pkce;
@@ -169,8 +170,15 @@ final readonly class ConnectionSignIn
 
     /**
      * Check the user came back from the sign-in that is pending: for a
-     * Connection that still signs in with OAuth to the same server, from
-     * the authorization server Nexus sent them to, with its approval.
+     * Connection that still signs in with OAuth to the same server, with
+     * the server's approval, from the authorization server Nexus sent them
+     * to (RFC 9207).
+     *
+     * A refusal is reported before the issuer is checked: it exchanges
+     * nothing, so whoever sent it can only end this sign-in, and some
+     * servers (Linear) leave `iss` off refusals though they name themselves
+     * on approvals. An approval must name the issuer when the server says it
+     * does, and the right one whenever it names one.
      *
      * @param  array<array-key, mixed>  $query
      *
@@ -182,16 +190,16 @@ final readonly class ConnectionSignIn
             throw ConnectionSignInFailed::because(__('The Connection\'s server or sign-in changed while you were signing in. Start again.'));
         }
 
+        if (isset($query['error'])) {
+            throw ConnectionSignInFailed::denied($query['error']);
+        }
+
         $issuer = $query['iss'] ?? null;
 
         if ($issuer !== null || $pending->returnsIssuer) {
             if (! is_string($issuer) || ! AuthorizationServerDiscovery::isSameIssuer($issuer, $pending->issuer)) {
                 throw ConnectionSignInFailed::because(__('The sign-in came back from a different server than Nexus sent you to, so Nexus ignored it.'));
             }
-        }
-
-        if (isset($query['error'])) {
-            throw ConnectionSignInFailed::denied($query['error']);
         }
     }
 
@@ -215,8 +223,8 @@ final readonly class ConnectionSignIn
 
         try {
             $stored = $this->tokens->storeSignIn($connection, $pending->serverUrl, $tokens, $signIn);
-        } catch (DownstreamRequestFailed) {
-            $stored = false;
+        } catch (LockTimeoutException) {
+            throw ConnectionSignInFailed::busy();
         }
 
         if (! $stored) {
