@@ -16,10 +16,15 @@ use Illuminate\Notifications\DatabaseNotification;
 use Illuminate\Notifications\DatabaseNotificationCollection;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Str;
+use Laravel\Passport\Contracts\OAuthenticatable;
+use Laravel\Passport\HasApiTokens;
 
 /**
  * A person signed in with GitHub. Nexus stores no password: GitHub handles it
  * and any second factor, and the GitHub id is what identifies the account.
+ *
+ * MCP clients of the user's Stars in OAuth mode act as the user with the
+ * Passport access tokens Nexus issues them (HasApiTokens).
  *
  * @property int $id
  * @property string $name
@@ -58,10 +63,10 @@ use Illuminate\Support\Str;
  */
 #[Fillable(['name', 'email', 'github_id', 'github_login', 'avatar_url'])]
 #[Hidden(['remember_token'])]
-class User extends Authenticatable
+class User extends Authenticatable implements OAuthenticatable
 {
     /** @use HasFactory<UserFactory> */
-    use HasFactory, Notifiable;
+    use HasApiTokens, HasFactory, Notifiable;
 
     /**
      * Get the attributes that should be cast.

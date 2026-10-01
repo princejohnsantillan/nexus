@@ -9,15 +9,19 @@ use App\Connectors\ConnectorCatalog;
 use App\Mcp\StarCaller;
 use App\Models\Connection;
 use App\Models\Star;
+use App\Models\StarOAuthClient;
 use App\Models\User;
 use App\Outbound\DnsResolver;
 use App\Outbound\GuardOutboundRequests;
 use App\Outbound\OutboundGuard;
 use App\Outbound\SystemDnsResolver;
+use App\Stars\StarToolset;
 use Carbon\CarbonImmutable;
+use Carbon\CarbonInterval;
 use Closure;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
@@ -26,6 +30,9 @@ use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Validation\Rules\Password;
+use Laravel\Mcp\Server\Registrar;
+use Laravel\Passport\Client;
+use Laravel\Passport\Passport;
 use Laravel\Socialite\Facades\Socialite;
 use Laravel\Socialite\Two\AbstractProvider;
 
@@ -39,6 +46,8 @@ class AppServiceProvider extends ServiceProvider
         $this->registerOutboundGuard();
         $this->registerConnectorCatalog();
         $this->registerStarCaller();
+
+        Passport::ignoreRoutes();
     }
 
     /**
@@ -51,6 +60,8 @@ class AppServiceProvider extends ServiceProvider
         $this->configureGitHubSignIn();
         $this->bindOwnRecords();
         $this->limitStarCalls();
+        $this->configureStarOAuth();
+        $this->limitOAuthRegistrations();
     }
 
     /**
@@ -167,5 +178,55 @@ class AppServiceProvider extends ServiceProvider
     {
         RateLimiter::for('mcp', fn (Request $request): Limit => Limit::perMinute(config()->integer('nexus.limits.calls_per_minute'))
             ->by(StarCaller::of($request)->rateLimitKey));
+    }
+
+    /**
+     * Nexus is the OAuth authorization server for Stars in OAuth mode, with
+     * Passport. Its tokens carry the one scope MCP clients ask for,
+     * `mcp:use` (also given to a client that asks for none), last an hour
+     * and can be renewed for 30 days. Passport's own routes are left off:
+     * routes/web.php and routes/ai.php declare only the ones Nexus uses,
+     * with an approval that checks the Star's owner.
+     */
+    protected function configureStarOAuth(): void
+    {
+        Passport::tokensCan([Registrar::OAUTH_SCOPE => 'Use the tools switched on in one Star']);
+        Passport::setDefaultScope([Registrar::OAUTH_SCOPE]);
+        Passport::tokensExpireIn(CarbonInterval::hour());
+        Passport::refreshTokensExpireIn(CarbonInterval::days(30));
+
+        Passport::authorizationView(fn (array $parameters): Response => $this->consentScreen($parameters));
+    }
+
+    /**
+     * The consent screen, naming the client, the Star it registered with
+     * and the signed-in user. It offers approval only when the user may
+     * give it: for their own Star, while it uses OAuth.
+     *
+     * @param  array<string, mixed>  $parameters  Passport's: the client, the user, the scopes, the request and the auth token.
+     */
+    protected function consentScreen(array $parameters): Response
+    {
+        $client = $parameters['client'] ?? null;
+        $user = $parameters['user'] ?? null;
+        $app = $client instanceof Client && $user instanceof User ? StarOAuthClient::approvableBy($user, $client->id) : null;
+
+        return response()->view('oauth.authorize', [
+            'client' => $client,
+            'user' => $user,
+            'authToken' => $parameters['authToken'] ?? null,
+            'app' => $app,
+            'toolCount' => $app instanceof StarOAuthClient ? count(resolve(StarToolset::class)->enabledTools($app->star)) : 0,
+        ]);
+    }
+
+    /**
+     * Anyone may register an OAuth client with a Star in OAuth mode, so
+     * registrations are limited per IP address.
+     */
+    protected function limitOAuthRegistrations(): void
+    {
+        RateLimiter::for('mcp-registration', fn (Request $request): Limit => Limit::perHour(config()->integer('nexus.limits.oauth_registrations_per_hour'))
+            ->by($request->ip() ?? 'unknown'));
     }
 }

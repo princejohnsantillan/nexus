@@ -6,6 +6,8 @@
             <flux:heading size="lg" level="2" id="endpoint-heading">{{ __('Endpoint') }}</flux:heading>
             @if ($star->access_mode === App\Enums\StarAccessMode::SignedUrl)
                 <flux:text class="mt-1">{{ __('Add this signed URL to your MCP client. It works by itself, so anyone who has it can use the Star: keep it private, and rotate it on the Access page if it leaks.') }}</flux:text>
+            @elseif ($star->access_mode === App\Enums\StarAccessMode::OAuth)
+                <flux:text class="mt-1">{{ __('Add this URL to your MCP client. When it connects, it sends you to Nexus to sign in and approve it for this Star. The URL stays the same when you rename the Star.') }}</flux:text>
             @else
                 <flux:text class="mt-1">{{ __('Add this URL to your MCP client. It stays the same when you rename the Star.') }}</flux:text>
             @endif
@@ -39,6 +41,11 @@
                     <flux:link :href="route('stars.access', $star)" wire:navigate>{{ __('Access page') }}</flux:link>
                     {{ __('and set up your clients again.') }}
                 </flux:text>
+            @elseif ($star->access_mode === App\Enums\StarAccessMode::OAuth)
+                <flux:text class="mt-1">
+                    {{ __('Each client below takes only the URL, then signs in to Nexus: you sign in too if you need to, and approve it for this Star. The apps you approved are listed on the') }}
+                    <flux:link :href="route('stars.access', $star)" wire:navigate>{{ __('Access page') }}</flux:link>{{ __(', where you can revoke each of them.') }}
+                </flux:text>
             @else
                 <flux:text class="mt-1">
                     {{ __('Create a token on the') }}
@@ -66,6 +73,14 @@
                         </flux:text>
 
                         <x-copyable-snippet :snippet="$setup['snippet']" class="mt-2" />
+
+                        @if ($setup['login'] !== null)
+                            <flux:text size="sm" class="mt-3">{{ $setup['login']['instruction'] }}</flux:text>
+
+                            @if ($setup['login']['snippet'] !== null)
+                                <x-copyable-snippet :snippet="$setup['login']['snippet']" class="mt-2" />
+                            @endif
+                        @endif
                     </div>
                 @endforeach
             </div>
@@ -118,7 +133,7 @@
         <div class="space-y-6">
             <div>
                 <flux:heading size="lg">{{ __('Delete :name?', ['name' => $star->name]) }}</flux:heading>
-                <flux:text class="mt-2">{{ __('Clients using its endpoint stop working, and its switches are removed. Your Connections stay. This can\'t be undone.') }}</flux:text>
+                <flux:text class="mt-2">{{ __('Clients using its endpoint stop working, its connected apps are revoked and its switches are removed. Your Connections stay. This can\'t be undone.') }}</flux:text>
             </div>
 
             <div class="flex justify-end gap-2">

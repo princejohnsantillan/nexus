@@ -6,6 +6,7 @@ namespace App\Mcp;
 
 use App\Enums\StarAccessMode;
 use App\Models\Star;
+use App\Models\StarOAuthClient;
 use App\Models\StarToken;
 use Illuminate\Http\Request;
 use LogicException;
@@ -19,8 +20,13 @@ use LogicException;
 final readonly class StarCaller
 {
     /**
+     * The longest client name kept, as activity entries store it.
+     */
+    private const int CLIENT_NAME_LENGTH = 100;
+
+    /**
      * @param  StarAccessMode  $via  How the client authenticated.
-     * @param  string|null  $clientName  What the user named the credential, such as a token's name.
+     * @param  string|null  $clientName  What the credential is called, such as a token's name or an OAuth client's.
      * @param  string  $rateLimitKey  What calls are counted by for the rate limit: one credential.
      */
     public function __construct(
@@ -45,6 +51,16 @@ final readonly class StarCaller
     public static function withSignedUrl(Star $star): self
     {
         return new self($star, StarAccessMode::SignedUrl, null, "star-signed-url:{$star->id}:v{$star->signed_url_version}");
+    }
+
+    /**
+     * A client calling with an access token Nexus issued to it as one of
+     * the Star's connected apps, named as the client registered itself.
+     * Each app is counted separately, however often its token is renewed.
+     */
+    public static function withOAuthClient(Star $star, StarOAuthClient $app): self
+    {
+        return new self($star, StarAccessMode::OAuth, mb_substr($app->client->name ?? '', 0, self::CLIENT_NAME_LENGTH), "star-oauth-client:{$app->client_id}");
     }
 
     /**

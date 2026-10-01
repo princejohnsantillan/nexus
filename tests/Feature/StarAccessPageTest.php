@@ -5,10 +5,15 @@ declare(strict_types=1);
 use App\Actions\ChangeStarAccessMode;
 use App\Enums\StarAccessMode;
 use App\Models\Star;
+use App\Models\StarOAuthClient;
 use App\Models\StarToken;
 use App\Models\User;
+use Laravel\Passport\Client;
+use Laravel\Passport\RefreshToken;
+use Laravel\Passport\Token;
 use Livewire\Livewire;
 use Tests\Support\StarClient;
+use Tests\Support\StarOAuthFlow;
 
 beforeEach(function (): void {
     $this->user = User::factory()->create();
@@ -160,6 +165,7 @@ it('offers each access mode with a short explanation, the Star\'s own chosen', f
         ->assertSeeTextInOrder([
             'Bearer token', 'Clients send a token you create for each of them in a header.',
             'Signed URL', 'One secret URL that works by itself, for clients that only take a URL.',
+            'OAuth', 'Clients send you to Nexus to sign in and approve them, so there is no secret to copy.',
         ]);
 });
 
@@ -235,4 +241,137 @@ it('rotates nothing once the Star has switched away from its signed URL elsewher
         ->assertDispatched('toast-show', accessToast('This Star no longer uses a signed URL. Reload the page to see how clients reach it.', 'warning'));
 
     expect($this->star->fresh()->signed_url_version)->toBe($version);
+});
+
+describe('OAuth mode', function (): void {
+    beforeEach(function (): void {
+        $this->star->forceFill(['access_mode' => StarAccessMode::OAuth])->save();
+    });
+
+    it('lists the Star\'s connected apps with where they return to, when they were approved and last used', function (): void {
+        $this->travelTo(now()->startOfDay());
+        StarOAuthClient::factory()->for($this->star)->create([
+            'client_id' => Client::factory()->asPublic()->create(['name' => 'Claude Code', 'redirect_uris' => ['http://localhost:54212/callback', 'http://127.0.0.1:54212/callback']])->id,
+            'approved_at' => now()->subDays(3),
+            'last_used_at' => now()->subHours(2),
+        ]);
+        StarOAuthClient::factory()->for($this->star)->create([
+            'client_id' => Client::factory()->asPublic()->create(['name' => 'Cursor', 'redirect_uris' => ['cursor://anysphere.cursor-mcp/oauth/callback']])->id,
+            'approved_at' => now()->subDay(),
+        ]);
+
+        $this->get(route('stars.access', $this->star))
+            ->assertOk()
+            ->assertSeeTextInOrder(['Access mode', 'OAuth', 'Connected apps'])
+            ->assertSeeTextInOrder(['App', 'Returns to', 'Approved', 'Last used'])
+            ->assertSeeTextInOrder(['Cursor', 'cursor://anysphere.cursor-mcp', '1 day ago', 'Never'])
+            ->assertSeeTextInOrder(['Claude Code', 'localhost, 127.0.0.1', '3 days ago', '2 hours ago'])
+            ->assertDontSeeText('No tokens yet');
+    });
+
+    it('lists neither clients waiting for approval, nor revoked ones, nor another Star\'s', function (): void {
+        StarOAuthClient::factory()->for($this->star)->create(['client_id' => Client::factory()->asPublic()->create(['name' => 'Registered only'])->id]);
+        StarOAuthClient::factory()->for($this->star)->approved()->create(['client_id' => Client::factory()->asPublic()->create(['name' => 'Revoked', 'revoked' => true])->id]);
+        StarOAuthClient::factory()->approved()->create(['client_id' => Client::factory()->asPublic()->create(['name' => 'Someone else\'s'])->id]);
+
+        $this->get(route('stars.access', $this->star))
+            ->assertOk()
+            ->assertSeeText('No connected apps yet')
+            ->assertDontSeeText('Registered only')
+            ->assertDontSeeText('Revoked')
+            ->assertDontSeeText('Someone else\'s');
+    });
+
+    it('escapes the names clients register with', function (): void {
+        StarOAuthClient::factory()->for($this->star)->approved()->create([
+            'client_id' => Client::factory()->asPublic()->create(['name' => '<script>alert("app")</script>'])->id,
+        ]);
+
+        $this->get(route('stars.access', $this->star))
+            ->assertOk()
+            ->assertDontSee('<script>alert("app")</script>', escape: false);
+    });
+
+    it('revokes a connected app after confirming: its client, its access and refresh tokens', function (): void {
+        $clientId = StarOAuthFlow::register($this->star, 'Claude');
+        $tokens = StarOAuthFlow::signIn($this->user, $clientId);
+        $otherClientId = StarOAuthFlow::register($this->star, 'Cursor');
+        $otherTokens = StarOAuthFlow::signIn($this->user, $otherClientId);
+        $app = StarOAuthClient::query()->where('client_id', $clientId)->sole();
+
+        Livewire::test('pages::stars.access', ['star' => $this->star])
+            ->assertSeeText('Revoke Claude?')
+            ->call('revokeApp', $app->id)
+            ->assertDispatched('toast-show', accessToast('Revoked Claude. It can no longer reach this Star, and has to be approved again to come back.'))
+            ->assertDontSeeText('Revoke Claude?')
+            ->assertSeeText('Cursor');
+
+        expect(Client::query()->findOrFail($clientId)->revoked)->toBeTrue()
+            ->and(Token::query()->where('client_id', $clientId)->where('revoked', false)->count())->toBe(0)
+            ->and(RefreshToken::query()->where('revoked', false)->count())->toBe(1);
+        StarClient::for($this->star)->withToken($tokens['access_token'])->connect()->assertUnauthorized();
+        StarOAuthFlow::refresh($clientId, $tokens['refresh_token'])->assertUnauthorized();
+        StarClient::for($this->star)->withToken($otherTokens['access_token'])->connect()->assertOk();
+    });
+
+    it('does not revoke another Star\'s app', function (): void {
+        $otherApp = StarOAuthClient::factory()->for(Star::factory()->for($this->user)->withAccessMode(StarAccessMode::OAuth))->approved()->create();
+
+        Livewire::test('pages::stars.access', ['star' => $this->star])
+            ->call('revokeApp', $otherApp->id)
+            ->assertNotFound();
+
+        expect($otherApp->client?->fresh()?->revoked)->toBeFalse();
+    });
+
+    it('says how clients connect when the Star has no connected apps yet', function (): void {
+        $this->get(route('stars.access', $this->star))
+            ->assertSeeText('No connected apps yet')
+            ->assertSeeText('When the client connects, it sends you to Nexus to approve it.')
+            ->assertSee(route('stars.show', $this->star));
+    });
+
+    it('switches away from OAuth after confirming, revoking every client that registered with the Star', function (): void {
+        $clientId = StarOAuthFlow::register($this->star, 'Claude');
+        $tokens = StarOAuthFlow::signIn($this->user, $clientId);
+        $waitingClientId = StarOAuthFlow::register($this->star, 'Waiting');
+
+        Livewire::test('pages::stars.access', ['star' => $this->star])
+            ->set('accessMode', 'token')
+            ->assertSeeText('Switch to Bearer token?')
+            ->assertSeeText('Its connected apps are revoked, so they stop reaching the Star at once, and switching back means approving each of them again.')
+            ->call('changeAccessMode')
+            ->assertHasNoErrors();
+
+        expect(Client::query()->whereKey([$clientId, $waitingClientId])->pluck('revoked')->all())->toBe([true, true]);
+
+        Livewire::test('pages::stars.access', ['star' => $this->star->refresh()])
+            ->set('accessMode', 'oauth')
+            ->call('changeAccessMode')
+            ->assertDispatched('toast-show', accessToast('This Star now uses OAuth. Add its URL to a client, which sends you to Nexus to approve it.'))
+            ->assertSeeText('No connected apps yet');
+
+        StarClient::for($this->star->refresh())->withToken($tokens['access_token'])->connect()->assertUnauthorized();
+        StarOAuthFlow::refresh($clientId, $tokens['refresh_token'])->assertUnauthorized();
+    });
+});
+
+it('switches to OAuth after confirming, revoking the Star\'s tokens', function (): void {
+    $plainToken = StarToken::generate();
+    $token = StarToken::factory()->for($this->star)->plain($plainToken)->create();
+
+    Livewire::test('pages::stars.access', ['star' => $this->star])
+        ->set('accessMode', 'oauth')
+        ->assertSeeText('Switch to OAuth?')
+        ->assertSeeText('Its tokens are revoked, so clients using them stop reaching the Star at once.')
+        ->call('changeAccessMode')
+        ->assertHasNoErrors()
+        ->assertDispatched('toast-show', accessToast('This Star now uses OAuth. Add its URL to a client, which sends you to Nexus to approve it.'))
+        ->assertSeeText('Connected apps');
+
+    expect($this->star->refresh()->access_mode)->toBe(StarAccessMode::OAuth);
+    $this->assertModelMissing($token);
+    StarClient::for($this->star)->withToken($plainToken)->connect()
+        ->assertUnauthorized()
+        ->assertHeader('WWW-Authenticate', 'Bearer realm="nexus", resource_metadata="'.$this->star->protectedResourceMetadataUrl().'", scope="mcp:use", error="invalid_token"');
 });

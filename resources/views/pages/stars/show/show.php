@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Actions\DeleteStar;
 use App\Actions\UpdateStarConnections;
 use App\Models\Connection;
 use App\Models\Star;
@@ -67,7 +68,7 @@ return new #[Title('Star')] class extends Component
     /**
      * Copy-paste setup for each client, for the Star's access mode.
      *
-     * @return list<array{client: string, file: string|null, instruction: string|null, snippet: string}>
+     * @return list<array{client: string, file: string|null, instruction: string|null, snippet: string, login: array{instruction: string, snippet: string|null}|null}>
      */
     #[Computed]
     public function clientSetup(): array
@@ -122,9 +123,9 @@ return new #[Title('Star')] class extends Component
         Flux::toast(variant: 'success', text: __('Saved.'));
     }
 
-    public function delete(): void
+    public function delete(DeleteStar $deleteStar): void
     {
-        $this->star->delete();
+        $deleteStar->handle($this->star);
 
         session()->flash('toast', ['variant' => 'success', 'text' => __('Deleted :name.', ['name' => $this->star->name])]);
 

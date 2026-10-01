@@ -9,7 +9,10 @@ use App\Models\ConnectionTool;
 use App\Models\Star;
 use App\Models\StarToolSwitch;
 use App\Models\User;
+use Laravel\Passport\Client;
 use Livewire\Livewire;
+use Tests\Support\StarClient;
+use Tests\Support\StarOAuthFlow;
 
 beforeEach(function (): void {
     $this->user = User::factory()->create();
@@ -74,6 +77,32 @@ it('shows setup for each client with the signed URL alone in signed-URL mode', f
             'Grok', '~/.grok/config.toml', "[mcp_servers.nexus-work]\nurl = \"{$url}\"",
         ])
         ->assertDontSeeText('NEXUS_WORK_TOKEN')
+        ->assertDontSeeText('Authorization');
+});
+
+it('shows setup for each client with the URL alone and its login step in OAuth mode', function (): void {
+    $star = Star::factory()->for($this->user)->withAccessMode(StarAccessMode::OAuth)->create(['slug' => 'work']);
+    $url = url('/mcp/'.$star->public_id);
+
+    $this->get(route('stars.show', $star))
+        ->assertOk()
+        ->assertSeeTextInOrder(['Access', 'OAuth'])
+        ->assertSee('value="'.$url.'"', escape: false)
+        ->assertSeeText('When it connects, it sends you to Nexus to sign in and approve it for this Star.')
+        ->assertSeeTextInOrder([
+            'claude.ai', 'Open Settings → Connectors, choose "Add custom connector" and paste this URL:', $url,
+            'Then choose Connect next to it. claude.ai sends you to Nexus to approve it.',
+            'Claude Code', "claude mcp add --transport http --scope user nexus-work '{$url}'",
+            'Then sign in from a terminal, or run /mcp in Claude Code, choose nexus-work and Authenticate. Approve it in Nexus when your browser opens.', 'claude mcp login nexus-work',
+            'Codex', '~/.codex/config.toml', "[mcp_servers.nexus-work]\nurl = \"{$url}\"",
+            'Then sign in from a terminal. Approve it in Nexus when your browser opens.', 'codex mcp login nexus-work',
+            'Cursor', '~/.cursor/mcp.json', '"url": "'.$url.'"',
+            'Then sign in when Cursor\'s MCP settings say nexus-work needs it, or with the Cursor CLI.', 'cursor-agent mcp login nexus-work',
+            'Grok', '~/.grok/config.toml', "[mcp_servers.nexus-work]\nurl = \"{$url}\"",
+            'Then open /mcps in Grok, choose nexus-work and press i to sign in. Approve it in Nexus when your browser opens.',
+        ])
+        ->assertDontSeeText('NEXUS_WORK_TOKEN')
+        ->assertDontSeeText('signature=')
         ->assertDontSeeText('Authorization');
 });
 
@@ -197,6 +226,25 @@ it('deletes the Star and its switches after confirming, keeping the Connections'
     $this->assertModelExists($wiki);
     expect(StarToolSwitch::query()->count())->toBe(0);
     $this->get(route('stars.index'))->assertSeeText('Deleted Work.');
+});
+
+it('revokes the OAuth clients that registered with a Star when it is deleted', function (): void {
+    $star = Star::factory()->for($this->user)->withAccessMode(StarAccessMode::OAuth)->create();
+    $other = Star::factory()->for($this->user)->withAccessMode(StarAccessMode::OAuth)->create();
+    $clientId = StarOAuthFlow::register($star);
+    $tokens = StarOAuthFlow::signIn($this->user, $clientId);
+    $otherClientId = StarOAuthFlow::register($other);
+
+    Livewire::test('pages::stars.show', ['star' => $star])
+        ->assertSeeText('its connected apps are revoked')
+        ->call('delete')
+        ->assertRedirect(route('stars.index'));
+
+    $this->assertModelMissing($star);
+    expect(Client::query()->findOrFail($clientId)->revoked)->toBeTrue()
+        ->and(Client::query()->findOrFail($otherClientId)->revoked)->toBeFalse();
+    StarOAuthFlow::refresh($clientId, $tokens['refresh_token'])->assertUnauthorized();
+    StarClient::for($star)->withToken($tokens['access_token'])->connect()->assertUnauthorized();
 });
 
 it('escapes the Star\'s name and description', function (): void {

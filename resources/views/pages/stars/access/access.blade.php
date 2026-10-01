@@ -34,6 +34,76 @@
                     <flux:button icon="arrow-path" class="mt-4">{{ __('Rotate URL') }}</flux:button>
                 </flux:modal.trigger>
             </section>
+        @elseif ($star->access_mode === App\Enums\StarAccessMode::OAuth)
+            <section aria-labelledby="apps-heading">
+                <flux:heading size="lg" level="2" id="apps-heading">{{ __('Connected apps') }}</flux:heading>
+                <flux:text class="mt-1">{{ __('The clients you approved for this Star. A client signs in to Nexus by itself when you add the Star\'s URL to it, and you approve it on Nexus\'s consent screen. Revoking one stops it at once; it has to be approved again to come back.') }}</flux:text>
+
+                @if ($this->connectedApps->isEmpty())
+                    <x-empty-state icon="squares-plus" :heading="__('No connected apps yet')" class="mt-6">
+                        {{ __('Add this Star\'s URL to a client, using the setup on the overview. When the client connects, it sends you to Nexus to approve it.') }}
+
+                        <x-slot:actions>
+                            <flux:button :href="route('stars.show', $star)" wire:navigate>{{ __('Set up a client') }}</flux:button>
+                        </x-slot:actions>
+                    </x-empty-state>
+                @else
+                    <flux:table class="mt-6">
+                        <flux:table.columns>
+                            <flux:table.column>{{ __('App') }}</flux:table.column>
+                            <flux:table.column>{{ __('Returns to') }}</flux:table.column>
+                            <flux:table.column>{{ __('Approved') }}</flux:table.column>
+                            <flux:table.column>{{ __('Last used') }}</flux:table.column>
+                            <flux:table.column class="w-0"><span class="sr-only">{{ __('Actions') }}</span></flux:table.column>
+                        </flux:table.columns>
+
+                        <flux:table.rows>
+                            @foreach ($this->connectedApps as $app)
+                                <flux:table.row :key="$app->id">
+                                    <flux:table.cell class="max-w-xs truncate font-medium">{{ $app->client?->name }}</flux:table.cell>
+                                    <flux:table.cell class="max-w-xs truncate">{{ implode(', ', $app->redirectHosts()) }}</flux:table.cell>
+                                    <flux:table.cell>
+                                        @if ($app->approved_at !== null)
+                                            <time datetime="{{ $app->approved_at->toIso8601String() }}" title="{{ $app->approved_at->toDayDateTimeString() }}">{{ $app->approved_at->diffForHumans() }}</time>
+                                        @endif
+                                    </flux:table.cell>
+                                    <flux:table.cell>
+                                        @if ($app->last_used_at !== null)
+                                            <time datetime="{{ $app->last_used_at->toIso8601String() }}" title="{{ $app->last_used_at->toDayDateTimeString() }}">{{ $app->last_used_at->diffForHumans() }}</time>
+                                        @else
+                                            <flux:text size="sm" class="text-zinc-400 dark:text-zinc-500">{{ __('Never') }}</flux:text>
+                                        @endif
+                                    </flux:table.cell>
+                                    <flux:table.cell align="end">
+                                        <flux:modal.trigger :name="'revoke-app-'.$app->id">
+                                            <flux:button size="sm" variant="ghost">{{ __('Revoke') }}</flux:button>
+                                        </flux:modal.trigger>
+                                    </flux:table.cell>
+                                </flux:table.row>
+                            @endforeach
+                        </flux:table.rows>
+                    </flux:table>
+
+                    @foreach ($this->connectedApps as $app)
+                        <flux:modal :name="'revoke-app-'.$app->id" class="w-full max-w-lg" wire:key="revoke-app-{{ $app->id }}">
+                            <div class="space-y-6">
+                                <div>
+                                    <flux:heading size="lg">{{ __('Revoke :name?', ['name' => $app->client?->name]) }}</flux:heading>
+                                    <flux:text class="mt-2">{{ __('It stops reaching the Star at once, and can\'t renew its sign-in. To use it again, approve it again when it asks. This can\'t be undone.') }}</flux:text>
+                                </div>
+
+                                <div class="flex justify-end gap-2">
+                                    <flux:modal.close>
+                                        <flux:button variant="ghost">{{ __('Cancel') }}</flux:button>
+                                    </flux:modal.close>
+
+                                    <flux:button variant="danger" wire:click="revokeApp({{ $app->id }})">{{ __('Revoke app') }}</flux:button>
+                                </div>
+                            </div>
+                        </flux:modal>
+                    @endforeach
+                @endif
+            </section>
         @else
             <section aria-labelledby="tokens-heading">
                 <flux:heading size="lg" level="2" id="tokens-heading">{{ __('Tokens') }}</flux:heading>
@@ -129,6 +199,8 @@
                     <flux:text class="mt-2">
                         @if ($star->access_mode === App\Enums\StarAccessMode::SignedUrl)
                             {{ __('Its signed URL stops working at once, and switching back later gives it a new one.') }}
+                        @elseif ($star->access_mode === App\Enums\StarAccessMode::OAuth)
+                            {{ __('Its connected apps are revoked, so they stop reaching the Star at once, and switching back means approving each of them again.') }}
                         @else
                             {{ __('Its tokens are revoked, so clients using them stop reaching the Star at once.') }}
                         @endif
