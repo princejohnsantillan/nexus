@@ -421,7 +421,7 @@ Production runs on [Laravel Cloud](https://cloud.laravel.com) on the Starter pla
 - **Database.** Serverless Postgres. Cloud injects `DB_CONNECTION` and the connection details when the database is attached. Migrations and the test suite run on Postgres in CI.
 - **Cache.** Laravel Valkey, with `CACHE_STORE=redis`, which Cloud sets when the cache is attached. It holds the cache locks (adding Connections, Stars and tokens, renewing OAuth tokens) and the MCP rate limiter's counts.
 - **Queue.** A Flex managed queue. Cloud sets `QUEUE_CONNECTION=cloud` and configures the connection itself; the framework's `cloud` driver needs `aws/aws-sdk-php`, which is installed. Flex workers stop a job after 90 seconds, so keep every job well under that.
-- **Scheduler.** On the App cluster, for the daily activity prune. Cloud wakes a sleeping environment for each task listed by `php artisan schedule:list`, which it reads at every deploy.
+- **Scheduler.** On the App cluster, for the daily activity prune and catalog refresh. Cloud wakes a sleeping environment for each task listed by `php artisan schedule:list`, which it reads at every deploy.
 - **HTTPS.** On Laravel Cloud (`LARAVEL_CLOUD=1`) the framework trusts the edge's forwarded headers, so a request's scheme, host and address are the client's; anywhere else they are ignored. In production every URL Nexus writes is HTTPS whatever the request (`URL::forceHttps()` in `AppServiceProvider`), and `SESSION_SECURE_COOKIE=true` keeps cookies off plain HTTP.
 - **Time limit.** Cloud ends a web request after about 60 seconds, so a downstream session (the handshake, any OAuth renewal and the call together) gives up after `NEXUS_DOWNSTREAM_CALL_TIMEOUT` (55 s), and the client gets Nexus's own timeout error instead of a gateway error. The [smoke test](#smoke-test) checks the real limit.
 
@@ -478,6 +478,7 @@ These are Cloud Secrets linked to the environment, never custom variables, files
 | `NEXUS_MASTER_KEY` | A new key from `php artisan nexus:master-key` (the `base64:…` value after `=`) |
 | `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | The GitHub sign-in app |
 | `NEXUS_GITHUB_CLIENT_ID`, `NEXUS_GITHUB_CLIENT_SECRET` | The GitHub connector app (optional: without it, users connect GitHub with their own token or OAuth app) |
+| `PASSPORT_PRIVATE_KEY`, `PASSPORT_PUBLIC_KEY` | A new RSA key pair for signing OAuth-to-Nexus access tokens, each the whole PEM text (see below) |
 
 Cloud never shows a secret's value again, and without the master key no stored credential can be decrypted, so keep a copy of `NEXUS_MASTER_KEY` in a password manager and never change it. Changing `APP_KEY` signs everyone out and breaks every signed URL unless the old key goes in `APP_PREVIOUS_KEYS`. A custom variable overrides a secret of the same name, so if the environment already has an `APP_KEY` custom variable, delete it.
 
@@ -490,13 +491,24 @@ cloud secret:list --json -n                                  # the new secrets' 
 cloud environment-secret:attach production {id} {id} -n
 ```
 
+Generate Passport's key pair in a temporary directory rather than with `php artisan passport:keys`, which would replace your local pair, and delete it once both secrets exist:
+
+```bash
+cd "$(mktemp -d)"
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:4096 -out oauth-private.key
+openssl pkey -in oauth-private.key -pubout -out oauth-public.key
+cloud secret:create --name=PASSPORT_PRIVATE_KEY --notes="Nexus production" --json -n < oauth-private.key
+cloud secret:create --name=PASSPORT_PUBLIC_KEY --notes="Nexus production" --json -n < oauth-public.key
+rm oauth-private.key oauth-public.key
+```
+
 ### Runbook
 
 Steps marked **owner** need the owner's own accounts. Anyone signed in to the Cloud CLI can do the rest.
 
 1. **Owner:** install the Cloud CLI and sign in: `composer global require laravel/cloud-cli`, then `cloud auth` (it opens the browser). Cloud must be able to read `princejohnsantillan/nexus` on GitHub.
 2. Create the application, its `production` environment and the resources in [What to create](#what-to-create). The Cloud dashboard's canvas shows each size. The CLI can do the same (`application:create`, `database-cluster:create`, `cache:create`, `managed-queue:create`, `instance:update`; read each one's `-h` first, and `cloud instance:sizes --json -n` and `cloud cache:types --json -n` list the sizes). Don't use `cloud ship`, which provisions its own defaults.
-3. Set the build and deploy commands, the custom variables except `APP_URL`, and the `APP_KEY` and `NEXUS_MASTER_KEY` secrets.
+3. Set the build and deploy commands, the custom variables except `APP_URL`, and the `APP_KEY`, `NEXUS_MASTER_KEY`, `PASSPORT_PRIVATE_KEY` and `PASSPORT_PUBLIC_KEY` secrets.
 4. Deploy with `cloud deploy nexus production -n`, then follow it with `cloud deploy:monitor nexus production -n`. The first successful deploy gives the environment its `laravel.cloud` domain: set `APP_URL` to it.
 5. **Owner:** register two OAuth apps at <https://github.com/settings/developers> (OAuth Apps → New OAuth App), each with `APP_URL` as its homepage URL:
     - **Nexus**, for signing in, with the callback URL `{APP_URL}/auth/github/callback`: its client ID and a new client secret are `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`.
@@ -509,7 +521,11 @@ Steps marked **owner** need the owner's own accounts. Anyone signed in to the Cl
     cloud tinker production -n --code='echo config("app.url"), " ", DB::connection()->getDriverName(), " ", config("cache.default"), " ", config("queue.default"), PHP_EOL; cache()->put("deploy-check", "ok", 60); echo cache()->get("deploy-check"), PHP_EOL;'
     ```
 
-    It prints the HTTPS `APP_URL`, `pgsql`, `redis` and `cloud`, then `ok`.
+    It prints the HTTPS `APP_URL`, `pgsql`, `redis` and `cloud`, then `ok`. Then check that Passport can read its keys (a multi-line secret is easy to mangle):
+
+    ```bash
+    cloud tinker production -n --code='echo openssl_pkey_get_private(config("passport.private_key")) && openssl_pkey_get_public(config("passport.public_key")) ? "passport keys ok" : "passport keys unreadable", PHP_EOL;'
+    ```
 7. Run the smoke test and record the results on the deploy's pull request.
 
 After changing a variable, a secret or an attached resource, redeploy: Cloud applies them only to new deploys.
