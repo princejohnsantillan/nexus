@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Actions\DeleteConnection;
 use App\Actions\RefreshCatalog;
 use App\Actions\UpdateConnectionServer;
 use App\ConnectionOAuth\NexusClient;
@@ -274,9 +275,9 @@ return new #[Title('Connection')] class extends Component
         $this->toastRefresh($loaded, onlyThisAccount: true);
     }
 
-    public function delete(): void
+    public function delete(DeleteConnection $deleteConnection): void
     {
-        $this->connection->delete();
+        $deleteConnection->handle($this->connection);
 
         session()->flash('toast', ['variant' => 'success', 'text' => __('Deleted :name.', ['name' => $this->connection->name])]);
 

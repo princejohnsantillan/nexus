@@ -3,12 +3,16 @@
 declare(strict_types=1);
 
 use App\Actions\CreateStarToken;
+use App\Actions\UpdateStarConnections;
 use App\Enums\NewToolPolicy;
 use App\Models\Connection;
 use App\Models\ConnectionPrompt;
 use App\Models\ConnectionTool;
 use App\Models\Star;
 use App\Models\User;
+use App\Stars\StarInstructions;
+use App\Stars\StarPrompts;
+use App\Stars\StarToolset;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Testing\TestResponse;
@@ -217,6 +221,33 @@ describe('cached reads', function (): void {
 
         $this->client->callTool('wiki__ask')->assertStatus(400)->assertJsonPath('error.code', -32602);
         $this->client->getPrompt('wiki__summarize')->assertStatus(400)->assertJsonPath('error.code', -32602);
+    });
+
+    it('never caches instructions written from a copy of the Star loaded before it was renamed', function (): void {
+        $loadedBeforeTheRename = Star::query()->findOrFail($this->star->id);
+
+        Livewire::test('pages::stars.show', ['star' => $this->star])->set('name', 'Research')->call('saveDetails');
+        resolve(StarInstructions::class)->for($loadedBeforeTheRename);
+
+        expect(instructionsOf($this->client))->toContain('"Research" Star')->not->toContain('"Work" Star');
+    });
+
+    it('forgets the lists of a Star the Connection is added to while it is being deleted', function (): void {
+        $other = Star::factory()->for($this->user)->create(['new_tool_policy' => NewToolPolicy::All]);
+        $otherClient = clientOf($other);
+
+        Connection::deleting(function (Connection $connection) use ($other): void {
+            resolve(UpdateStarConnections::class)->handle($other, [$connection->id]);
+            resolve(StarToolset::class)->tools($other);
+            resolve(StarPrompts::class)->prompts($other);
+            resolve(StarInstructions::class)->for($other);
+        });
+
+        Livewire::test('pages::connections.show', ['connection' => $this->wiki])->call('delete');
+
+        expect(listedNames($otherClient->listTools(), 'tools'))->toBe([])
+            ->and(listedNames($otherClient->listPrompts(), 'prompts'))->toBe([])
+            ->and(instructionsOf($otherClient))->not->toContain('- wiki:');
     });
 
     it('works the lists out afresh after an hour, even when nothing told it to', function (): void {

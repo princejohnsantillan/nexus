@@ -48,13 +48,18 @@ final readonly class StarInstructions
 
     /**
      * The Star's instructions, as cached for it.
+     *
+     * When they have to be written, the Star's name and description are
+     * read again first: the copy given may have been loaded before a change
+     * that gave the Star the version they are cached under, as the access
+     * middleware's is when the Star is renamed while a request is answered.
      */
     public function for(Star $star): string
     {
         return $this->starLists->remember(
             $star,
             'instructions',
-            fn (): string => $this->write($star),
+            fn (): string => $this->write(Star::query()->find($star->id) ?? $star),
             fn (mixed $cached): ?string => is_string($cached) ? $cached : null,
         );
     }

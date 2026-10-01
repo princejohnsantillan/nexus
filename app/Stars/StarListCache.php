@@ -24,14 +24,17 @@ use Illuminate\Support\Str;
  *
  * - the Star changing, such as its name, description or new-tool policy (Star::booted());
  * - one of its Connections changing in anything but its credentials (its name, "use
- *   for" note, account, server or catalog), or being deleted (Connection::booted());
+ *   for" note, account, server or catalog), or being deleted (Connection::booted(); delete
+ *   through DeleteConnection, which holds its row so a Star it is being added to isn't missed);
  * - its switches, its Connections and a Connection's catalog, which are written with
  *   queries Eloquent's events don't see (SwitchStarTools, SwitchStarPrompts,
  *   UpdateStarConnections and RefreshCatalog call forget()).
  *
  * A new version takes effect once the change is committed, so a request
  * reading the database meanwhile can't cache what is about to change under
- * the version that follows it. Versions are random rather than counted, so
+ * the version that follows it. For the same reason, a list must be made
+ * from what it reads once remember() has read the version, never from
+ * models the caller loaded earlier. Versions are random rather than counted, so
  * one that expires or is evicted never comes back to revive the lists
  * cached under it.
  */
