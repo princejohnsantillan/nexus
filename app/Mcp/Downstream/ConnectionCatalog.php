@@ -63,6 +63,9 @@ class ConnectionCatalog
                     'read_only' => $readOnly,
                     // Per the spec, a tool that isn't read-only is assumed destructive unless it says otherwise.
                     'destructive' => ! $readOnly && ($tool->annotations->destructiveHint ?? true) !== false,
+                    // Kept as declared (null when unsaid), so the UI can tell a claim from a default.
+                    'idempotent' => is_bool($tool->annotations->idempotentHint ?? null) ? $tool->annotations->idempotentHint : null,
+                    'open_world' => is_bool($tool->annotations->openWorldHint ?? null) ? $tool->annotations->openWorldHint : null,
                 ]);
             }
 

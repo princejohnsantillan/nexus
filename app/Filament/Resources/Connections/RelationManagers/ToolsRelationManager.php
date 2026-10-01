@@ -2,9 +2,9 @@
 
 namespace App\Filament\Resources\Connections\RelationManagers;
 
+use App\Filament\Resources\Connections\ToolHintColumns;
 use App\Models\ConnectionTool;
 use Filament\Resources\RelationManagers\RelationManager;
-use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\TernaryFilter;
 use Filament\Tables\Table;
@@ -35,8 +35,7 @@ class ToolsRelationManager extends RelationManager
                     ->description(fn (ConnectionTool $record): ?string => $record->title)
                     ->searchable(),
                 TextColumn::make('description')->limit(120)->wrap()->toggleable(),
-                IconColumn::make('read_only')->label('Read-only')->boolean(),
-                IconColumn::make('destructive')->boolean()->trueColor('danger')->falseColor('gray'),
+                ...ToolHintColumns::make(),
             ])
             ->filters([
                 TernaryFilter::make('read_only')->label('Read-only'),

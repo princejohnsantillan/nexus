@@ -12,7 +12,7 @@ use stdClass;
 /**
  * A tool the downstream server advertised, cached from its last tools/list.
  */
-#[Fillable(['connection_id', 'name', 'title', 'description', 'definition', 'definition_hash', 'read_only', 'destructive'])]
+#[Fillable(['connection_id', 'name', 'title', 'description', 'definition', 'definition_hash', 'read_only', 'destructive', 'idempotent', 'open_world'])]
 class ConnectionTool extends Model
 {
     /** @use HasFactory<ConnectionToolFactory> */
@@ -23,6 +23,8 @@ class ConnectionTool extends Model
         return [
             'read_only' => 'boolean',
             'destructive' => 'boolean',
+            'idempotent' => 'boolean',
+            'open_world' => 'boolean',
         ];
     }
 

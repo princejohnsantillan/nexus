@@ -273,4 +273,19 @@ class AdminPanelTest extends TestCase
 
         Notification::assertNotified('Same account as Slack (Work)');
     }
+
+    public function test_tool_tables_show_declared_hints_apart_from_defaults(): void
+    {
+        $connection = Connection::factory()->for($this->user)->create();
+        $declared = ConnectionTool::factory()->for($connection)->create(['name' => 'declared', 'idempotent' => true, 'open_world' => false]);
+        $silent = ConnectionTool::factory()->for($connection)->create(['name' => 'silent', 'idempotent' => null, 'open_world' => null]);
+        $vault = Vault::factory()->for($this->user)->create();
+        $vault->connections()->attach($connection);
+
+        Livewire::test(ManageVaultTools::class, ['record' => $vault->getKey()])
+            ->assertTableColumnStateSet('idempotent', 'yes', $declared)
+            ->assertTableColumnStateSet('open_world', 'no', $declared)
+            ->assertTableColumnStateSet('idempotent', 'unsaid', $silent)
+            ->assertTableColumnStateSet('open_world', 'unsaid', $silent);
+    }
 }

@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\Vaults\Pages;
 
+use App\Filament\Resources\Connections\ToolHintColumns;
 use App\Filament\Resources\Vaults\VaultResource;
 use App\Mcp\Vaults\ExposedTool;
 use App\Mcp\Vaults\VaultToolset;
@@ -13,7 +14,6 @@ use Filament\Actions\BulkActionGroup;
 use Filament\Resources\Pages\Concerns\InteractsWithRecord;
 use Filament\Resources\Pages\Page;
 use Filament\Support\Icons\Heroicon;
-use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Columns\ToggleColumn;
 use Filament\Tables\Concerns\InteractsWithTable;
@@ -75,8 +75,7 @@ class ManageVaultTools extends Page implements HasTable
                     ->fontFamily('mono')
                     ->searchable(['name', 'title', 'description']),
                 TextColumn::make('connection.name')->label('Connection'),
-                IconColumn::make('read_only')->label('Read-only')->boolean(),
-                IconColumn::make('destructive')->boolean()->trueColor('danger')->falseColor('gray'),
+                ...ToolHintColumns::make(),
                 ToggleColumn::make('enabled')
                     ->label('On')
                     ->state(fn (ConnectionTool $record): bool => $this->isEnabled($record))

@@ -204,4 +204,21 @@ class ConnectionCatalogTest extends TestCase
         $this->assertNull(AccountIdentity::sameAccountAs($otherService));
         $this->assertNull(AccountIdentity::sameAccountAs($otherUser));
     }
+
+    public function test_idempotent_and_open_world_hints_are_kept_as_declared(): void
+    {
+        $connection = Connection::factory()->create(['url' => 'https://svc.example.com/mcp']);
+
+        $server = (new FakeMcpServer)->fake();
+        $server->toolsJson = '[{"name":"declared","inputSchema":{"type":"object"},"annotations":{"idempotentHint":true,"openWorldHint":false}},'
+            .'{"name":"silent","inputSchema":{"type":"object"}}]';
+
+        app(ConnectionCatalog::class)->refresh($connection);
+
+        $tools = $connection->tools()->get()->keyBy('name');
+        $this->assertTrue($tools['declared']->idempotent);
+        $this->assertFalse($tools['declared']->open_world);
+        $this->assertNull($tools['silent']->idempotent);
+        $this->assertNull($tools['silent']->open_world);
+    }
 }
