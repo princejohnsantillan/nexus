@@ -23,6 +23,9 @@ use Illuminate\Database\Eloquent\Collection;
  * length, the longest that lets them all fit, keeping at least its handle.
  * Only when even the handles don't fit (far more Connections than the
  * default limits allow) is the text cut.
+ *
+ * They are written once per change and kept in StarListCache, since the
+ * Star's server needs them for every request it answers.
  */
 final readonly class StarInstructions
 {
@@ -41,7 +44,22 @@ final readonly class StarInstructions
      */
     private const array SHORT_DESCRIPTION_LENGTHS = [200, 0];
 
+    public function __construct(private StarListCache $starLists) {}
+
+    /**
+     * The Star's instructions, as cached for it.
+     */
     public function for(Star $star): string
+    {
+        return $this->starLists->remember(
+            $star,
+            'instructions',
+            fn (): string => $this->write($star),
+            fn (mixed $cached): ?string => is_string($cached) ? $cached : null,
+        );
+    }
+
+    private function write(Star $star): string
     {
         $connections = $star->connections()->orderBy('name')->orderBy('connections.id')->get();
         $siblingIds = Connection::idsWithSiblings($connections);

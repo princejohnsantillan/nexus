@@ -6,11 +6,14 @@ namespace App\Actions;
 
 use App\Models\Connection;
 use App\Models\Star;
+use App\Stars\StarListCache;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Facades\DB;
 
 class UpdateStarConnections
 {
+    public function __construct(private readonly StarListCache $starLists) {}
+
     /**
      * Make the Star include exactly those of the given Connections that
      * belong to its user; anyone else's are ignored. A Connection taken out
@@ -19,7 +22,8 @@ class UpdateStarConnections
      * every prompt on.
      *
      * The Star's row and the chosen Connections' rows are held while the
-     * change is written, so neither can be deleted halfway through.
+     * change is written, so neither can be deleted halfway through. Once it
+     * is committed, the Star's lists are worked out afresh (StarListCache).
      *
      * @param  list<int>  $connectionIds
      *
@@ -29,6 +33,8 @@ class UpdateStarConnections
     {
         DB::transaction(function () use ($star, $connectionIds): void {
             Star::query()->whereKey($star->id)->lockForUpdate()->firstOrFail();
+
+            $this->starLists->forget($star);
 
             $ids = Connection::query()->where('user_id', $star->user_id)->whereKey($connectionIds)->lockForUpdate()->pluck('id')->all();
 

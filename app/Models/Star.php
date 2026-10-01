@@ -6,6 +6,7 @@ namespace App\Models;
 
 use App\Enums\NewToolPolicy;
 use App\Enums\StarAccessMode;
+use App\Stars\StarListCache;
 use Carbon\CarbonImmutable;
 use Database\Factories\StarFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -98,6 +99,10 @@ class Star extends Model
     {
         static::creating(function (Star $star): void {
             $star->public_id ??= self::newPublicId();
+        });
+
+        static::updated(function (Star $star): void {
+            app(StarListCache::class)->forget($star);
         });
     }
 

@@ -13,6 +13,7 @@ use App\Exceptions\CatalogNotStored;
 use App\Exceptions\DownstreamRequestFailed;
 use App\Models\Connection;
 use App\Models\ConnectionPrompt;
+use App\Stars\StarListCache;
 use Closure;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
@@ -47,6 +48,7 @@ class RefreshCatalog
     public function __construct(
         private readonly DownstreamClient $downstream,
         private readonly DetectAccountIdentity $detectAccountIdentity,
+        private readonly StarListCache $starLists,
     ) {}
 
     /**
@@ -57,7 +59,8 @@ class RefreshCatalog
      * such as one with only prompts, has no tools and isn't asked for them. Each definition is stored as the exact JSON the
      * server sent. The Connection is then connected, with no last error,
      * and labelled with the account its connector's profile tool names (such
-     * as GitHub's login), when it has one that answers.
+     * as GitHub's login), when it has one that answers. The Stars that
+     * include it work out their lists afresh once that is committed.
      *
      * Its prompts are stored the same way when the server says it has some
      * (the `prompts` capability), and removed when it doesn't. When listing
@@ -96,6 +99,8 @@ class RefreshCatalog
         $prompts = $this->listPrompts($session);
 
         return $this->storeIfCurrent($connection, $signIn, function () use ($connection, $tools, $identity, $prompts): void {
+            $this->starLists->forgetStarsIncluding($connection);
+
             $storedHashes = $connection->tools()->pluck('definition_hash', 'name');
             $names = [];
 

@@ -8,6 +8,7 @@ use App\ConnectionOAuth\SignInLock;
 use App\Enums\ConnectionAuthType;
 use App\Enums\ConnectionStatus;
 use App\Models\Connection;
+use App\Stars\StarListCache;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
@@ -19,6 +20,7 @@ class UpdateConnectionServer
     public function __construct(
         private readonly RefreshCatalog $refreshCatalog,
         private readonly SignInLock $signInLock,
+        private readonly StarListCache $starLists,
     ) {}
 
     /**
@@ -27,7 +29,8 @@ class UpdateConnectionServer
      *
      * A new URL clears every stored credential, so none is ever sent to a
      * server it wasn't meant for, and empties the catalog, whose tools and
-     * prompts belonged to the old server. A header sign-in then needs its value
+     * prompts belonged to the old server (so the Stars that include the
+     * Connection work out their lists afresh). A header sign-in then needs its value
      * again, and an OAuth sign-in starts over: the server's registered client
      * is forgotten too. Switching to no auth clears the header; switching
      * away from OAuth clears its tokens and clients.
@@ -114,6 +117,8 @@ class UpdateConnectionServer
 
         DB::transaction(function () use ($connection, $urlChanged, $awaitsSignIn): void {
             if ($urlChanged) {
+                $this->starLists->forgetStarsIncluding($connection);
+
                 $connection->tools()->delete();
                 $connection->prompts()->delete();
 

@@ -11,6 +11,7 @@ use App\Connectors\ConnectorToken;
 use App\Encryption\Secrets;
 use App\Enums\ConnectionAuthType;
 use App\Enums\ConnectionStatus;
+use App\Stars\StarListCache;
 use Carbon\CarbonImmutable;
 use Database\Factories\ConnectionFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -129,6 +130,16 @@ class Connection extends Model
     public const array OAUTH_TOKEN_SECRETS = ['access_token', 'refresh_token', 'expires_at'];
 
     /**
+     * The columns Stars' lists aren't made from: the credentials, which the
+     * lists' cache never holds and which renew as the Connection is used,
+     * and when it was last saved. A change to any other column gives the
+     * Stars that include the Connection their lists afresh.
+     *
+     * @var list<string>
+     */
+    private const array UNLISTED_COLUMNS = ['secrets', 'updated_at'];
+
+    /**
      * @var array<string, mixed>
      */
     protected $attributes = [
@@ -141,6 +152,22 @@ class Connection extends Model
             if ($connection->isDirty('handle')) {
                 throw new LogicException('A Connection\'s handle never changes once it is created.');
             }
+        });
+
+        static::updated(function (Connection $connection): void {
+            if (array_diff(array_keys($connection->getChanges()), self::UNLISTED_COLUMNS) !== []) {
+                app(StarListCache::class)->forgetStarsIncluding($connection);
+            }
+        });
+
+        // The database removes the Connection from its Stars along with it,
+        // so they are found first and forgotten once it is gone.
+        static::deleting(function (Connection $connection): void {
+            $connection->load('stars');
+        });
+
+        static::deleted(function (Connection $connection): void {
+            app(StarListCache::class)->forget(...$connection->stars->all());
         });
     }
 
