@@ -23,4 +23,29 @@ enum ActivityStatus: string
 
     /** The server refused the Connection's sign-in. */
     case NeedsAuth = 'needs_auth';
+
+    public function label(): string
+    {
+        return match ($this) {
+            self::Ok => __('OK'),
+            self::Error => __('Error'),
+            self::Denied => __('Denied'),
+            self::Timeout => __('Timed out'),
+            self::NeedsAuth => __('Needs sign-in'),
+        };
+    }
+
+    /**
+     * The colour of this status's Flux badge.
+     */
+    public function color(): string
+    {
+        return match ($this) {
+            self::Ok => 'green',
+            self::Error => 'red',
+            self::Denied => 'zinc',
+            self::Timeout => 'orange',
+            self::NeedsAuth => 'amber',
+        };
+    }
 }

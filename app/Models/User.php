@@ -51,6 +51,8 @@ use Illuminate\Support\Str;
  * @property-read int|null $connections_count
  * @property-read Collection<int, Star> $stars
  * @property-read int|null $stars_count
+ * @property-read Collection<int, ActivityEntry> $activityEntries
+ * @property-read int|null $activity_entries_count
  *
  * @mixin \Eloquent
  */
@@ -103,6 +105,14 @@ class User extends Authenticatable
     public function hasReachedStarLimit(): bool
     {
         return $this->stars()->count() >= config()->integer('nexus.limits.stars_per_user');
+    }
+
+    /**
+     * @return HasMany<ActivityEntry, $this>
+     */
+    public function activityEntries(): HasMany
+    {
+        return $this->hasMany(ActivityEntry::class);
     }
 
     /**

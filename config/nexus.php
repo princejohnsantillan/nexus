@@ -60,6 +60,20 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Activity
+    |--------------------------------------------------------------------------
+    |
+    | How many days Nexus keeps each activity entry. A daily scheduled prune
+    | removes entries older than that, so storage stays small.
+    |
+    */
+
+    'activity' => [
+        'retention_days' => (int) env('NEXUS_ACTIVITY_RETENTION_DAYS', 30),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Connectors
     |--------------------------------------------------------------------------
     |
