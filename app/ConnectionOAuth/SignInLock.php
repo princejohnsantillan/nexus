@@ -30,7 +30,7 @@ final readonly class SignInLock
     /**
      * How long another change waits for the lock, in seconds.
      */
-    private const int WAIT_SECONDS = 15;
+    public const int WAIT_SECONDS = 15;
 
     /**
      * Make a change holding the Connection's lock, with the Connection
@@ -39,14 +39,15 @@ final readonly class SignInLock
      * @template TResult
      *
      * @param  Closure(): TResult  $change
+     * @param  int|null  $waitSeconds  How long to wait for the lock, when that is less than usual.
      * @return TResult
      *
      * @throws LockTimeoutException when another change holds the lock too long
      * @throws ModelNotFoundException when the Connection has been deleted
      */
-    public function hold(Connection $connection, Closure $change): mixed
+    public function hold(Connection $connection, Closure $change, ?int $waitSeconds = null): mixed
     {
-        return Cache::lock("connections.{$connection->id}.oauth-tokens", self::SECONDS)->block(self::WAIT_SECONDS, function () use ($connection, $change): mixed {
+        return Cache::lock("connections.{$connection->id}.oauth-tokens", self::SECONDS)->block(min(self::WAIT_SECONDS, $waitSeconds ?? self::WAIT_SECONDS), function () use ($connection, $change): mixed {
             $connection->refresh();
 
             return $change();

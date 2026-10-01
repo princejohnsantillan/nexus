@@ -29,11 +29,11 @@ use Throwable;
  * - Requests go through Laravel's HTTP client, so the outbound guard checks
  *   and pins every one of them.
  * - The connect timeout limits connecting, the handshake and ending the
- *   session; the call timeout limits every other request. The session
- *   timeout is the most the session's requests take altogether, counted
- *   from its first one: each request gets the time left, if less, renewing
- *   an OAuth token included, and none is sent once it has run out. So a
- *   slow handshake can't push a tool call past the web request's time limit.
+ *   session; the call timeout limits every other request. The session's
+ *   deadline bounds its requests altogether: each one gets the time left,
+ *   if less, renewing an OAuth token included, and none is sent once it
+ *   has run out. So a slow handshake can't push a tool call past the web
+ *   request's time limit.
  * - A failed request throws DownstreamRequestFailed with a Nexus-authored
  *   message. A server wants sign-in when it answers 401 or 403, or rejects
  *   the token with an `invalid_token` challenge under another status (GitHub
@@ -90,16 +90,13 @@ final class DownstreamTransport extends HttpTransport
     private int|string|null $lastRequestId = null;
 
     /**
-     * When the session's time is up, in milliseconds since the epoch: the
-     * session timeout after its first request started.
+     * @param  int  $deadline  When the session's time is up, in milliseconds since the epoch.
      */
-    private ?int $deadline = null;
-
     public function __construct(
         string $url,
         private readonly float $connectTimeout,
         private readonly float $callTimeout,
-        private readonly float $sessionTimeout,
+        private readonly int $deadline,
     ) {
         parent::__construct($url);
     }
@@ -126,17 +123,12 @@ final class DownstreamTransport extends HttpTransport
             $this->lastRequestId = $requestId;
         }
 
-        $this->deadline ??= Date::now()->getTimestampMs() + (int) round($this->sessionTimeout * 1000);
+        $limit = in_array($method, self::HANDSHAKE_METHODS, true) ? $this->connectTimeout : $this->callTimeout;
 
         try {
+            $this->timeLeft($limit);
             $request = Http::withHeaders($this->headers($headers))->withBody($message, 'application/json');
-            $timeout = $this->timeLeft(in_array($method, self::HANDSHAKE_METHODS, true) ? $this->connectTimeout : $this->callTimeout);
-
-            if ($timeout <= 0.0) {
-                $this->reset();
-
-                throw DownstreamRequestFailed::timedOut();
-            }
+            $timeout = $this->timeLeft($limit);
 
             $response = $request
                 ->connectTimeout(min($this->connectTimeout, $timeout))
@@ -277,12 +269,11 @@ final class DownstreamTransport extends HttpTransport
         }
 
         try {
+            $this->timeLeft($this->connectTimeout);
             $request = Http::withHeaders($this->headers());
             $timeout = $this->timeLeft($this->connectTimeout);
 
-            if ($timeout > 0.0) {
-                $request->connectTimeout($timeout)->timeout($timeout)->delete($this->url);
-            }
+            $request->connectTimeout($timeout)->timeout($timeout)->delete($this->url);
         } catch (Throwable) {
             //
         }
@@ -290,11 +281,22 @@ final class DownstreamTransport extends HttpTransport
 
     /**
      * The seconds a request may take: its own limit, or the session's time
-     * left when that is less (zero or below once it has run out).
+     * left when that is less. Checked before the headers are built too, so a
+     * session out of time doesn't renew its OAuth token first.
+     *
+     * @throws DownstreamRequestFailed when the session's time is up
      */
     private function timeLeft(float $limit): float
     {
-        return $this->deadline === null ? $limit : min($limit, ($this->deadline - Date::now()->getTimestampMs()) / 1000);
+        $seconds = min($limit, ($this->deadline - Date::now()->getTimestampMs()) / 1000);
+
+        if ($seconds <= 0.0) {
+            $this->reset();
+
+            throw DownstreamRequestFailed::timedOut();
+        }
+
+        return $seconds;
     }
 
     /**

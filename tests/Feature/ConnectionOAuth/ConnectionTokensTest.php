@@ -208,6 +208,28 @@ it('doesn\'t renew while another request holds the Connection\'s lock, and gives
         ->and($waitedFrom->diffInSeconds(now()))->toBeGreaterThanOrEqual(14.0);
 });
 
+it('renews late in a session only within the session\'s time left, then times out like any request', function (): void {
+    Sleep::fake(syncWithCarbon: true);
+    $this->travel(3600 - 100)->seconds();
+    $this->server->beforeAnswering('initialize', fn () => $this->travel(50)->seconds());
+    $startedAt = now();
+    $listingsBefore = count($this->server->received('tools/list'));
+    $lock = Cache::lock("connections.{$this->connection->id}.oauth-tokens", 300);
+    $lock->get();
+
+    try {
+        $failure = listingFailure($this->connection);
+    } finally {
+        $lock->release();
+    }
+
+    expect($failure?->failure)->toBe(DownstreamFailure::Timeout)
+        ->and($failure?->getMessage())->toBe('The server took too long to answer, so Nexus stopped waiting.')
+        ->and($this->auth->tokenRequests('refresh_token'))->toBe([])
+        ->and($this->server->received('tools/list'))->toHaveCount($listingsBefore)
+        ->and($startedAt->diffInSeconds(now()))->toBeLessThanOrEqual(55.0);
+});
+
 it('stores the tools listed with a token renewed during the refresh', function (): void {
     $this->server->withTools([['name' => 'search'], ['name' => 'create_page']]);
     $this->travel(2)->hours();

@@ -11,6 +11,7 @@ use App\Models\Connection;
 use Closure;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -66,11 +67,15 @@ final readonly class ConnectionTokens
      * so. A renewal that fails for a reason that may pass, such as the
      * server not answering, keeps the sign-in.
      *
+     * With a deadline, renewing waits for the lock and the server only
+     * until then, and fails as timed out once it has passed.
+     *
      * @param  string  $serverUrl  The server the request goes to: the URL its session was opened with.
+     * @param  int|null  $deadline  When the request's time is up, in milliseconds since the epoch.
      *
      * @throws DownstreamRequestFailed
      */
-    public function accessToken(Connection $connection, string $serverUrl): string
+    public function accessToken(Connection $connection, string $serverUrl, ?int $deadline = null): string
     {
         if (! $this->signsInTo($connection, $serverUrl)) {
             throw DownstreamRequestFailed::notSignedIn();
@@ -86,18 +91,21 @@ final readonly class ConnectionTokens
             throw DownstreamRequestFailed::notSignedIn();
         }
 
+        $left = $this->millisecondsLeft($deadline);
+        $wait = $left === null ? null : intdiv($left, 1000);
+
         try {
-            return $this->signInLock->hold($connection, function () use ($connection, $serverUrl): string {
+            return $this->signInLock->hold($connection, function () use ($connection, $serverUrl, $deadline): string {
                 if (! $this->signsInTo($connection, $serverUrl)) {
                     throw DownstreamRequestFailed::notSignedIn();
                 }
 
-                return $this->currentToken($connection) ?? $this->renew($connection);
-            });
+                return $this->currentToken($connection) ?? $this->renew($connection, $deadline);
+            }, $wait);
         } catch (ModelNotFoundException) {
             throw DownstreamRequestFailed::notSignedIn();
         } catch (LockTimeoutException) {
-            throw DownstreamRequestFailed::renewalBusy();
+            throw $wait !== null && $wait < SignInLock::WAIT_SECONDS ? DownstreamRequestFailed::timedOut() : DownstreamRequestFailed::renewalBusy();
         }
     }
 
@@ -145,6 +153,22 @@ final readonly class ConnectionTokens
     }
 
     /**
+     * The milliseconds left before the deadline, or null without one.
+     *
+     * @throws DownstreamRequestFailed when the deadline has passed
+     */
+    private function millisecondsLeft(?int $deadline): ?int
+    {
+        if ($deadline === null) {
+            return null;
+        }
+
+        $milliseconds = $deadline - Date::now()->getTimestampMs();
+
+        return $milliseconds > 0 ? $milliseconds : throw DownstreamRequestFailed::timedOut();
+    }
+
+    /**
      * Whether the Connection signs in with OAuth to this server.
      */
     private function signsInTo(Connection $connection, string $serverUrl): bool
@@ -173,7 +197,7 @@ final readonly class ConnectionTokens
      *
      * @throws DownstreamRequestFailed
      */
-    private function renew(Connection $connection): string
+    private function renew(Connection $connection, ?int $deadline): string
     {
         $refreshToken = $connection->secrets->get('refresh_token');
         $client = $this->clients->forRenewal($connection);
@@ -186,13 +210,16 @@ final readonly class ConnectionTokens
         }
 
         try {
-            $tokens = $this->tokenEndpoint->renew($endpoint, $client, $refreshToken, $connection->setting('resource') ?? $connection->url);
+            $left = $this->millisecondsLeft($deadline);
+            $tokens = $this->tokenEndpoint->renew($endpoint, $client, $refreshToken, $connection->setting('resource') ?? $connection->url, $left === null ? null : $left / 1000);
         } catch (DownstreamRequestFailed $failed) {
             if ($failed->failure === DownstreamFailure::NeedsSignIn) {
                 $this->endSignIn($connection, $failed);
+
+                throw $failed;
             }
 
-            throw $failed;
+            throw $deadline !== null && $deadline <= Date::now()->getTimestampMs() ? DownstreamRequestFailed::timedOut() : $failed;
         }
 
         $stored = $this->whileUnchanged($connection, function () use ($connection, $tokens, $refreshToken): void {
