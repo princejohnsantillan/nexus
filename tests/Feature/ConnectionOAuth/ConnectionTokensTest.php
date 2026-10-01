@@ -334,7 +334,7 @@ it('doesn\'t keep a client registered with a server the Connection moved away fr
         ->and($stored->secrets->all())->toBe([]);
 });
 
-it('gives a session opened for the old server no token once the Connection moved and signed in to a new one', function (bool $expired): void {
+it('gives a session opened for the old server no token once the Connection moved and signed in to a new one', function (bool $expired, bool $refreshedInPlace): void {
     if ($expired) {
         $this->travel(2)->hours();
     }
@@ -349,7 +349,13 @@ it('gives a session opened for the old server no token once the Connection moved
         ->call('saveServer')
         ->assertRedirect(route('connections.connect', $this->connection));
     ConnectionOAuthFlow::signIn($this, Connection::query()->findOrFail($this->connection->id), $replacement->authorizationServer());
-    $this->connection->refresh();
+
+    if ($refreshedInPlace) {
+        $this->connection->refresh();
+    }
+
+    expect($this->connection->url)->toBe($refreshedInPlace ? 'https://replacement.example.com/mcp' : FakeMcpServer::DEFAULT_URL);
+
     $requestsBefore = count($this->server->requests());
 
     try {
@@ -363,4 +369,8 @@ it('gives a session opened for the old server no token once the Connection moved
         ->and($failure?->failure)->toBe(DownstreamFailure::NeedsSignIn)
         ->and(array_slice($this->server->requests(), $requestsBefore))->toBe([])
         ->and($this->auth->tokenRequests('refresh_token'))->toBe([]);
-})->with(['with an expired token' => true, 'with a current token' => false]);
+})->with([
+    'a stale model with an expired token' => [true, false],
+    'a model refreshed in place, its token expired' => [true, true],
+    'a model refreshed in place, its token current' => [false, true],
+]);
