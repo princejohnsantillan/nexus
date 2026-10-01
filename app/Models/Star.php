@@ -41,6 +41,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property-read int|null $connections_count
  * @property-read Collection<int, StarToolSwitch> $toolSwitches
  * @property-read int|null $tool_switches_count
+ * @property-read Collection<int, StarToken> $tokens
+ * @property-read int|null $tokens_count
  * @property-read User $user
  *
  * @method static \Database\Factories\StarFactory factory($count = null, $state = [])
@@ -148,10 +150,28 @@ class Star extends Model
     }
 
     /**
+     * The bearer tokens clients may use to reach the Star.
+     *
+     * @return HasMany<StarToken, $this>
+     */
+    public function tokens(): HasMany
+    {
+        return $this->hasMany(StarToken::class);
+    }
+
+    /**
+     * Whether the Star has as many tokens as `nexus.limits.tokens_per_star` allows.
+     */
+    public function hasReachedTokenLimit(): bool
+    {
+        return $this->tokens()->count() >= config()->integer('nexus.limits.tokens_per_star');
+    }
+
+    /**
      * The URL MCP clients connect to.
      */
     public function endpointUrl(): string
     {
-        return url('/mcp/'.$this->public_id);
+        return route('mcp.star', $this);
     }
 }

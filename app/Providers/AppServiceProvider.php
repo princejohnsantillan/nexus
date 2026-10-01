@@ -6,6 +6,7 @@ namespace App\Providers;
 
 use App\Auth\GitHubSignInProvider;
 use App\Connectors\ConnectorCatalog;
+use App\Mcp\StarCaller;
 use App\Models\Connection;
 use App\Models\Star;
 use App\Models\User;
@@ -15,10 +16,13 @@ use App\Outbound\OutboundGuard;
 use App\Outbound\SystemDnsResolver;
 use Carbon\CarbonImmutable;
 use Closure;
+use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Validation\Rules\Password;
@@ -34,6 +38,7 @@ class AppServiceProvider extends ServiceProvider
     {
         $this->registerOutboundGuard();
         $this->registerConnectorCatalog();
+        $this->registerStarCaller();
     }
 
     /**
@@ -45,6 +50,7 @@ class AppServiceProvider extends ServiceProvider
         $this->guardOutboundRequests();
         $this->configureGitHubSignIn();
         $this->bindOwnRecords();
+        $this->limitStarCalls();
     }
 
     /**
@@ -94,6 +100,15 @@ class AppServiceProvider extends ServiceProvider
     }
 
     /**
+     * Whoever the access middleware authenticated the current request as,
+     * on a Star's MCP endpoint.
+     */
+    protected function registerStarCaller(): void
+    {
+        $this->app->bind(StarCaller::class, fn (): StarCaller => StarCaller::of(request()));
+    }
+
+    /**
      * Send every HTTP client request through the outbound guard, and never
      * follow redirects. Global options replace each other, so any option
      * added here later must keep redirects off.
@@ -118,7 +133,8 @@ class AppServiceProvider extends ServiceProvider
 
     /**
      * Route parameters resolve only to the signed-in user's own records, so
-     * anyone else's are simply not found.
+     * anyone else's are simply not found. A Star's MCP endpoint has no
+     * session and binds nothing: its access middleware finds the Star.
      */
     protected function bindOwnRecords(): void
     {
@@ -141,5 +157,15 @@ class AppServiceProvider extends ServiceProvider
 
             return $user->stars()->where('public_id', $publicId)->firstOrFail();
         });
+    }
+
+    /**
+     * Calls to a Star are limited per credential, so one runaway client
+     * can't use up the Star's downstream quotas or another client's share.
+     */
+    protected function limitStarCalls(): void
+    {
+        RateLimiter::for('mcp', fn (Request $request): Limit => Limit::perMinute(config()->integer('nexus.limits.calls_per_minute'))
+            ->by(StarCaller::of($request)->rateLimitKey));
     }
 }

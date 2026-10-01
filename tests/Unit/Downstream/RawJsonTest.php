@@ -70,3 +70,23 @@ it('replaces nothing in JSON that is not an object or lacks the member', functio
     'unterminated' => ['{"name":"x",'],
     'empty' => [''],
 ]);
+
+it('sets a member, adding it at the end when the object lacks it and keeping the rest as sent', function (string $json, string $key, string $value, string $set): void {
+    expect(RawJson::put($json, $key, $value))->toBe($set);
+})->with([
+    'replaced' => ['{"resultType":"incomplete","content":[]}', 'resultType', '"complete"', '{"resultType":"complete","content":[]}'],
+    'added at the end' => ['{"content":[],"structuredContent":{}}', 'resultType', '"complete"', '{"content":[],"structuredContent":{},"resultType":"complete"}'],
+    'added to an empty object' => ['{ }', 'a', '1', '{ "a":1}'],
+    'key with slashes' => ['{"x":{}}', 'io.modelcontextprotocol/serverInfo', '{"name":"n"}', '{"x":{},"io.modelcontextprotocol/serverInfo":{"name":"n"}}'],
+    'long numbers stay' => ['{"big":1e400,"max":18446744073709551615}', 'n', '2', '{"big":1e400,"max":18446744073709551615,"n":2}'],
+    'whitespace stays' => ["{ \"a\" : {} \n}", 'b', 'true', "{ \"a\" : {},\"b\":true \n}"],
+    'nested member is not the member' => ['{"_meta":{"resultType":"x"}}', 'resultType', '"complete"', '{"_meta":{"resultType":"x"},"resultType":"complete"}'],
+]);
+
+it('sets nothing in JSON that is not an object', function (string $json): void {
+    expect(RawJson::put($json, 'a', '1'))->toBeNull();
+})->with([
+    'array' => ['[{"a":1}]'],
+    'unterminated' => ['{"a":1,'],
+    'empty' => [''],
+]);

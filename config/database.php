@@ -34,16 +34,22 @@ return [
 
     'connections' => [
 
+        // Locally SQLite also holds the cache, so overlapping requests (an MCP
+        // client's calls, each counted by the rate limiter) write at once.
+        // Immediate transactions take the write lock up front, so the busy
+        // timeout makes the second wait its turn; a deferred one fails with
+        // "database is locked" when it tries to upgrade its read lock. WAL
+        // lets readers carry on while another request writes.
         'sqlite' => [
             'driver' => 'sqlite',
             'url' => env('DB_URL'),
             'database' => env('DB_DATABASE', database_path('database.sqlite')),
             'prefix' => '',
             'foreign_key_constraints' => env('DB_FOREIGN_KEYS', true),
-            'busy_timeout' => null,
-            'journal_mode' => null,
+            'busy_timeout' => 5000,
+            'journal_mode' => 'wal',
             'synchronous' => null,
-            'transaction_mode' => 'DEFERRED',
+            'transaction_mode' => 'IMMEDIATE',
         ],
 
         'mysql' => [
