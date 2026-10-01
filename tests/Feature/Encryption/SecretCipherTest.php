@@ -82,11 +82,11 @@ it('refuses to decrypt without a master key', function (): void {
     resolve(SecretCipher::class)->decrypt($user->id, $ciphertext);
 })->throws(MasterKeyException::class, 'NEXUS_MASTER_KEY is not set');
 
-it('fails to encrypt a value JSON cannot encode without keeping the secrets in the exception', function (): void {
+it('fails to encrypt a value JSON cannot encode without keeping the secrets in the exception', function (mixed $unencodable): void {
     ini_set('zend.exception_ignore_args', '0');
     $user = User::factory()->create();
 
-    expect(fn (): string => resolve(SecretCipher::class)->encrypt($user->id, ['token' => 'sk-live-123', 'invalid' => "\xB1"]))
+    expect(fn (): string => resolve(SecretCipher::class)->encrypt($user->id, ['token' => 'sk-live-123', 'invalid' => $unencodable]))
         ->toThrow(function (EncryptException $exception): void {
             $capturedSensitiveArguments = collect($exception->getTrace())
                 ->flatMap(fn (array $frame): array => $frame['args'] ?? [])
@@ -97,7 +97,23 @@ it('fails to encrypt a value JSON cannot encode without keeping the secrets in t
                 ->and($capturedSensitiveArguments)->toBeTrue()
                 ->and(TraceArguments::contain($exception, 'sk-live-123'))->toBeFalse();
         });
-});
+})->with([
+    'invalid UTF-8' => "\xB1",
+    'a value whose jsonSerialize() throws an exception' => fn (): JsonSerializable => new class implements JsonSerializable
+    {
+        public function jsonSerialize(): never
+        {
+            throw new RuntimeException('Synthetic encoding failure');
+        }
+    },
+    'a value whose jsonSerialize() throws an error' => fn (): JsonSerializable => new class implements JsonSerializable
+    {
+        public function jsonSerialize(): never
+        {
+            throw new Error('Synthetic encoding error');
+        }
+    },
+]);
 
 it('never puts the configured master key in an exception', function (): void {
     ini_set('zend.exception_ignore_args', '0');

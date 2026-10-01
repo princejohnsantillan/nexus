@@ -8,8 +8,8 @@ use App\Concerns\KeepsSecretsInMemory;
 use Illuminate\Contracts\Encryption\DecryptException;
 use Illuminate\Contracts\Encryption\EncryptException;
 use Illuminate\Encryption\Encrypter;
-use JsonException;
 use SensitiveParameter;
+use Throwable;
 
 /**
  * Encrypts and decrypts a user's secrets (tokens, header values, client
@@ -53,8 +53,10 @@ final readonly class SecretCipher
     }
 
     /**
-     * A JsonException's trace keeps the native json_encode() frame, secrets
-     * and all, so it is replaced by an exception that starts here instead.
+     * Anything thrown inside json_encode(), its own JsonException or an error
+     * from a value's jsonSerialize(), carries the native frame with the
+     * secrets in its trace, so it is replaced, unchained, by an exception
+     * that starts here instead.
      *
      * @param  array<array-key, mixed>  $secrets
      */
@@ -62,7 +64,7 @@ final readonly class SecretCipher
     {
         try {
             return json_encode($secrets, JSON_THROW_ON_ERROR);
-        } catch (JsonException) {
+        } catch (Throwable) {
             throw new EncryptException('The secrets could not be encoded as JSON.');
         }
     }
