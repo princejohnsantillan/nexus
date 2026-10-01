@@ -173,6 +173,16 @@ describe('a sign-in the server won\'t renew', function (): void {
             ->and($this->connection->refresh()->last_error ?? '')->not->toContain(DownstreamCanary::TEXT)
             ->and($this->canary->sightings())->toBe([]);
     })->with(DownstreamCanary::tokenEndpointFailures());
+
+    it('renews with a token that states an odd lifetime, as a token without one', function (mixed $expiresIn): void {
+        $this->server->authorizationServer()->issuingTokensFor(null)->withTokenFields(['expires_in' => $expiresIn, 'workspace_name' => DownstreamCanary::TEXT]);
+
+        $this->client->callTool('notion__search')->assertOk()->assertJsonPath('result.isError', false);
+
+        expect($this->connection->refresh()->secrets->get('expires_at'))->toBeNull()
+            ->and(ActivityEntry::query()->sole()->status)->toBe(ActivityStatus::Ok)
+            ->and($this->canary->sightings())->toBe([]);
+    })->with(DownstreamCanary::oddTokenLifetimes());
 });
 
 describe('a session whose time runs out', function (): void {

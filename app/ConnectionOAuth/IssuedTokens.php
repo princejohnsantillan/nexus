@@ -22,8 +22,15 @@ final readonly class IssuedTokens
     private const string ACCESS_TOKEN_PATTERN = '/^[\x21-\x7E]+\z/';
 
     /**
+     * The longest lifetime an access token's `expires_in` may state, in
+     * seconds: ten years. A longer one, which could overflow the expiry,
+     * counts as not stated.
+     */
+    private const int LONGEST_LIFETIME = 10 * 365 * 24 * 60 * 60;
+
+    /**
      * @param  string|null  $refreshToken  Null when the server issued none, or (on renewal) kept the one Nexus has.
-     * @param  int|null  $expiresAt  When the access token expires, as a Unix timestamp; null when the server didn't say.
+     * @param  int|null  $expiresAt  When the access token expires, as a Unix timestamp; null when the server didn't say, or said something Nexus can't use.
      * @param  string|null  $accountIdentity  The account the response says was signed in to (see DetectAccountIdentity), or null when it doesn't say.
      */
     public function __construct(
@@ -53,8 +60,24 @@ final readonly class IssuedTokens
         return new self(
             accessToken: $accessToken,
             refreshToken: is_string($refreshToken) && $refreshToken !== '' ? $refreshToken : null,
-            expiresAt: is_int($expiresIn) || (is_string($expiresIn) && ctype_digit($expiresIn)) ? now()->getTimestamp() + (int) $expiresIn : null,
+            expiresAt: self::expiresAt($expiresIn),
             accountIdentity: $accountIdentity,
         );
+    }
+
+    /**
+     * When an access token expires, from the `expires_in` it was issued
+     * with: a whole number of seconds (or its digits as a string) up to
+     * LONGEST_LIFETIME. Anything else counts as not stated.
+     */
+    private static function expiresAt(mixed $expiresIn): ?int
+    {
+        $seconds = match (true) {
+            is_int($expiresIn) => $expiresIn,
+            is_string($expiresIn) && ctype_digit($expiresIn) => (int) $expiresIn,
+            default => null,
+        };
+
+        return $seconds !== null && $seconds >= 0 && $seconds <= self::LONGEST_LIFETIME ? now()->getTimestamp() + $seconds : null;
     }
 }

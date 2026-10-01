@@ -186,6 +186,18 @@ describe('the callback', function (): void {
             ->and($this->canary->sightings())->toBe([]);
     })->with(DownstreamCanary::tokenEndpointFailures());
 
+    it('finishes a sign-in whose token states an odd lifetime, as a token without one', function (mixed $expiresIn): void {
+        $this->auth->issuingTokensFor(null)->withTokenFields(['expires_in' => $expiresIn, 'workspace_name' => DownstreamCanary::TEXT]);
+        $location = ConnectionOAuthFlow::start($this, $this->connection);
+
+        $this->get($this->auth->approve($location))
+            ->assertRedirect(route('connections.show', $this->connection))
+            ->assertSessionHas('toast', ['variant' => 'success', 'text' => 'Signed in. Nexus loaded 1 tool.']);
+
+        expect($this->connection->refresh()->secrets->get('expires_at'))->toBeNull()
+            ->and($this->canary->sightings())->toBe([]);
+    })->with(DownstreamCanary::oddTokenLifetimes());
+
     it('refuses a malformed token endpoint in Nexus\'s words', function (): void {
         $this->auth->withMetadata(['token_endpoint' => 'https://auth.example.com:'.DownstreamCanary::TEXT.'/token']);
         $location = ConnectionOAuthFlow::start($this, $this->connection);

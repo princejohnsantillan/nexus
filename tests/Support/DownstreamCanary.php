@@ -41,7 +41,9 @@ use Throwable;
  *
  * failures(), someFailures() and tokenEndpointFailures() are datasets of
  * the ways a server can fail, each carrying the text, for
- * FakeMcpServer::respondTo() and FakeAuthorizationServer::respondTo().
+ * FakeMcpServer::respondTo() and FakeAuthorizationServer::respondTo();
+ * oddTokenLifetimes() are lifetimes a token response can state that Nexus
+ * can't use.
  */
 final class DownstreamCanary
 {
@@ -133,6 +135,25 @@ final class DownstreamCanary
             'an access token that can\'t be sent' => [fn (): PromiseInterface => Http::response(['access_token' => $text."\n", 'token_type' => 'Bearer', 'expires_in' => 3600], 200)],
             'a broken connection' => [self::brokenConnection(...)],
             'a transfer error carrying the response' => [self::brokenTransfer(...)],
+        ];
+    }
+
+    /**
+     * Lifetimes (`expires_in`) a token response can state that Nexus can't
+     * use, as a dataset: each should count as no stated expiry.
+     *
+     * @return array<string, array{mixed}>
+     */
+    public static function oddTokenLifetimes(): array
+    {
+        return [
+            'the largest integer' => [PHP_INT_MAX],
+            'digits beyond the largest integer' => [str_repeat('9', 30)],
+            'more than ten years' => [10 * 365 * 24 * 60 * 60 + 1],
+            'a negative lifetime' => [-60],
+            'a fraction' => [3600.5],
+            'a decimal string' => ['3600.5'],
+            'not a number' => [self::TEXT],
         ];
     }
 
