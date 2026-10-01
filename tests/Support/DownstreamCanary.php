@@ -25,7 +25,7 @@ use Throwable;
 
 /**
  * Distinctive text for a fake downstream server to send, and a watch over
- * every place Nexus must never copy it to:
+ * every place Nexus must never copy it, or even its start (PREFIX), to:
  *
  *     $canary = DownstreamCanary::watch();
  *     // … a server answers with DownstreamCanary::TEXT in its error …
@@ -49,6 +49,14 @@ final class DownstreamCanary
      * The text a fake server sends in its errors, response bodies and headers.
      */
     public const string TEXT = 'canary-9f2c-downstream-text';
+
+    /**
+     * The start of the text, which is still distinctive. A stack trace
+     * written as text keeps only the first 15 bytes of each string argument,
+     * so an argument holding the text after a few other characters (such as
+     * `{"` in a JSON body) shows only this much of it.
+     */
+    public const string PREFIX = 'canary-9f2c';
 
     /**
      * Where the text turned up in the log so far. Only text is kept, never
@@ -122,6 +130,7 @@ final class DownstreamCanary
             'HTTP 500' => [fn (): PromiseInterface => Http::response($text, 500)],
             'malformed JSON' => [fn (): PromiseInterface => Http::response('{"access_token":"'.$text, 200)],
             'no access token' => [fn (): PromiseInterface => Http::response(['token_type' => $text], 200)],
+            'an access token that can\'t be sent' => [fn (): PromiseInterface => Http::response(['access_token' => $text."\n", 'token_type' => 'Bearer', 'expires_in' => 3600], 200)],
             'a broken connection' => [self::brokenConnection(...)],
             'a transfer error carrying the response' => [self::brokenTransfer(...)],
         ];
@@ -169,7 +178,7 @@ final class DownstreamCanary
             foreach (DB::table($table)->get() as $row) {
                 $columns = json_encode($row, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
 
-                if (str_contains($columns, self::TEXT)) {
+                if (str_contains($columns, self::PREFIX)) {
                     $sightings[] = "{$table} row: {$columns}";
                 }
             }
@@ -190,12 +199,12 @@ final class DownstreamCanary
             context: $logged->context,
         ));
 
-        if (str_contains($record, self::TEXT)) {
+        if (str_contains($record, self::PREFIX)) {
             $this->logSightings[] = 'log record: '.$record;
         }
 
         array_walk_recursive($logged->context, function (mixed $value): void {
-            if ($value instanceof Throwable && TraceArguments::contain($value, self::TEXT)) {
+            if ($value instanceof Throwable && TraceArguments::contain($value, self::PREFIX)) {
                 $this->logSightings[] = 'stack trace arguments of a logged '.$value::class;
             }
         });

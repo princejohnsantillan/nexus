@@ -61,7 +61,7 @@ final readonly class TokenEndpoint
         }
 
         return IssuedTokens::fromResponse($answer, $this->detectAccountIdentity->fromTokenResponse($answer))
-            ?? throw ConnectionSignInFailed::because(__('The server finished the sign-in without giving Nexus an access token.'));
+            ?? throw ConnectionSignInFailed::because(__('The server finished the sign-in without giving Nexus an access token it can use.'));
     }
 
     /**

@@ -8,6 +8,8 @@ use App\Jobs\RefreshCatalogInBackground;
 use App\Models\Connection;
 use App\Models\ConnectionPrompt;
 use App\Models\User;
+use Illuminate\Queue\TimeoutExceededException;
+use Illuminate\Queue\Worker;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Livewire\Livewire;
@@ -116,6 +118,34 @@ describe('on the queue', function (): void {
             ->and(DB::table('failed_jobs')->count())->toBe(0)
             ->and($this->canary->sightings())->toBe([]);
     });
+
+    it('records no arguments in the failed job of a refresh the worker stopped for taking too long', function (): void {
+        $recordedArguments = ini_set('zend.exception_ignore_args', '0');
+        $signals = [SIGALRM, SIGQUIT, SIGTERM, SIGINT, SIGUSR2, SIGCONT];
+        $handlers = array_map(pcntl_signal_get_handler(...), $signals);
+        FakeMcpServer::at()->withTools([['name' => 'search']])->beforeAnswering('tools/list', fn (): bool => posix_kill(getmypid(), SIGALRM));
+        $connection = Connection::factory()->for($this->user)->connected()->create();
+        Worker::$killOnTimeout = false;
+
+        try {
+            RefreshCatalogInBackground::dispatch($connection->id);
+            Artisan::call('queue:work', ['--stop-when-empty' => true, '--sleep' => 0]);
+
+            $exception = DB::table('failed_jobs')->sole()->exception;
+            $sightings = $this->canary->sightings();
+        } finally {
+            Worker::$killOnTimeout = true;
+            array_map(pcntl_signal(...), $signals, $handlers);
+            ini_set('zend.exception_ignore_args', (string) $recordedArguments);
+
+            // A job that timed out rolls back every open transaction, the test's too, so the failed job was committed.
+            DB::table('failed_jobs')->delete();
+        }
+
+        expect($exception)->toContain(TimeoutExceededException::class)
+            ->toContain('App\\Downstream\\DownstreamTransport->send()')
+            ->and($sightings)->toBe([]);
+    })->skip(! extension_loaded('pcntl') || ! extension_loaded('posix'), 'The worker only stops a job that takes too long with the pcntl extension.');
 
     it('reports a database that refuses the catalog without the server\'s text, failing no job', function (): void {
         DatabaseRefusal::newTools();

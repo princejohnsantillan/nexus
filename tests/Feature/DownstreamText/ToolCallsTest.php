@@ -97,6 +97,19 @@ describe('a server that fails', function (): void {
     });
 });
 
+it('answers a call whose credentials can\'t go in a header with Nexus\'s own message', function (): void {
+    FakeMcpServer::at()->withTools([['name' => 'search']]);
+    $connection = Connection::factory()->for($this->user)->connected()->withHeader('Bearer '.DownstreamCanary::TEXT."\nX-Injected: yes")->create(['name' => 'Legacy', 'handle' => 'legacy']);
+    ConnectionTool::factory()->for($connection)->create(['name' => 'search', 'definition' => '{"name":"search","annotations":{"readOnlyHint":true}}', 'read_only' => true]);
+
+    $response = toolCallsClientFor($connection)->callTool('legacy__search')->assertOk()->assertJsonPath('result.isError', true);
+
+    expect($response->json('result.content.0.text'))->toStartWith('Nexus could not call legacy__search on Legacy. Nexus can\'t send a request with this Connection\'s URL or credentials')
+        ->and($response->getContent())->not->toContain(DownstreamCanary::PREFIX)
+        ->and(ActivityEntry::query()->sole()->status)->toBe(ActivityStatus::NeedsAuth)
+        ->and($this->canary->sightings())->toBe([]);
+});
+
 describe('a sign-in the server won\'t renew', function (): void {
     beforeEach(function (): void {
         $this->freezeTime();

@@ -15,6 +15,7 @@ use Illuminate\Http\Client\HttpClientException;
 use Illuminate\Http\Client\Response as ClientResponse;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\Http;
+use InvalidArgumentException;
 use Laravel\Mcp\Client\Exceptions\TransportException;
 use Laravel\Mcp\Client\OAuth\WwwAuthenticateChallenge;
 use Laravel\Mcp\Client\Transport\HttpTransport;
@@ -35,7 +36,9 @@ use Throwable;
  *   has run out. So a slow handshake can't push a tool call past the web
  *   request's time limit.
  * - A failed request throws DownstreamRequestFailed with a Nexus-authored
- *   message. A server wants sign-in when it answers 401 or 403, or rejects
+ *   message. That includes a request the HTTP client can't even build,
+ *   such as one whose header would hold a line break: its exception's
+ *   trace would keep the header's value. A server wants sign-in when it answers 401 or 403, or rejects
  *   the token with an `invalid_token` challenge under another status (GitHub
  *   answers 400 to a malformed token). Other 4xx rejections stay laravel/mcp's TransportException, with
  *   the status as its code, because they tell the protocol to fall back from
@@ -142,6 +145,10 @@ final class DownstreamTransport extends HttpTransport
             $this->reset();
 
             throw $this->timedOut($exception) ? DownstreamRequestFailed::timedOut() : DownstreamRequestFailed::unreachable();
+        } catch (InvalidArgumentException) {
+            $this->reset();
+
+            throw DownstreamRequestFailed::unsendable();
         }
 
         $this->captureSessionId($response);

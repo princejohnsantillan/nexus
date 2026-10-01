@@ -119,6 +119,12 @@ final class RefreshCatalogInBackground implements ShouldBeUnique, ShouldQueue
     /**
      * Refresh the catalog, remembering the Connection as it was when the
      * refresh started, for failed().
+     *
+     * Exceptions record no arguments while it runs. The worker stops a
+     * refresh that takes too long with an exception made wherever the
+     * refresh happens to be, perhaps reading the server's answer, and the
+     * failed job keeps that exception's trace, which would otherwise show
+     * the start of each argument: the server's own text.
      */
     public function handle(DownstreamClient $downstream): void
     {
@@ -128,11 +134,19 @@ final class RefreshCatalogInBackground implements ShouldBeUnique, ShouldQueue
             return;
         }
 
-        Cache::put($this->startedFromKey(), $this->stateOf($connection), now()->addWeek());
+        $recordedArguments = ini_set('zend.exception_ignore_args', '1');
 
-        resolve(RefreshCatalog::class, ['downstream' => $downstream->withCallTimeout(self::CALL_TIMEOUT)])->handle($connection);
+        try {
+            Cache::put($this->startedFromKey(), $this->stateOf($connection), now()->addWeek());
 
-        Cache::forget($this->startedFromKey());
+            resolve(RefreshCatalog::class, ['downstream' => $downstream->withCallTimeout(self::CALL_TIMEOUT)])->handle($connection);
+
+            Cache::forget($this->startedFromKey());
+        } finally {
+            if (is_string($recordedArguments)) {
+                ini_set('zend.exception_ignore_args', $recordedArguments);
+            }
+        }
     }
 
     /**

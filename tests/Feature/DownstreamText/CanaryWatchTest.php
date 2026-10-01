@@ -23,6 +23,12 @@ it('spots the text in a log record', function (): void {
         ->and($this->canary->sightings()[0])->toStartWith('log record: ');
 });
 
+it('spots the start of the text, as a stack trace keeps it', function (): void {
+    Log::error('Stack trace: #0 RawJson::member(\'{"'.substr(DownstreamCanary::TEXT, 0, 13).'...\', \'id\')');
+
+    expect($this->canary->sightings())->toHaveCount(1);
+});
+
 it('spots the text in an exception a log record carries, and in the exceptions it wraps', function (): void {
     report(new RuntimeException('Nexus\'s own words', previous: new RuntimeException(DownstreamCanary::TEXT)));
 
@@ -43,7 +49,7 @@ it('spots the text in the stack trace arguments of a logged exception, where PHP
         ini_set('zend.exception_ignore_args', (string) $ignoredArguments);
     }
 
-    expect($this->canary->sightings())->toBe(['stack trace arguments of a logged '.RuntimeException::class]);
+    expect($this->canary->sightings())->toContain('stack trace arguments of a logged '.RuntimeException::class);
 });
 
 it('spots the text in a failed job and an activity entry', function (): void {
