@@ -8,6 +8,7 @@ use App\Filament\Resources\Connections\Pages\AddConnection;
 use App\Filament\Resources\Connections\Pages\CreateConnection;
 use App\Filament\Resources\Connections\Pages\EditConnection;
 use App\Filament\Resources\Connections\Pages\ListConnections;
+use App\Filament\Resources\Connections\RelationManagers\PromptsRelationManager;
 use App\Filament\Resources\Connections\RelationManagers\ToolsRelationManager;
 use App\Mcp\Downstream\AccountIdentity;
 use App\Mcp\Downstream\ConnectionCatalog;
@@ -202,6 +203,7 @@ class ConnectionResource extends Resource
     {
         return [
             ToolsRelationManager::class,
+            PromptsRelationManager::class,
         ];
     }
 

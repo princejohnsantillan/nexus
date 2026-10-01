@@ -10,9 +10,10 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
- * One proxied tool call. Metadata only: arguments and results are never stored.
+ * One proxied tool call or prompt fetch (`kind`). Metadata only: arguments
+ * and results are never stored.
  */
-#[Fillable(['user_id', 'vault_id', 'vault_token_id', 'via', 'connection_id', 'tool_name', 'status', 'duration_ms', 'response_bytes'])]
+#[Fillable(['user_id', 'vault_id', 'kind', 'vault_token_id', 'via', 'connection_id', 'tool_name', 'status', 'duration_ms', 'response_bytes'])]
 class ToolCallLog extends Model
 {
     use MassPrunable;

@@ -70,6 +70,14 @@ class Vault extends Model
     }
 
     /**
+     * @return HasMany<VaultPrompt, $this>
+     */
+    public function promptOverrides(): HasMany
+    {
+        return $this->hasMany(VaultPrompt::class);
+    }
+
+    /**
      * @return HasMany<VaultToken, $this>
      */
     public function tokens(): HasMany

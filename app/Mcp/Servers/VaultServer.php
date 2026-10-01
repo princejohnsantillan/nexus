@@ -3,6 +3,8 @@
 namespace App\Mcp\Servers;
 
 use App\Mcp\Methods\CallVaultTool;
+use App\Mcp\Methods\GetVaultPrompt;
+use App\Mcp\Methods\ListVaultPrompts;
 use App\Mcp\Methods\ListVaultTools;
 use App\Mcp\Vaults\VaultContext;
 use App\Mcp\Vaults\VaultInstructions;
@@ -25,12 +27,17 @@ class VaultServer extends Server
         self::CAPABILITY_TOOLS => [
             'listChanged' => false,
         ],
+        self::CAPABILITY_PROMPTS => [
+            'listChanged' => false,
+        ],
     ];
 
     protected function boot(): void
     {
         $this->addMethod('tools/list', ListVaultTools::class);
         $this->addMethod('tools/call', CallVaultTool::class);
+        $this->addMethod('prompts/list', ListVaultPrompts::class);
+        $this->addMethod('prompts/get', GetVaultPrompt::class);
 
         $vault = app(VaultContext::class)->vault;
 

@@ -4,6 +4,7 @@ namespace App\Mcp\Downstream;
 
 use App\Enums\ConnectionStatus;
 use App\Models\Connection;
+use App\Models\VaultPrompt;
 use App\Models\VaultTool;
 use Illuminate\Support\Facades\DB;
 use stdClass;
@@ -83,9 +84,54 @@ class ConnectionCatalog
             ])->save();
         });
 
+        $this->refreshPrompts($connection, $session);
         $this->detectIdentity($connection, $session, $tools);
 
         return count($tools);
+    }
+
+    /**
+     * Cache the server's prompts, if it has any. A server whose prompts/list
+     * fails keeps its previous prompts rather than failing the whole refresh:
+     * tools are what matter most.
+     */
+    protected function refreshPrompts(Connection $connection, DownstreamSession $session): void
+    {
+        try {
+            $prompts = $session->offersPrompts() ? $session->listPrompts() : [];
+        } catch (Throwable $exception) {
+            report($exception);
+
+            return;
+        }
+
+        $prompts = array_values(array_filter(
+            $prompts,
+            fn (stdClass $prompt): bool => preg_match(self::NAME_PATTERN, $prompt->name) === 1,
+        ));
+
+        DB::transaction(function () use ($connection, $prompts): void {
+            $names = [];
+
+            foreach ($prompts as $prompt) {
+                $names[] = $prompt->name;
+                $definition = (string) json_encode($prompt, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+
+                $connection->prompts()->updateOrCreate(['name' => $prompt->name], [
+                    'title' => is_string($prompt->title ?? null) ? $prompt->title : null,
+                    'description' => is_string($prompt->description ?? null) ? $prompt->description : null,
+                    'definition' => $definition,
+                    'definition_hash' => hash('sha256', $definition),
+                ]);
+            }
+
+            $connection->prompts()->whereNotIn('name', $names)->delete();
+
+            VaultPrompt::query()
+                ->where('connection_id', $connection->id)
+                ->whereNotIn('prompt_name', $names)
+                ->delete();
+        });
     }
 
     /**

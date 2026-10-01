@@ -6,6 +6,7 @@ use App\Enums\VaultAuthMode;
 use App\Filament\Resources\Vaults\Pages\CreateVault;
 use App\Filament\Resources\Vaults\Pages\EditVault;
 use App\Filament\Resources\Vaults\Pages\ListVaults;
+use App\Filament\Resources\Vaults\Pages\ManageVaultPrompts;
 use App\Filament\Resources\Vaults\Pages\ManageVaultTools;
 use App\Filament\Resources\Vaults\RelationManagers\ConnectedAppsRelationManager;
 use App\Filament\Resources\Vaults\RelationManagers\TokensRelationManager;
@@ -123,6 +124,7 @@ class VaultResource extends Resource
             ])
             ->recordActions([
                 static::manageToolsAction(),
+                static::managePromptsAction(),
                 EditAction::make(),
                 DeleteAction::make(),
             ]);
@@ -143,7 +145,17 @@ class VaultResource extends Resource
             'create' => CreateVault::route('/create'),
             'edit' => EditVault::route('/{record}/edit'),
             'tools' => ManageVaultTools::route('/{record}/tools'),
+            'prompts' => ManageVaultPrompts::route('/{record}/prompts'),
         ];
+    }
+
+    public static function managePromptsAction(): Action
+    {
+        return Action::make('prompts')
+            ->label('Prompts')
+            ->icon(Heroicon::OutlinedChatBubbleBottomCenterText)
+            ->color('gray')
+            ->url(fn (Vault $record): string => static::getUrl('prompts', ['record' => $record]));
     }
 
     public static function manageToolsAction(): Action

@@ -19,6 +19,7 @@ class EditVault extends EditRecord
     {
         return [
             VaultResource::manageToolsAction(),
+            VaultResource::managePromptsAction(),
             Action::make('rotateUrl')
                 ->label('Rotate URL')
                 ->icon(Heroicon::OutlinedArrowPath)

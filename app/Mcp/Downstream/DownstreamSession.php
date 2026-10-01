@@ -65,6 +65,54 @@ class DownstreamSession
     }
 
     /**
+     * Whether the server said it has prompts when the session opened.
+     */
+    public function offersPrompts(): bool
+    {
+        return array_key_exists('prompts', $this->client->capabilities());
+    }
+
+    /**
+     * Every prompt the server advertises, exactly as it sent them.
+     *
+     * @return list<stdClass>
+     */
+    public function listPrompts(): array
+    {
+        $this->transport->takeReceived();
+
+        $accepted = $this->client->prompts()->keys()->flip();
+
+        $prompts = [];
+
+        foreach ($this->rawResults() as $result) {
+            foreach (is_array($result->prompts ?? null) ? $result->prompts : [] as $prompt) {
+                if ($prompt instanceof stdClass && is_string($prompt->name ?? null) && $accepted->has($prompt->name)) {
+                    $prompts[$prompt->name] = $prompt;
+                }
+            }
+        }
+
+        return array_values($prompts);
+    }
+
+    /**
+     * Fetch a prompt and return the server's result object unchanged.
+     *
+     * @param  array<string, mixed>  $arguments
+     */
+    public function getPrompt(string $name, array $arguments): stdClass
+    {
+        $this->transport->takeReceived();
+
+        $this->client->getPrompt($name, $arguments);
+
+        $results = $this->rawResults();
+
+        return end($results) ?: new stdClass;
+    }
+
+    /**
      * @return list<stdClass>
      */
     protected function rawResults(): array

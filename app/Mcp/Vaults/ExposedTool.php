@@ -70,10 +70,19 @@ final class ExposedTool
      */
     protected function accountLabel(): string
     {
-        $label = $this->connection->accountSummary();
+        return self::labelFor($this->connection, $this->hasSiblings);
+    }
 
-        if ($this->hasSiblings && filled($this->connection->description)) {
-            $label .= ' — use for: '.Str::limit($this->connection->description, self::USE_FOR_LIMIT);
+    /**
+     * The account label that leads tool and prompt descriptions: the
+     * account, plus what it's for when the vault has several of its service.
+     */
+    public static function labelFor(Connection $connection, bool $hasSiblings): string
+    {
+        $label = $connection->accountSummary();
+
+        if ($hasSiblings && filled($connection->description)) {
+            $label .= ' — use for: '.Str::limit($connection->description, self::USE_FOR_LIMIT);
         }
 
         return $label;

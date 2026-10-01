@@ -11,11 +11,14 @@ use App\Filament\Resources\Connections\Pages\ListConnections;
 use App\Filament\Resources\ToolCallLogs\ToolCallLogResource;
 use App\Filament\Resources\Vaults\Pages\CreateVault;
 use App\Filament\Resources\Vaults\Pages\EditVault;
+use App\Filament\Resources\Vaults\Pages\ManageVaultPrompts;
 use App\Filament\Resources\Vaults\Pages\ManageVaultTools;
 use App\Filament\Resources\Vaults\RelationManagers\TokensRelationManager;
 use App\Filament\Resources\Vaults\VaultResource;
+use App\Mcp\Vaults\VaultPrompts;
 use App\Mcp\Vaults\VaultToolset;
 use App\Models\Connection;
+use App\Models\ConnectionPrompt;
 use App\Models\ConnectionTool;
 use App\Models\User;
 use App\Models\Vault;
@@ -287,5 +290,23 @@ class AdminPanelTest extends TestCase
             ->assertTableColumnStateSet('open_world', 'no', $declared)
             ->assertTableColumnStateSet('idempotent', 'unsaid', $silent)
             ->assertTableColumnStateSet('open_world', 'unsaid', $silent);
+    }
+
+    public function test_prompts_can_be_switched_off_per_vault_and_show_on_their_connection(): void
+    {
+        $connection = Connection::factory()->for($this->user)->create(['handle' => 'notion']);
+        $prompt = ConnectionPrompt::factory()->for($connection)->create(['name' => 'make-this-a-notion-page']);
+        $vault = Vault::factory()->for($this->user)->create();
+        $vault->connections()->attach($connection);
+
+        Livewire::test(ManageVaultPrompts::class, ['record' => $vault->getKey()])
+            ->assertCanSeeTableRecords([$prompt])
+            ->assertTableColumnStateSet('enabled', true, $prompt)
+            ->call('updateTableColumnState', 'enabled', (string) $prompt->getKey(), false);
+
+        $this->assertSame([], app(VaultPrompts::class)->enabled($vault)->all());
+
+        $this->get(VaultResource::getUrl('prompts', ['record' => $vault]))->assertOk();
+        $this->get(ConnectionResource::getUrl('edit', ['record' => $connection]))->assertOk();
     }
 }

@@ -69,6 +69,14 @@ class Connection extends Model
     }
 
     /**
+     * @return HasMany<ConnectionPrompt, $this>
+     */
+    public function prompts(): HasMany
+    {
+        return $this->hasMany(ConnectionPrompt::class)->orderBy('name');
+    }
+
+    /**
      * @return BelongsToMany<Vault, $this>
      */
     public function vaults(): BelongsToMany

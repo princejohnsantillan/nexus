@@ -7,8 +7,10 @@ use App\Mcp\Downstream\AccountIdentity;
 use App\Mcp\Downstream\ConnectionCatalog;
 use App\Mcp\Downstream\ConnectionNeedsAuth;
 use App\Models\Connection;
+use App\Models\ConnectionPrompt;
 use App\Models\ConnectionTool;
 use App\Models\Vault;
+use App\Models\VaultPrompt;
 use App\Models\VaultTool;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Support\FakeMcpServer;
@@ -220,5 +222,63 @@ class ConnectionCatalogTest extends TestCase
         $this->assertFalse($tools['declared']->open_world);
         $this->assertNull($tools['silent']->idempotent);
         $this->assertNull($tools['silent']->open_world);
+    }
+
+    public function test_prompts_are_cached_exactly_as_sent(): void
+    {
+        $connection = Connection::factory()->create(['url' => 'https://svc.example.com/mcp']);
+
+        $server = (new FakeMcpServer)->fake();
+        $server->promptsJson = '[{"name":"troubleshoot-exception","title":"Troubleshoot","description":"Look into an exception.","arguments":[{"name":"issue","required":true}]}]';
+
+        app(ConnectionCatalog::class)->refresh($connection);
+
+        $prompt = $connection->prompts()->sole();
+        $this->assertSame('troubleshoot-exception', $prompt->name);
+        $this->assertSame('Troubleshoot', $prompt->title);
+        $this->assertSame([['name' => 'issue', 'required' => true]], $prompt->arguments());
+    }
+
+    public function test_prompts_that_disappear_are_removed_with_their_vault_switches(): void
+    {
+        $connection = Connection::factory()->create(['url' => 'https://svc.example.com/mcp']);
+        $gone = ConnectionPrompt::factory()->for($connection)->create(['name' => 'old-prompt']);
+        $vault = Vault::factory()->for($connection->user)->create();
+        VaultPrompt::query()->create(['vault_id' => $vault->id, 'connection_id' => $connection->id, 'prompt_name' => 'old-prompt', 'enabled' => false]);
+
+        $server = (new FakeMcpServer)->fake();
+        $server->promptsJson = '[{"name":"new-prompt"}]';
+
+        app(ConnectionCatalog::class)->refresh($connection);
+
+        $this->assertModelMissing($gone);
+        $this->assertSame(['new-prompt'], $connection->prompts()->pluck('name')->all());
+        $this->assertSame(0, VaultPrompt::query()->count());
+    }
+
+    public function test_servers_without_prompts_are_not_asked_for_them(): void
+    {
+        $connection = Connection::factory()->create(['url' => 'https://svc.example.com/mcp']);
+        ConnectionPrompt::factory()->for($connection)->create();
+
+        $server = (new FakeMcpServer)->fake();
+
+        app(ConnectionCatalog::class)->refresh($connection);
+
+        $this->assertSame([], $server->received('prompts/list'));
+        $this->assertSame(0, $connection->prompts()->count());
+    }
+
+    public function test_a_failing_prompt_list_keeps_the_old_prompts_and_still_refreshes_tools(): void
+    {
+        $connection = Connection::factory()->create(['url' => 'https://svc.example.com/mcp']);
+        ConnectionPrompt::factory()->for($connection)->create(['name' => 'kept']);
+
+        $server = (new FakeMcpServer)->fake();
+        $server->failPromptList = true;
+        $server->toolsJson = '[{"name":"search","inputSchema":{"type":"object"}}]';
+
+        $this->assertSame(1, app(ConnectionCatalog::class)->refresh($connection));
+        $this->assertSame(['kept'], $connection->prompts()->pluck('name')->all());
     }
 }

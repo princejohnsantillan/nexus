@@ -40,6 +40,15 @@ class FakeMcpServer
      */
     public string|array|null $requireAuthorization = null;
 
+    /** The raw JSON of the prompts/list result's "prompts" array; null means no prompts capability. */
+    public ?string $promptsJson = null;
+
+    /** @var (Closure(stdClass): string)|null Returns the raw JSON of a prompts/get result. */
+    public ?Closure $onGetPrompt = null;
+
+    /** Answer prompts/list with a JSON-RPC error, like a server that advertises prompts but fails. */
+    public bool $failPromptList = false;
+
     /** The scope the 401 challenge asks for, if any. */
     public ?string $challengeScope = 'read write';
 
@@ -85,19 +94,44 @@ class FakeMcpServer
 
         return match ($message->method) {
             'server/discover' => $this->modern
-                ? $this->result($message, '{"supportedVersions":["2026-07-28"],"capabilities":{"tools":{}},"_meta":{"io.modelcontextprotocol/serverInfo":{"name":"fake","version":"1.0.0"}}}')
+                ? $this->result($message, json_encode(['supportedVersions' => ['2026-07-28'], 'capabilities' => $this->capabilities(), '_meta' => ['io.modelcontextprotocol/serverInfo' => ['name' => 'fake', 'version' => '1.0.0']]]))
                 : $this->error($message, -32601, 'Method not found'),
             'initialize' => $this->result($message, json_encode([
                 'protocolVersion' => $this->initializeVersion,
-                'capabilities' => ['tools' => new stdClass],
+                'capabilities' => $this->capabilities(),
                 'serverInfo' => ['name' => 'fake', 'version' => '1.0.0'],
             ])),
             'tools/list' => $this->result($message, '{"tools":'.$this->toolsJson.'}'),
+            'prompts/list' => $this->failPromptList
+                ? $this->error($message, -32603, 'Prompts are broken')
+                : $this->result($message, '{"prompts":'.($this->promptsJson ?? '[]').'}'),
+            'prompts/get' => $this->result($message, $this->onGetPrompt instanceof Closure
+                ? ($this->onGetPrompt)($message)
+                : '{"messages":[{"role":"user","content":{"type":"text","text":"Do the thing."}}]}'),
             'tools/call' => $this->result($message, $this->onCall instanceof Closure
                 ? ($this->onCall)($message)
                 : '{"content":[{"type":"text","text":"ok"}],"isError":false}'),
             default => $this->error($message, -32601, 'Method not found'),
         };
+    }
+
+    /**
+     * @return array<string, stdClass>
+     */
+    protected function capabilities(): array
+    {
+        return array_filter([
+            'tools' => new stdClass,
+            'prompts' => $this->promptsJson === null && ! $this->failPromptList ? null : new stdClass,
+        ]);
+    }
+
+    /**
+     * @return list<stdClass>
+     */
+    public function received(string $method): array
+    {
+        return array_values(array_filter($this->received, fn (stdClass $message): bool => ($message->method ?? null) === $method));
     }
 
     /**

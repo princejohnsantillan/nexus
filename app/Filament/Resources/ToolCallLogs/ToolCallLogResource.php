@@ -39,10 +39,14 @@ class ToolCallLogResource extends Resource
         return $table
             ->modifyQueryUsing(fn (Builder $query): Builder => $query->with('vault'))
             ->defaultSort('created_at', 'desc')
-            ->description('Metadata only: Nexus never stores tool arguments or results. Kept for '.config('nexus.logs.retention_days').' days.')
+            ->description('Metadata only: Nexus never stores arguments, results or prompt contents. Kept for '.config('nexus.logs.retention_days').' days.')
             ->columns([
                 TextColumn::make('created_at')->label('When')->since()->dateTimeTooltip()->sortable(),
-                TextColumn::make('tool_name')->label('Tool')->fontFamily('mono')->searchable(),
+                TextColumn::make('tool_name')
+                    ->label('Tool or prompt')
+                    ->fontFamily('mono')
+                    ->description(fn (ToolCallLog $record): ?string => $record->kind === 'prompt' ? 'Prompt' : null)
+                    ->searchable(),
                 TextColumn::make('vault.name')->label('Vault'),
                 TextColumn::make('via')->label('Via')->placeholder('Unknown'),
                 TextColumn::make('status')->badge(),
@@ -52,6 +56,7 @@ class ToolCallLogResource extends Resource
             ->filters([
                 SelectFilter::make('vault_id')->label('Vault')->relationship('vault', 'name', fn (Builder $query): Builder => $query->where('user_id', auth()->id())),
                 SelectFilter::make('status')->options(ToolCallStatus::class),
+                SelectFilter::make('kind')->options(['tool' => 'Tool calls', 'prompt' => 'Prompts']),
             ]);
     }
 

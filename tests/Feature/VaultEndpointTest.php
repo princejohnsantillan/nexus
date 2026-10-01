@@ -5,8 +5,10 @@ namespace Tests\Feature;
 use App\Enums\ConnectionStatus;
 use App\Enums\ToolCallStatus;
 use App\Mcp\Vaults\VaultInstructions;
+use App\Mcp\Vaults\VaultPrompts;
 use App\Mcp\Vaults\VaultToolset;
 use App\Models\Connection;
+use App\Models\ConnectionPrompt;
 use App\Models\ConnectionTool;
 use App\Models\ToolCallLog;
 use App\Models\Vault;
@@ -77,7 +79,8 @@ class VaultEndpointTest extends TestCase
             ->assertJsonPath('result.protocolVersion', '2025-11-25')
             ->assertJsonPath('result.serverInfo.name', 'Nexus: Work')
             ->assertJsonPath('result.capabilities.tools.listChanged', false)
-            ->assertJsonMissingPath('result.capabilities.prompts');
+            ->assertJsonPath('result.capabilities.prompts.listChanged', false)
+            ->assertJsonMissingPath('result.capabilities.resources');
     }
 
     public function test_tools_are_listed_under_the_connection_handle_with_schemas_untouched(): void
@@ -323,6 +326,78 @@ class VaultEndpointTest extends TestCase
         ]);
 
         return $connection;
+    }
+
+    public function test_prompts_are_listed_under_the_connection_handle(): void
+    {
+        $this->prompt('summarize-channel', '[{"name":"channel","description":"Which channel","required":true}]');
+
+        $this->rpc('prompts/list')
+            ->assertOk()
+            ->assertJsonPath('result.prompts.0.name', 'slack__summarize-channel')
+            ->assertJsonPath('result.prompts.0.description', '[Slack] Summarize a channel.')
+            ->assertJsonPath('result.prompts.0.arguments.0.name', 'channel')
+            ->assertJsonPath('result.prompts.0.arguments.0.required', true);
+    }
+
+    public function test_prompts_are_on_until_switched_off(): void
+    {
+        $prompt = $this->prompt('summarize-channel');
+
+        $this->assertCount(1, $this->rpc('prompts/list')->json('result.prompts'));
+
+        app(VaultPrompts::class)->setEnabled($this->vault, $prompt, false);
+
+        $this->assertSame([], $this->rpc('prompts/list')->json('result.prompts'));
+        $this->rpc('prompts/get', ['name' => 'slack__summarize-channel'])->assertJsonPath('error.code', -32602);
+    }
+
+    public function test_getting_a_prompt_forwards_its_arguments_and_returns_the_messages_unchanged(): void
+    {
+        $this->prompt('summarize-channel');
+
+        $server = (new FakeMcpServer)->fake();
+        $server->requireAuthorization = 'Bearer downstream-key';
+        $server->onGetPrompt = fn (): string => '{"description":"Summary","messages":[{"role":"user","content":{"type":"text","text":"Summarize #deploys."}},{"role":"user","content":{"type":"resource","resource":{"uri":"slack://c/1","text":"…","_meta":{}}}}]}';
+
+        $response = $this->rpc('prompts/get', ['name' => 'slack__summarize-channel', 'arguments' => ['channel' => 'deploys']])
+            ->assertOk()
+            ->assertJsonPath('result.messages.0.content.text', 'Summarize #deploys.');
+
+        $this->assertStringContainsString('"_meta":{}', $response->getContent());
+
+        $get = $server->received('prompts/get')[0];
+        $this->assertSame('summarize-channel', $get->params->name);
+        $this->assertSame('deploys', $get->params->arguments->channel);
+
+        $log = ToolCallLog::query()->sole();
+        $this->assertSame('prompt', $log->kind);
+        $this->assertSame('slack__summarize-channel', $log->tool_name);
+    }
+
+    public function test_a_prompt_from_a_signed_out_connection_says_how_to_fix_it(): void
+    {
+        $this->prompt('summarize-channel');
+
+        $server = (new FakeMcpServer)->fake();
+        $server->requireAuthorization = 'Bearer rotated-key';
+
+        $this->rpc('prompts/get', ['name' => 'slack__summarize-channel'])
+            ->assertJsonPath('error.code', -32603)
+            ->assertJsonPath('error.message', fn (string $message): bool => str_contains($message, 'needs to be signed in again'));
+
+        $this->assertSame(ToolCallStatus::AuthRequired, ToolCallLog::query()->sole()->status);
+    }
+
+    protected function prompt(string $name, string $arguments = '[]'): ConnectionPrompt
+    {
+        $definition = '{"name":"'.$name.'","description":"Summarize a channel.","arguments":'.$arguments.'}';
+
+        return ConnectionPrompt::factory()->for($this->connection)->create([
+            'name' => $name,
+            'definition' => $definition,
+            'definition_hash' => hash('sha256', $definition),
+        ]);
     }
 
     protected function tool(string $name, bool $readOnly, string $schema = '{"type":"object","properties":{}}'): ConnectionTool
