@@ -9,6 +9,8 @@ it('sends guests to the welcome page', function (string $route): void {
 })->with([
     'stars' => 'stars.index',
     'connections' => 'connections.index',
+    'add connection' => 'connections.add',
+    'custom server' => 'connections.add-custom',
     'activity' => 'activity.index',
     'settings' => 'settings.index',
 ]);

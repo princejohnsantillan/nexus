@@ -24,6 +24,37 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Downstream servers
+    |--------------------------------------------------------------------------
+    |
+    | How long Nexus waits for a Connection's MCP server, in seconds. The
+    | connect timeout covers opening the connection and the handshake; the
+    | call timeout covers every other request, such as listing or calling
+    | tools. Laravel Cloud ends web requests after about 60 seconds, so the
+    | call timeout stays under that.
+    |
+    */
+
+    'downstream' => [
+        'connect_timeout' => (float) env('NEXUS_DOWNSTREAM_CONNECT_TIMEOUT', 10),
+        'call_timeout' => (float) env('NEXUS_DOWNSTREAM_CALL_TIMEOUT', 55),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Limits
+    |--------------------------------------------------------------------------
+    |
+    | Signup is public, so every user's account has limits.
+    |
+    */
+
+    'limits' => [
+        'connections_per_user' => (int) env('NEXUS_CONNECTIONS_PER_USER', 25),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Dev Sign-in
     |--------------------------------------------------------------------------
     |

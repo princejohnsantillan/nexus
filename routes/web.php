@@ -20,6 +20,10 @@ Route::get('/dev/sign-in/{account}', DevSignInController::class)->name('dev.sign
 Route::middleware('auth')->group(function (): void {
     Route::livewire('/stars', 'pages::stars.index')->name('stars.index');
     Route::livewire('/connections', 'pages::connections.index')->name('connections.index');
+    Route::livewire('/connections/add', 'pages::connections.add')->name('connections.add');
+    Route::livewire('/connections/add/custom', 'pages::connections.add-custom')->name('connections.add-custom');
+    Route::livewire('/connections/{connection}', 'pages::connections.show')->name('connections.show');
+    Route::livewire('/connections/{connection}/tools', 'pages::connections.tools')->name('connections.tools');
     Route::livewire('/activity', 'pages::activity.index')->name('activity.index');
     Route::livewire('/settings', 'pages::settings.index')->name('settings.index');
 

@@ -1,0 +1,165 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Downstream;
+
+use App\Exceptions\DownstreamRequestFailed;
+use Closure;
+use Laravel\Mcp\Client\Exceptions\TransportException;
+use Laravel\Mcp\Exceptions\ClientException;
+use Laravel\Mcp\Exceptions\JsonRpcException;
+use stdClass;
+use Throwable;
+
+/**
+ * One conversation with a Connection's MCP server. It connects on the first
+ * request and reuses that connection for the rest.
+ *
+ * Tools and results come back exactly as the server sent them, decoded with
+ * objects kept as objects, so `{}` stays `{}` when they are encoded again.
+ * Every failure throws DownstreamRequestFailed, whose message never contains
+ * text from the server.
+ */
+final readonly class DownstreamSession
+{
+    /**
+     * How many pages of tools Nexus reads before deciding the server never stops.
+     */
+    private const int MAX_TOOL_PAGES = 100;
+
+    public function __construct(
+        private DownstreamMcpClient $client,
+        private DownstreamTransport $transport,
+    ) {}
+
+    /**
+     * Every tool the server lists, following its cursors page by page. Each
+     * tool appears once, under its name; entries without a name are skipped.
+     *
+     * @return list<stdClass>
+     *
+     * @throws DownstreamRequestFailed
+     */
+    public function listTools(): array
+    {
+        $this->connect();
+
+        return $this->attempt(function (): array {
+            $tools = [];
+            $cursor = null;
+            $seenCursors = [];
+
+            for ($page = 1; ; $page++) {
+                $this->client->send(new RawRequest('tools/list', $cursor === null ? [] : ['cursor' => $cursor]));
+
+                $result = $this->transport->takeLastResult();
+
+                if (! $result instanceof stdClass || ! is_array($result->tools ?? null)) {
+                    throw DownstreamRequestFailed::protocolError();
+                }
+
+                foreach ($result->tools as $tool) {
+                    if ($tool instanceof stdClass && is_string($tool->name ?? null)) {
+                        $tools[$tool->name] = $tool;
+                    }
+                }
+
+                $cursor = $result->nextCursor ?? null;
+
+                if (! is_string($cursor) || $cursor === '') {
+                    return array_values($tools);
+                }
+
+                if (isset($seenCursors[$cursor]) || $page === self::MAX_TOOL_PAGES) {
+                    throw DownstreamRequestFailed::protocolError();
+                }
+
+                $seenCursors[$cursor] = true;
+            }
+        });
+    }
+
+    /**
+     * Call a tool with the arguments exactly as given, and return the server's
+     * result unchanged, including results that report a tool error with
+     * `isError`. A JSON-RPC error instead of a result is a tool error.
+     *
+     * @throws DownstreamRequestFailed
+     */
+    public function callTool(string $name, stdClass $arguments): stdClass
+    {
+        $this->connect();
+
+        return $this->attempt(function () use ($name, $arguments): stdClass {
+            $this->client->send(new RawRequest('tools/call', ['name' => $name, 'arguments' => $arguments]));
+
+            return $this->transport->takeLastResult() ?? throw DownstreamRequestFailed::protocolError();
+        }, isToolCall: true);
+    }
+
+    /**
+     * Connect, unless already connected: `server/discover` where the server
+     * speaks 2026-07-28, else the `initialize` handshake.
+     *
+     * @throws DownstreamRequestFailed
+     */
+    private function connect(): void
+    {
+        $this->attempt(fn (): DownstreamMcpClient => $this->client->connect());
+    }
+
+    /**
+     * Run a request, turning laravel/mcp's exceptions into DownstreamRequestFailed.
+     *
+     * @template TResult
+     *
+     * @param  Closure(): TResult  $request
+     * @return TResult
+     *
+     * @throws DownstreamRequestFailed
+     */
+    private function attempt(Closure $request, bool $isToolCall = false): mixed
+    {
+        try {
+            return $request();
+        } catch (DownstreamRequestFailed $failed) {
+            throw $failed;
+        } catch (ClientException|JsonRpcException $exception) {
+            throw $this->classify($exception, $isToolCall);
+        }
+    }
+
+    /**
+     * Why a request failed. The protocol may wrap the exception that says
+     * why, e.g. when the fallback handshake fails too, so the whole chain is
+     * searched: first for a failure the transport or protocol already
+     * classified, then for a JSON-RPC error or an HTTP rejection.
+     */
+    private function classify(Throwable $exception, bool $isToolCall): DownstreamRequestFailed
+    {
+        $chain = [];
+
+        for ($cause = $exception; $cause instanceof Throwable; $cause = $cause->getPrevious()) {
+            if ($cause instanceof DownstreamRequestFailed) {
+                return $cause;
+            }
+
+            $chain[] = $cause;
+        }
+
+        foreach ($chain as $cause) {
+            if ($cause instanceof JsonRpcException) {
+                return $isToolCall
+                    ? DownstreamRequestFailed::toolError($cause->getCode())
+                    : DownstreamRequestFailed::jsonRpcError($cause->getCode());
+            }
+
+            if ($cause instanceof TransportException && $cause->getCode() >= 400 && $cause->getCode() < 500) {
+                return DownstreamRequestFailed::rejected($cause->getCode());
+            }
+        }
+
+        return DownstreamRequestFailed::protocolError();
+    }
+}
