@@ -76,6 +76,39 @@ it('creates a Star with the chosen Connections and opens it', function (): void 
     $this->get(route('stars.show', $star))->assertSeeText('Created Work.');
 });
 
+it('offers each access mode with a short explanation when creating a Star, tokens first', function (): void {
+    Livewire::test('pages::stars.index')
+        ->assertSet('accessMode', 'token')
+        ->assertSeeTextInOrder([
+            'Access mode',
+            'Bearer token', 'Clients send a token you create for each of them in a header.',
+            'Signed URL', 'One secret URL that works by itself, for clients that only take a URL.',
+        ]);
+});
+
+it('creates a Star that clients reach with its signed URL', function (): void {
+    Livewire::test('pages::stars.index')
+        ->set('name', 'Web')
+        ->set('accessMode', 'signed_url')
+        ->call('create')
+        ->assertHasNoErrors();
+
+    $star = $this->user->stars()->sole();
+
+    expect($star->access_mode)->toBe(StarAccessMode::SignedUrl);
+    $this->get(route('stars.index'))->assertSeeTextInOrder(['Web', 'Signed URL']);
+});
+
+it('refuses an access mode that does not exist', function (): void {
+    Livewire::test('pages::stars.index')
+        ->set('name', 'Work')
+        ->set('accessMode', 'open')
+        ->call('create')
+        ->assertHasErrors(['accessMode']);
+
+    expect(Star::query()->count())->toBe(0);
+});
+
 it('creates a Star without Connections, which can be added later', function (): void {
     Livewire::test('pages::stars.index')
         ->assertSeeText('You can create the Star now and add Connections to it later.')

@@ -4,16 +4,22 @@
     <div class="mt-8 space-y-10">
         <section aria-labelledby="endpoint-heading">
             <flux:heading size="lg" level="2" id="endpoint-heading">{{ __('Endpoint') }}</flux:heading>
-            <flux:text class="mt-1">{{ __('Add this URL to your MCP client. It stays the same when you rename the Star.') }}</flux:text>
+            @if ($star->access_mode === App\Enums\StarAccessMode::SignedUrl)
+                <flux:text class="mt-1">{{ __('Add this signed URL to your MCP client. It works by itself, so anyone who has it can use the Star: keep it private, and rotate it on the Access page if it leaks.') }}</flux:text>
+            @else
+                <flux:text class="mt-1">{{ __('Add this URL to your MCP client. It stays the same when you rename the Star.') }}</flux:text>
+            @endif
 
             <div class="mt-4 max-w-xl">
-                <flux:input :value="$star->endpointUrl()" readonly copyable class:input="font-mono" :aria-label="__('Endpoint URL')" />
+                <flux:input :value="$star->clientUrl()" readonly copyable class:input="font-mono" :aria-label="__('Endpoint URL')" />
             </div>
 
             <dl class="mt-4 max-w-xl divide-y divide-zinc-200 border-y border-zinc-200 dark:divide-zinc-700 dark:border-zinc-700">
                 <div class="grid gap-1 py-3 sm:grid-cols-3 sm:gap-4">
                     <dt><flux:text>{{ __('Access') }}</flux:text></dt>
-                    <dd class="sm:col-span-2"><flux:text variant="strong">{{ $star->access_mode->label() }}</flux:text></dd>
+                    <dd class="sm:col-span-2">
+                        <flux:link :href="route('stars.access', $star)" wire:navigate>{{ $star->access_mode->label() }}</flux:link>
+                    </dd>
                 </div>
 
                 <div class="grid gap-1 py-3 sm:grid-cols-3 sm:gap-4">
@@ -27,15 +33,23 @@
 
         <section aria-labelledby="setup-heading">
             <flux:heading size="lg" level="2" id="setup-heading">{{ __('Set up a client') }}</flux:heading>
-            <flux:text class="mt-1">
-                {{ __('Create a token on the') }}
-                <flux:link :href="route('stars.access', $star)" wire:navigate>{{ __('Access page') }}</flux:link>
-                {{ __('and put it in the :variable environment variable, e.g. in your shell profile. Each snippet below reads it from there, so the token never sits in a config file.', ['variable' => $this->tokenVariable]) }}
-            </flux:text>
+            @if ($star->access_mode === App\Enums\StarAccessMode::SignedUrl)
+                <flux:text class="mt-1">
+                    {{ __('Each snippet below holds the Star\'s signed URL and nothing else. Keep them out of shared or committed config files; if the URL leaks, rotate it on the') }}
+                    <flux:link :href="route('stars.access', $star)" wire:navigate>{{ __('Access page') }}</flux:link>
+                    {{ __('and set up your clients again.') }}
+                </flux:text>
+            @else
+                <flux:text class="mt-1">
+                    {{ __('Create a token on the') }}
+                    <flux:link :href="route('stars.access', $star)" wire:navigate>{{ __('Access page') }}</flux:link>
+                    {{ __('and put it in the :variable environment variable, e.g. in your shell profile. Each snippet below reads it from there, so the token never sits in a config file.', ['variable' => $this->tokenVariable]) }}
+                </flux:text>
 
-            <div class="mt-4 max-w-3xl">
-                <x-copyable-snippet :snippet="'export '.$this->tokenVariable.'=nxs_…'" />
-            </div>
+                <div class="mt-4 max-w-3xl">
+                    <x-copyable-snippet :snippet="'export '.$this->tokenVariable.'=nxs_…'" />
+                </div>
+            @endif
 
             <div class="mt-6 max-w-3xl space-y-6">
                 @foreach ($this->clientSetup as $setup)
@@ -44,6 +58,8 @@
                         <flux:text size="sm" class="mt-1">
                             @if ($setup['file'] !== null)
                                 {{ __('Add to') }} <span class="font-mono">{{ $setup['file'] }}</span>:
+                            @elseif ($setup['instruction'] !== null)
+                                {{ $setup['instruction'] }}
                             @else
                                 {{ __('Run in a terminal:') }}
                             @endif

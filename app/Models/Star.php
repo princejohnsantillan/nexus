@@ -16,6 +16,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Facades\URL;
 
 /**
  * One MCP server endpoint owned by a user, bundling some of their Connections.
@@ -173,5 +174,41 @@ class Star extends Model
     public function endpointUrl(): string
     {
         return route('mcp.star', $this);
+    }
+
+    /**
+     * The URL a client adds: the signed URL in signed-URL mode, otherwise
+     * the endpoint URL.
+     */
+    public function clientUrl(): string
+    {
+        return match ($this->access_mode) {
+            StarAccessMode::Token => $this->endpointUrl(),
+            StarAccessMode::SignedUrl => $this->signedUrl(),
+        };
+    }
+
+    /**
+     * The endpoint URL signed with the Star's signed URL version `v`, which
+     * works by itself in signed-URL mode until it is rotated.
+     *
+     * The signature covers the path and query, not the scheme and host, so
+     * the URL stays valid behind a proxy or under another of the app's
+     * domains. It is made with the app key, so changing APP_KEY without
+     * keeping the old one in APP_PREVIOUS_KEYS invalidates every signed URL.
+     */
+    public function signedUrl(): string
+    {
+        return url(URL::signedRoute('mcp.star', ['star' => $this, 'v' => $this->signed_url_version], absolute: false));
+    }
+
+    /**
+     * Give the Star a new signed URL, which stops the old one working at
+     * once. The version is incremented in the database, so two rotations
+     * at once both count.
+     */
+    public function rotateSignedUrl(): void
+    {
+        $this->increment('signed_url_version');
     }
 }

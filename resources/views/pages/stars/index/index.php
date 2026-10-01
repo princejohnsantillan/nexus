@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Actions\CreateStar;
+use App\Enums\StarAccessMode;
 use App\Models\Connection;
 use App\Models\Star;
 use App\Models\User;
@@ -22,6 +23,11 @@ return new #[Title('Stars')] class extends Component
     public string $name = '';
 
     public string $description = '';
+
+    /**
+     * How clients will authenticate to the new Star.
+     */
+    public string $accessMode = StarAccessMode::Token->value;
 
     /**
      * The ids of the Connections the new Star includes.
@@ -98,17 +104,19 @@ return new #[Title('Stars')] class extends Component
             [
                 'name' => ['required', 'string', 'max:100'],
                 'description' => ['nullable', 'string', 'max:500'],
+                'accessMode' => ['required', Rule::enum(StarAccessMode::class)],
                 'connectionIds' => ['array'],
                 'connectionIds.*' => ['integer', Rule::exists('connections', 'id')->where('user_id', $this->user->id)],
             ],
             ['connectionIds.*.exists' => __('Choose only your own Connections.')],
-            ['connectionIds' => __('connections')],
+            ['connectionIds' => __('connections'), 'accessMode' => __('access mode')],
         );
 
         $star = $createStar->handle(
             $this->user,
             ['name' => $this->name, 'description' => $this->description === '' ? null : $this->description],
             array_map(intval(...), $this->connectionIds),
+            StarAccessMode::from($this->accessMode),
         );
 
         session()->flash('toast', ['variant' => 'success', 'text' => __('Created :name.', ['name' => $star->name])]);

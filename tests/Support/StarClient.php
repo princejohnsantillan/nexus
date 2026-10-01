@@ -21,12 +21,16 @@ use InvalidArgumentException;
  *   capabilities in every request's `_meta`, and mirrors the protocol
  *   version, method and name in the MCP-Protocol-Version, Mcp-Method and
  *   Mcp-Name headers, as laravel/mcp requires.
+ * - at($star->signedUrl()) sends every request to that URL instead of the
+ *   Star's endpoint, as a client given only a signed URL does.
  * - send() makes any request; params given as a string are sent exactly as
  *   written, so `{}` stays `{}`.
  */
 final class StarClient
 {
     private ?string $token = null;
+
+    private ?string $url = null;
 
     private string $protocolVersion = '2026-07-28';
 
@@ -47,6 +51,16 @@ final class StarClient
     public function withToken(?string $token): self
     {
         $this->token = $token;
+
+        return $this;
+    }
+
+    /**
+     * Send every request to this URL, such as the Star's signed URL, instead of its endpoint.
+     */
+    public function at(string $url): self
+    {
+        $this->url = $url;
 
         return $this;
     }
@@ -130,7 +144,7 @@ final class StarClient
 
         $body = '{"jsonrpc":"2.0","id":'.$this->nextId++.',"method":'.json_encode($method).',"params":'.$params.'}';
 
-        return test()->call('POST', route('mcp.star', $this->star), server: $this->serverVariables([...$headers, ...$this->extraHeaders]), content: $body);
+        return test()->call('POST', $this->url ?? route('mcp.star', $this->star), server: $this->serverVariables([...$headers, ...$this->extraHeaders]), content: $body);
     }
 
     /**

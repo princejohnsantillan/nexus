@@ -264,6 +264,19 @@ describe('activity', function (): void {
             ->and(json_encode($entry->getAttributes()))->not->toContain('secret');
     });
 
+    it('records calls through the signed URL as made with it, under no client name', function (): void {
+        FakeMcpServer::at()->onCall('search', fn (): array => ['content' => [['type' => 'text', 'text' => 'Found it']]]);
+        $this->star->forceFill(['access_mode' => StarAccessMode::SignedUrl])->save();
+
+        StarClient::for($this->star)->at($this->star->signedUrl())->callTool('wiki__search')->assertOk();
+
+        $entry = ActivityEntry::query()->sole();
+
+        expect($entry->via)->toBe(StarAccessMode::SignedUrl)
+            ->and($entry->client_name)->toBeNull()
+            ->and($entry->status)->toBe(ActivityStatus::Ok);
+    });
+
     it('records how each failed call ended', function (Closure $responder, ActivityStatus $status): void {
         FakeMcpServer::at()->respondTo('tools/call', $responder);
 

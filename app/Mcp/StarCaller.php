@@ -39,6 +39,15 @@ final readonly class StarCaller
     }
 
     /**
+     * A client calling with the Star's signed URL, at its current version.
+     * Each version is counted separately, so a rotated URL starts afresh.
+     */
+    public static function withSignedUrl(Star $star): self
+    {
+        return new self($star, StarAccessMode::SignedUrl, null, "star-signed-url:{$star->id}:v{$star->signed_url_version}");
+    }
+
+    /**
      * The caller the access middleware attached to the request.
      *
      * @throws LogicException when the request didn't pass through the access middleware
