@@ -13,6 +13,7 @@ use GuzzleHttp\Exception\NetworkTimeoutException;
 use GuzzleHttp\Exception\ResponseTimeoutException;
 use Illuminate\Http\Client\HttpClientException;
 use Illuminate\Http\Client\Response as ClientResponse;
+use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\Http;
 use Laravel\Mcp\Client\Exceptions\TransportException;
 use Laravel\Mcp\Client\OAuth\WwwAuthenticateChallenge;
@@ -28,7 +29,11 @@ use Throwable;
  * - Requests go through Laravel's HTTP client, so the outbound guard checks
  *   and pins every one of them.
  * - The connect timeout limits connecting, the handshake and ending the
- *   session; the call timeout limits every other request.
+ *   session; the call timeout limits every other request. The call timeout
+ *   is also the most the session's requests take altogether, counted from
+ *   its first one: each request gets the time left, if less, renewing an
+ *   OAuth token included, and none is sent once it has run out. So a slow
+ *   handshake can't push a tool call past the web request's time limit.
  * - A failed request throws DownstreamRequestFailed with a Nexus-authored
  *   message. A server wants sign-in when it answers 401 or 403, or rejects
  *   the token with an `invalid_token` challenge under another status (GitHub
@@ -84,6 +89,12 @@ final class DownstreamTransport extends HttpTransport
      */
     private int|string|null $lastRequestId = null;
 
+    /**
+     * When the session's time is up, in milliseconds since the epoch: the
+     * call timeout after its first request started.
+     */
+    private ?int $deadline = null;
+
     public function __construct(
         string $url,
         private readonly float $connectTimeout,
@@ -114,11 +125,21 @@ final class DownstreamTransport extends HttpTransport
             $this->lastRequestId = $requestId;
         }
 
+        $this->deadline ??= Date::now()->getTimestampMs() + (int) round($this->callTimeout * 1000);
+
         try {
-            $response = Http::withHeaders($this->headers($headers))
-                ->withBody($message, 'application/json')
-                ->connectTimeout($this->connectTimeout)
-                ->timeout(in_array($method, self::HANDSHAKE_METHODS, true) ? $this->connectTimeout : $this->callTimeout)
+            $request = Http::withHeaders($this->headers($headers))->withBody($message, 'application/json');
+            $timeout = $this->timeLeft(in_array($method, self::HANDSHAKE_METHODS, true) ? $this->connectTimeout : $this->callTimeout);
+
+            if ($timeout <= 0.0) {
+                $this->reset();
+
+                throw DownstreamRequestFailed::timedOut();
+            }
+
+            $response = $request
+                ->connectTimeout(min($this->connectTimeout, $timeout))
+                ->timeout($timeout)
                 ->post($this->url);
         } catch (OutboundRequestBlocked $blocked) {
             $this->reset();
@@ -244,7 +265,9 @@ final class DownstreamTransport extends HttpTransport
     }
 
     /**
-     * End an `initialize` session, as the server asked for one, within the connect timeout.
+     * End an `initialize` session, as the server asked for one, within the
+     * connect timeout and the session's time left. With no time left, the
+     * session is left for the server to expire.
      */
     protected function terminateSession(): void
     {
@@ -253,13 +276,24 @@ final class DownstreamTransport extends HttpTransport
         }
 
         try {
-            Http::withHeaders($this->headers())
-                ->connectTimeout($this->connectTimeout)
-                ->timeout($this->connectTimeout)
-                ->delete($this->url);
+            $request = Http::withHeaders($this->headers());
+            $timeout = $this->timeLeft($this->connectTimeout);
+
+            if ($timeout > 0.0) {
+                $request->connectTimeout($timeout)->timeout($timeout)->delete($this->url);
+            }
         } catch (Throwable) {
             //
         }
+    }
+
+    /**
+     * The seconds a request may take: its own limit, or the session's time
+     * left when that is less (zero or below once it has run out).
+     */
+    private function timeLeft(float $limit): float
+    {
+        return $this->deadline === null ? $limit : min($limit, ($this->deadline - Date::now()->getTimestampMs()) / 1000);
     }
 
     /**

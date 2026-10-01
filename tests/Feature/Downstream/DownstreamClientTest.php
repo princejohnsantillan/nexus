@@ -159,6 +159,7 @@ it('sends a header sign-in with every request', function (): void {
 });
 
 it('waits the connect timeout for the handshake and the call timeout for other requests', function (): void {
+    $this->freezeSecond();
     config(['nexus.downstream.connect_timeout' => 3.0, 'nexus.downstream.call_timeout' => 7.0]);
     $server = FakeMcpServer::at()->withTools([['name' => 'search']]);
 
@@ -180,6 +181,7 @@ it('waits the connect timeout for the handshake and the call timeout for other r
 });
 
 it('gives tool calls 55 seconds by default', function (): void {
+    $this->freezeSecond();
     $server = FakeMcpServer::at()->withTools([['name' => 'search']]);
 
     resolve(DownstreamClient::class)->session(Connection::factory()->create())->callTool('search', '{}');
@@ -187,6 +189,54 @@ it('gives tool calls 55 seconds by default', function (): void {
     $call = collect($server->requests())->search(fn (Request $request): bool => (json_decode($request->body())->method ?? null) === 'tools/call');
 
     expect($server->transferOptions()[$call])->toMatchArray(['connect_timeout' => 10.0, 'timeout' => 55.0]);
+});
+
+it('gives a session\'s requests the call timeout altogether, so a slow handshake leaves the call less time', function (): void {
+    $this->freezeSecond();
+    $server = FakeMcpServer::at()
+        ->withTools([['name' => 'search']])
+        ->beforeAnswering('initialize', fn () => $this->travel(8)->seconds());
+
+    resolve(DownstreamClient::class)->session(Connection::factory()->create())->callTool('search', '{}');
+
+    $timeouts = array_map(
+        fn (Request $request, array $options): array => [json_decode($request->body())->method ?? $request->method(), $options['connect_timeout'], $options['timeout']],
+        $server->requests(),
+        $server->transferOptions(),
+    );
+
+    expect($timeouts)->toBe([
+        ['server/discover', 10.0, 10.0],
+        ['initialize', 10.0, 10.0],
+        ['notifications/initialized', 10.0, 10.0],
+        ['tools/call', 10.0, 47.0],
+        ['DELETE', 10.0, 10.0],
+    ]);
+});
+
+it('times out without sending more once the session\'s time is up', function (): void {
+    $this->freezeSecond();
+    $server = FakeMcpServer::at()
+        ->withTools([['name' => 'search']])
+        ->beforeAnswering('initialize', fn () => $this->travel(56)->seconds());
+
+    $failed = downstreamFailure(Connection::factory()->create(), fn (DownstreamSession $session): string => $session->callTool('search', '{}'));
+
+    expect($failed->failure)->toBe(DownstreamFailure::Timeout)
+        ->and($failed->getMessage())->toBe('The server took too long to answer, so Nexus stopped waiting.')
+        ->and($server->received('tools/call'))->toBe([]);
+});
+
+it('leaves the session for the server to end when no time is left to end it', function (): void {
+    $this->freezeSecond();
+    $server = FakeMcpServer::at()
+        ->withTools([['name' => 'search']])
+        ->onCall('search', fn (): array => ['content' => []])
+        ->beforeAnswering('tools/call', fn () => $this->travel(55)->seconds());
+
+    resolve(DownstreamClient::class)->session(Connection::factory()->create())->callTool('search', '{}');
+
+    expect(array_map(fn (Request $request): string => $request->method(), $server->requests()))->toBe(['POST', 'POST', 'POST', 'POST']);
 });
 
 it('classifies a failure with a message of its own, never the server\'s text', function (Closure $script, DownstreamFailure $failure, string $message): void {
