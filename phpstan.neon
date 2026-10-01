@@ -1,13 +1,20 @@
 includes:
     - vendor/larastan/larastan/extension.neon
+    - vendor/calebdw/larastan-livewire/extension.neon
     - vendor/nesbot/carbon/extension.neon
 
 parameters:
+    level: max
+
     paths:
         - app/
         - bootstrap/app.php
+        - bootstrap/providers.php
         - config/
         - database/
         - routes/
+        - resources/views/
 
-    level: 7
+    excludePaths:
+        analyse:
+            - resources/views/*.blade.php # fnmatch: also matches nested folders
