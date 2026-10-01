@@ -6,6 +6,9 @@ use App\Http\Controllers\Auth\DevSignInController;
 use App\Http\Controllers\Auth\GitHubCallbackController;
 use App\Http\Controllers\Auth\GitHubRedirectController;
 use App\Http\Controllers\Auth\SignOutController;
+use App\Http\Controllers\ConnectionOAuth\ClientMetadataDocumentController;
+use App\Http\Controllers\ConnectionOAuth\SignInCallbackController;
+use App\Http\Controllers\ConnectionOAuth\StartSignInController;
 use Illuminate\Support\Facades\Route;
 
 Route::middleware('guest')->group(function (): void {
@@ -17,6 +20,8 @@ Route::middleware('guest')->group(function (): void {
 
 Route::get('/dev/sign-in/{account}', DevSignInController::class)->name('dev.sign-in');
 
+Route::get('/oauth/client-metadata.json', ClientMetadataDocumentController::class)->name('oauth.client-metadata');
+
 Route::middleware('auth')->group(function (): void {
     Route::livewire('/stars', 'pages::stars.index')->name('stars.index');
     Route::livewire('/stars/{star}', 'pages::stars.show')->name('stars.show');
@@ -27,6 +32,8 @@ Route::middleware('auth')->group(function (): void {
     Route::livewire('/connections/add/custom', 'pages::connections.add-custom')->name('connections.add-custom');
     Route::livewire('/connections/{connection}', 'pages::connections.show')->name('connections.show');
     Route::livewire('/connections/{connection}/tools', 'pages::connections.tools')->name('connections.tools');
+    Route::get('/connections/{connection}/connect', StartSignInController::class)->name('connections.connect');
+    Route::get('/oauth/callback', SignInCallbackController::class)->name('oauth.callback');
     Route::livewire('/activity', 'pages::activity.index')->name('activity.index');
     Route::livewire('/settings', 'pages::settings.index')->name('settings.index');
 

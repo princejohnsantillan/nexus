@@ -28,8 +28,10 @@ use LogicException;
  *
  * Its handle prefixes its tools' names in Stars, so it never changes once
  * the Connection is created. Credentials live in the encrypted `secrets`
- * column (for a header sign-in, `header_value`); everything else about
- * signing in is in the non-secret `settings` (for a header, `header_name`).
+ * column (for a header sign-in, `header_value`; for OAuth, the tokens and
+ * client secrets); everything else about signing in is in the non-secret
+ * `settings` (for a header, `header_name`; for OAuth, the user's own client
+ * ID, the client the server registered, and how the current sign-in renews).
  *
  * @property int $id
  * @property int $user_id
@@ -95,6 +97,34 @@ class Connection extends Model
      * The header a header sign-in sends unless the user names another.
      */
     public const string DEFAULT_HEADER_NAME = 'Authorization';
+
+    /**
+     * The settings that describe an OAuth Connection's current sign-in: the
+     * client its tokens were issued to and how to renew them.
+     *
+     * @var list<string>
+     */
+    public const array OAUTH_SIGN_IN_SETTINGS = [
+        'client_source', 'client_id', 'token_auth_method', 'token_endpoint', 'issuer', 'resource', 'scopes', 'signed_in_at',
+    ];
+
+    /**
+     * The settings that describe the client a server registered for the
+     * Connection; its secret is `registered_client_secret`.
+     *
+     * @var list<string>
+     */
+    public const array OAUTH_REGISTRATION_SETTINGS = [
+        'registered_client_id', 'registered_issuer', 'registered_redirect_uri', 'registered_auth_method',
+    ];
+
+    /**
+     * The secrets an OAuth sign-in stores. `expires_at` is a Unix timestamp,
+     * absent when the access token doesn't expire.
+     *
+     * @var list<string>
+     */
+    public const array OAUTH_TOKEN_SECRETS = ['access_token', 'refresh_token', 'expires_at'];
 
     /**
      * @var array<string, mixed>
@@ -189,5 +219,76 @@ class Connection extends Model
         $value = $this->secrets->get('header_value');
 
         return is_string($value) ? $value : '';
+    }
+
+    /**
+     * One of the non-secret settings, or null when it isn't set.
+     */
+    public function setting(string $key): ?string
+    {
+        $value = $this->settings[$key] ?? null;
+
+        return is_string($value) && $value !== '' ? $value : null;
+    }
+
+    /**
+     * The client ID of the user's own OAuth app for this Connection's server,
+     * if they entered one.
+     */
+    public function oauthClientId(): ?string
+    {
+        return $this->setting('oauth_client_id');
+    }
+
+    /**
+     * Whether Nexus signs in to the server with OAuth.
+     */
+    public function usesOAuth(): bool
+    {
+        return $this->auth_type === ConnectionAuthType::OAuth;
+    }
+
+    /**
+     * Whether an OAuth Connection holds an access token: the user signed in
+     * and the sign-in hasn't ended.
+     */
+    public function hasAccessToken(): bool
+    {
+        $token = $this->secrets->get('access_token');
+
+        return $this->usesOAuth() && is_string($token) && $token !== '';
+    }
+
+    /**
+     * Forget the current OAuth sign-in: its tokens and how to renew them.
+     * Save the Connection afterwards.
+     */
+    public function forgetOAuthSignIn(): void
+    {
+        $this->settings = $this->settingsWithout(self::OAUTH_SIGN_IN_SETTINGS);
+        $this->secrets->put(array_fill_keys(self::OAUTH_TOKEN_SECRETS, null));
+    }
+
+    /**
+     * Forget the client the server registered for this Connection, so the
+     * next sign-in registers again. Save the Connection afterwards.
+     */
+    public function forgetRegisteredClient(): void
+    {
+        $this->settings = $this->settingsWithout(self::OAUTH_REGISTRATION_SETTINGS);
+        $this->secrets->put(['registered_client_secret' => null]);
+    }
+
+    /**
+     * The settings without the given keys; null when none are left.
+     *
+     * @param  list<string>  $keys
+     * @return array<array-key, mixed>|null
+     */
+    private function settingsWithout(array $keys): ?array
+    {
+        $settings = array_diff_key($this->settings ?? [], array_flip($keys));
+
+        return $settings === [] ? null : $settings;
     }
 }

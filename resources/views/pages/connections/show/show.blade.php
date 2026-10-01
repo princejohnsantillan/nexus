@@ -2,7 +2,15 @@
     <x-connection-header :connection="$connection" current="overview" />
 
     <div class="mt-8 space-y-10">
-        @if (filled($connection->last_error))
+        @if ($this->needsOAuthSignIn)
+            <flux:callout icon="key" :color="$connection->status->color()" :heading="__('Sign in to use this Connection')">
+                <flux:callout.text>{{ $connection->last_error ?? __('Nexus needs you to approve it on the server\'s own sign-in page before it can load the tools.') }}</flux:callout.text>
+
+                <x-slot name="actions">
+                    <flux:button :href="route('connections.connect', $connection)" variant="primary" size="sm">{{ __('Reconnect') }}</flux:button>
+                </x-slot>
+            </flux:callout>
+        @elseif (filled($connection->last_error))
             <flux:callout icon="exclamation-triangle" :color="$connection->status->color()" :heading="__('Nexus couldn\'t load this Connection\'s tools')">
                 <flux:callout.text>{{ $connection->last_error }}</flux:callout.text>
             </flux:callout>
@@ -29,9 +37,18 @@
                     <dt><flux:text>{{ __('Sign-in') }}</flux:text></dt>
                     <dd class="min-w-0 sm:col-span-2">
                         <flux:text variant="strong">
-                            {{ $connection->usesConnectorToken() ? App\Enums\SignInMethod::Token->label($this->connector->name) : $connection->auth_type->label() }}
+                            @if ($connection->usesConnectorToken())
+                                {{ App\Enums\SignInMethod::Token->label($this->connector->name) }}
+                            @elseif ($connection->usesOAuth() && $this->connector !== null)
+                                {{ App\Enums\SignInMethod::OAuth->label($this->connector->name, ownApp: $connection->oauthClientId() !== null) }}
+                            @else
+                                {{ $connection->auth_type->label() }}
+                            @endif
+
                             @if ($connection->auth_type === App\Enums\ConnectionAuthType::Header)
                                 · <span class="font-mono">{{ $connection->headerName() }}</span>
+                            @elseif ($connection->oauthClientId() !== null)
+                                · {{ __('client ID') }} <span class="font-mono">{{ $connection->oauthClientId() }}</span>
                             @endif
                         </flux:text>
                     </dd>
@@ -95,7 +112,7 @@
         @elseif ($this->connector === null)
             <section aria-labelledby="server-heading">
                 <flux:heading size="lg" level="2" id="server-heading">{{ __('Server and sign-in') }}</flux:heading>
-                <flux:text class="mt-1">{{ __('Nexus reloads the tools when you save. Changing the URL clears every stored credential, so enter the header value again.') }}</flux:text>
+                <flux:text class="mt-1">{{ __('Nexus reloads the tools when you save. Changing the URL clears every stored credential, so enter the header value or client secret again, and sign in again.') }}</flux:text>
 
                 <form wire:submit="saveServer" class="mt-6 max-w-xl space-y-6">
                     <flux:input wire:model="url" type="url" :label="__('Server URL')" autocomplete="off" />
@@ -103,6 +120,7 @@
                     <flux:radio.group wire:model.live="authType" :label="__('Sign-in')" variant="cards" class="max-sm:flex-col">
                         <flux:radio value="none" :label="__('No auth')" :description="__('The server needs no sign-in.')" />
                         <flux:radio value="header" :label="__('Header')" :description="__('Nexus sends a header, such as an API key, with every request.')" />
+                        <flux:radio value="oauth" :label="__('OAuth')" :description="__('You approve Nexus on the server\'s own sign-in page.')" />
                     </flux:radio.group>
 
                     @if ($authType === 'header')
@@ -121,7 +139,11 @@
                         />
                     @endif
 
-                    <flux:button type="submit">{{ __('Save and reload tools') }}</flux:button>
+                    @if ($authType === 'oauth')
+                        <x-own-oauth-app :callback-url="$this->callbackUrl" :has-stored-secret="$this->hasStoredClientSecret" />
+                    @endif
+
+                    <flux:button type="submit">{{ $authType === 'oauth' && ! $connection->hasAccessToken() ? __('Save and sign in') : __('Save and reload tools') }}</flux:button>
                 </form>
             </section>
         @endif

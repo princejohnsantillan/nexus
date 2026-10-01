@@ -2,9 +2,11 @@
 
 declare(strict_types=1);
 
+use App\Actions\ConnectWithOAuth;
 use App\Actions\ConnectWithToken;
 use App\Actions\SaveNewConnection;
 use App\Actions\SuggestConnectionDetails;
+use App\ConnectionOAuth\NexusClient;
 use App\Connectors\Connector;
 use App\Connectors\ConnectorCatalog;
 use App\Enums\ConnectionStatus;
@@ -42,6 +44,14 @@ return new #[Title('Add connection')] class extends Component
     public string $method = '';
 
     public string $token = '';
+
+    /**
+     * The client ID of the user's own OAuth app, for a service whose server
+     * only accepts registered apps when this Nexus has none.
+     */
+    public string $clientId = '';
+
+    public string $clientSecret = '';
 
     #[Computed]
     public function user(): User
@@ -87,6 +97,15 @@ return new #[Title('Add connection')] class extends Component
     }
 
     /**
+     * The callback URL to register on a user's own OAuth app.
+     */
+    #[Computed]
+    public function callbackUrl(): string
+    {
+        return app(NexusClient::class)->callbackUrl();
+    }
+
+    /**
      * Open the connect modal for a connector, with a unique name and handle
      * suggested and its preferred sign-in method chosen.
      */
@@ -103,16 +122,19 @@ return new #[Title('Add connection')] class extends Component
         $this->description = '';
         $this->method = $connector->suggestedMethod()->value ?? '';
         $this->token = '';
+        $this->clientId = '';
+        $this->clientSecret = '';
         $this->resetValidation();
 
         $this->dispatch('modal-show', name: 'connect');
     }
 
     /**
-     * Connect the chosen connector. Token sign-in is the only method
-     * available so far, so validation lets no other through.
+     * Connect the chosen connector: with a token, its tools load straight
+     * away; with OAuth, the Connection is saved and the user is sent on to
+     * sign in on the service's own page.
      */
-    public function connect(ConnectWithToken $connectWithToken): void
+    public function connect(ConnectWithToken $connectWithToken, ConnectWithOAuth $connectWithOAuth): void
     {
         $connector = $this->connector;
 
@@ -122,6 +144,10 @@ return new #[Title('Add connection')] class extends Component
         $this->handle = trim($this->handle);
         $this->description = trim($this->description);
         $this->token = trim($this->token);
+        $this->clientId = trim($this->clientId);
+        $this->clientSecret = trim($this->clientSecret);
+
+        $ownApp = $connector->needsUserApp() ? 'required' : 'prohibited';
 
         $this->validate(
             [
@@ -133,24 +159,42 @@ return new #[Title('Add connection')] class extends Component
                 'description' => ['nullable', 'string', 'max:200'],
                 'method' => ['required', Rule::in(array_map(fn (SignInMethod $method): string => $method->value, $connector->availableMethods()))],
                 'token' => ['exclude_unless:method,'.SignInMethod::Token->value, 'required', 'string', 'max:4000', 'not_regex:/[\x00-\x1F\x7F]/'],
+                'clientId' => ['exclude_unless:method,'.SignInMethod::OAuth->value, $ownApp, 'string', 'max:255', 'not_regex:/[\x00-\x20\x7F]/'],
+                'clientSecret' => ['exclude_unless:method,'.SignInMethod::OAuth->value, $ownApp, 'string', 'max:4000', 'not_regex:/[\x00-\x1F\x7F]/'],
             ],
             [
                 'handle.regex' => __('Use lowercase letters, digits and dashes, starting with a letter.'),
                 'handle.unique' => __('You already have a Connection with this handle.'),
-                'method.in' => __('Signing in this way isn\'t available yet.'),
+                'method.in' => __('Signing in this way isn\'t available.'),
                 'token.not_regex' => __('The token can\'t contain line breaks or other control characters.'),
+                'clientId.not_regex' => __('The client ID can\'t contain spaces or control characters.'),
+                'clientSecret.not_regex' => __('The client secret can\'t contain line breaks or other control characters.'),
             ],
             [
                 'description' => __('use this account for'),
                 'method' => __('sign-in'),
+                'clientId' => __('client ID'),
+                'clientSecret' => __('client secret'),
             ],
         );
 
-        $connection = $connectWithToken->handle($this->user, $connector, [
+        $details = [
             'name' => $this->name,
             'handle' => $this->handle,
             'description' => $this->description === '' ? null : $this->description,
-        ], $this->token);
+        ];
+
+        if ($this->method === SignInMethod::OAuth->value) {
+            $connection = $connectWithOAuth->handle($this->user, $connector, $details, $connector->needsUserApp()
+                ? ['client_id' => $this->clientId, 'client_secret' => $this->clientSecret]
+                : null);
+
+            $this->redirectRoute('connections.connect', ['connection' => $connection]);
+
+            return;
+        }
+
+        $connection = $connectWithToken->handle($this->user, $connector, $details, $this->token);
 
         session()->flash('toast', $connection->status === ConnectionStatus::Connected
             ? ['variant' => 'success', 'text' => trans_choice('Connected. Nexus loaded :count tool.|Connected. Nexus loaded :count tools.', $connection->tools()->count())]

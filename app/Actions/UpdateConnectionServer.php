@@ -22,16 +22,24 @@ class UpdateConnectionServer
      *
      * A new URL clears every stored credential, so none is ever sent to a
      * server it wasn't meant for, and empties the catalog, whose tools
-     * belonged to the old server. A header sign-in then needs its value again.
-     * Switching to no auth clears the header.
+     * belonged to the old server. A header sign-in then needs its value
+     * again, and an OAuth sign-in starts over: the server's registered client
+     * is forgotten too. Switching to no auth clears the header; switching
+     * away from OAuth clears its tokens and clients.
      *
-     * @param  array{url: string, auth_type: ConnectionAuthType, header_name: string|null}  $server
+     * An OAuth sign-in also ends when the user's own OAuth app changes, since
+     * its tokens were issued to the old one. An OAuth Connection that isn't
+     * signed in needs sign-in, and its tools aren't reloaded: send the user to
+     * its `connections.connect` route next.
+     *
+     * @param  array{url: string, auth_type: ConnectionAuthType, header_name: string|null, oauth_client_id?: string|null}  $server
      * @param  string|null  $headerValue  A new value for a header sign-in, or null to keep the stored one.
+     * @param  string|null  $clientSecret  A new secret for the user's own OAuth app, or null to keep the stored one.
      * @return bool Whether the tools loaded.
      *
      * @throws ValidationException when a header sign-in has no value to send
      */
-    public function handle(Connection $connection, array $server, #[SensitiveParameter] ?string $headerValue = null): bool
+    public function handle(Connection $connection, array $server, #[SensitiveParameter] ?string $headerValue = null, #[SensitiveParameter] ?string $clientSecret = null): bool
     {
         $urlChanged = $server['url'] !== $connection->url;
 
@@ -65,7 +73,11 @@ class UpdateConnectionServer
 
         $connection->settings = $settings === [] ? null : $settings;
 
-        DB::transaction(function () use ($connection, $urlChanged): void {
+        $this->updateOAuth($connection, $server['oauth_client_id'] ?? null, $clientSecret, $urlChanged);
+
+        $awaitsSignIn = $connection->usesOAuth() && ! $connection->hasAccessToken();
+
+        DB::transaction(function () use ($connection, $urlChanged, $awaitsSignIn): void {
             if ($urlChanged) {
                 $connection->tools()->delete();
 
@@ -76,9 +88,49 @@ class UpdateConnectionServer
                 ]);
             }
 
+            if ($awaitsSignIn) {
+                $connection->forceFill(['status' => ConnectionStatus::NeedsAuth, 'last_error' => null]);
+            }
+
             $connection->save();
         });
 
-        return $this->refreshCatalog->handle($connection);
+        return ! $awaitsSignIn && $this->refreshCatalog->handle($connection);
+    }
+
+    /**
+     * Keep the Connection's OAuth sign-in and clients only while they still
+     * apply: to an OAuth Connection, on the same server, through the same
+     * OAuth app of the user's own.
+     *
+     * @param  string|null  $clientId  The client ID of the user's own OAuth app, or null for none.
+     */
+    private function updateOAuth(Connection $connection, ?string $clientId, #[SensitiveParameter] ?string $clientSecret, bool $urlChanged): void
+    {
+        if (! $connection->usesOAuth() || $urlChanged) {
+            $connection->forgetOAuthSignIn();
+            $connection->forgetRegisteredClient();
+        }
+
+        if (! $connection->usesOAuth()) {
+            $clientId = null;
+        }
+
+        if ($clientId !== $connection->oauthClientId()) {
+            $connection->forgetOAuthSignIn();
+            $connection->secrets->put(['oauth_client_secret' => null]);
+
+            $settings = Arr::except($connection->settings ?? [], 'oauth_client_id');
+
+            if ($clientId !== null) {
+                $settings['oauth_client_id'] = $clientId;
+            }
+
+            $connection->settings = $settings === [] ? null : $settings;
+        }
+
+        if ($clientId !== null && $clientSecret !== null) {
+            $connection->secrets->put(['oauth_client_secret' => $clientSecret]);
+        }
     }
 }

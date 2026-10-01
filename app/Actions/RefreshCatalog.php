@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Actions;
 
 use App\Downstream\DownstreamClient;
+use App\Enums\ConnectionAuthType;
 use App\Enums\ConnectionStatus;
 use App\Enums\DownstreamFailure;
 use App\Exceptions\CatalogNotStored;
@@ -163,11 +164,21 @@ class RefreshCatalog
     /**
      * The Connection's sign-in columns as stored, ciphertext and all.
      *
+     * An OAuth Connection's access token is renewed as it is used, perhaps
+     * by the very request listing its tools, without it signing in again,
+     * so its encrypted secrets are left out. A new sign-in, or a changed
+     * client, changes its settings instead.
+     *
      * @return list<mixed>
      */
     private function signInOf(Connection $connection): array
     {
-        return array_map(fn (string $column): mixed => $connection->getRawOriginal($column), self::SIGN_IN_COLUMNS);
+        $usesOAuth = $connection->getRawOriginal('auth_type') === ConnectionAuthType::OAuth->value;
+
+        return array_map(
+            fn (string $column): mixed => $usesOAuth && $column === 'secrets' ? null : $connection->getRawOriginal($column),
+            self::SIGN_IN_COLUMNS,
+        );
     }
 
     /**

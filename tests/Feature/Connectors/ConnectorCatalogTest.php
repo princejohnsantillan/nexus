@@ -144,7 +144,8 @@ it('ships GitHub with a token method and its pre-registered OAuth app\'s scopes'
         ->and($github->token?->consoleUrl)->toBe('https://github.com/settings/personal-access-tokens/new')
         ->and($github->token?->instructions)->toContain('fine-grained')
         ->and($github->token?->headerName)->toBe('Authorization')
-        ->and($github->token?->valuePrefix)->toBe('Bearer ');
+        ->and($github->token?->valuePrefix)->toBe('Bearer ')
+        ->and($github->selectAccount)->toBeTrue();
 });
 
 it('ships Notion and Linear with automatic client registration and no token method', function (string $key, string $url): void {
@@ -153,7 +154,8 @@ it('ships Notion and Linear with automatic client registration and no token meth
     expect($connector->url)->toBe($url)
         ->and($connector->registration)->toBe(ClientRegistration::Automatic)
         ->and($connector->token)->toBeNull()
-        ->and($connector->methods())->toBe([SignInMethod::OAuth]);
+        ->and($connector->methods())->toBe([SignInMethod::OAuth])
+        ->and($connector->selectAccount)->toBeFalse();
 })->with([
     'Notion' => ['notion', 'https://mcp.notion.com/mcp'],
     'Linear' => ['linear', 'https://mcp.linear.app/mcp'],
@@ -250,6 +252,7 @@ it('refuses an invalid definition, naming the file and the problem', function (s
     'scopes as one string' => ['scopestring', [...minimalDefinition(), 'scopes' => 'read write'], 'The scopes field must be a list.'],
     'a scope with a space' => ['scopespace', [...minimalDefinition(), 'scopes' => ['read write']], 'The scopes.0 field format is invalid.'],
     'preview as a string' => ['previewstring', [...minimalDefinition(), 'preview' => 'yes'], 'The preview field must be true or false.'],
+    'select_account as a string' => ['selectstring', [...minimalDefinition(), 'select_account' => 'yes'], 'The select account field must be true or false.'],
     'a token without instructions' => ['tokennoinstr', [...minimalDefinition(), 'token' => ['console_url' => 'https://example.com/tokens']], 'The token.instructions field is required when token is present.'],
     'a token header with a space' => ['tokenheader', [...minimalDefinition(), 'token' => ['console_url' => 'https://example.com/tokens', 'instructions' => 'Make one.', 'header_name' => 'X Api Key']], 'Enter a header name such as Authorization or X-API-Key'],
     'a file name that isn\'t a handle' => ['Bad_Name', minimalDefinition(), 'the file name is the connector\'s key'],
@@ -273,25 +276,35 @@ it('refuses a connector without a safe official logo', function (?string $logo, 
     'a style' => ['<svg viewBox="0 0 24 24"><style>path{fill:red}</style><path d="M0 0h24v24H0z"/></svg>', 'a logo can\'t contain scripts'],
 ]);
 
-it('offers a token method whenever the connector has one, but no OAuth sign-in yet', function (): void {
+it('offers GitHub\'s token first, and OAuth through the user\'s own app, when the deployment has no GitHub app', function (): void {
     $github = app(ConnectorCatalog::class)->find('github');
 
     expect($github->methods())->toBe([SignInMethod::Token, SignInMethod::OAuth])
-        ->and($github->availableMethods())->toBe([SignInMethod::Token])
+        ->and($github->availableMethods())->toBe([SignInMethod::Token, SignInMethod::OAuth])
+        ->and($github->needsUserApp())->toBeTrue()
         ->and($github->suggestedMethod())->toBe(SignInMethod::Token)
-        ->and($github->whyUnavailable(SignInMethod::OAuth))->toBe('Nexus can\'t sign in with OAuth yet.')
+        ->and($github->whyUnavailable(SignInMethod::OAuth))->toBeNull()
         ->and($github->isAvailable())->toBeTrue()
         ->and($github->unavailableReason())->toBeNull();
 });
 
-it('explains why a connector that only signs in with OAuth isn\'t available', function (): void {
-    $notion = app(ConnectorCatalog::class)->find('notion');
+it('suggests signing in to GitHub with OAuth once the deployment has a GitHub app', function (): void {
+    config(['nexus.connectors.github' => ['client_id' => 'deployment-app', 'client_secret' => 'deployment-secret']]);
+    $github = app(ConnectorCatalog::class)->find('github');
 
-    expect($notion->isAvailable())->toBeFalse()
-        ->and($notion->availableMethods())->toBe([])
-        ->and($notion->suggestedMethod())->toBeNull()
-        ->and($notion->unavailableReason())->toBe('Notion only supports signing in with OAuth. Nexus can\'t sign in with OAuth yet.');
+    expect($github->needsUserApp())->toBeFalse()
+        ->and($github->suggestedMethod())->toBe(SignInMethod::OAuth);
 });
+
+it('lets Notion and Linear sign in with OAuth, registering Nexus automatically', function (string $key): void {
+    $connector = app(ConnectorCatalog::class)->find($key);
+
+    expect($connector->isAvailable())->toBeTrue()
+        ->and($connector->availableMethods())->toBe([SignInMethod::OAuth])
+        ->and($connector->needsUserApp())->toBeFalse()
+        ->and($connector->suggestedMethod())->toBe(SignInMethod::OAuth)
+        ->and($connector->unavailableReason())->toBeNull();
+})->with(['notion', 'linear']);
 
 it('explains which variables a connector that needs the deployment\'s own OAuth app is missing', function (): void {
     writeConnector($this->directory, 'gmail', [...minimalDefinition(), 'name' => 'Gmail', 'requires_deployment_app' => true]);

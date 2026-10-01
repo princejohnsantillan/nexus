@@ -93,6 +93,8 @@ it('shows a connector added as one JSON file and one logo, names it in the notic
             ->call('startConnecting', $key)
             ->assertSet('name', $name)
             ->assertSet('handle', $key)
+            ->assertSet('method', 'oauth')
+            ->set('method', 'token')
             ->set('token', 'fixture_good')
             ->call('connect')
             ->assertHasNoErrors();
@@ -107,21 +109,19 @@ it('shows a connector added as one JSON file and one logo, names it in the notic
     }
 });
 
-it('explains that Notion and Linear can\'t be connected until Nexus signs in with OAuth', function (): void {
+it('offers to connect Notion and Linear', function (): void {
     Livewire::test('pages::connections.add')
         ->assertSeeHtml('wire:click="startConnecting(\'github\')"')
-        ->assertDontSeeHtml('wire:click="startConnecting(\'notion\')"')
-        ->assertDontSeeHtml('wire:click="startConnecting(\'linear\')"')
-        ->assertSeeText('Not available yet')
-        ->assertSeeText('Notion only supports signing in with OAuth. Nexus can\'t sign in with OAuth yet.')
-        ->assertSeeText('Linear only supports signing in with OAuth. Nexus can\'t sign in with OAuth yet.');
+        ->assertSeeHtml('wire:click="startConnecting(\'notion\')"')
+        ->assertSeeHtml('wire:click="startConnecting(\'linear\')"')
+        ->assertDontSeeText('Not available yet');
 });
 
-it('refuses to start connecting a connector that isn\'t available or doesn\'t exist', function (string $key): void {
+it('refuses to start connecting a connector that doesn\'t exist', function (): void {
     Livewire::test('pages::connections.add')
-        ->call('startConnecting', $key)
+        ->call('startConnecting', 'missing')
         ->assertNotFound();
-})->with(['notion', 'linear', 'missing']);
+});
 
 it('opens the connect modal with a suggested name and handle and the token method chosen', function (): void {
     Livewire::test('pages::connections.add')
@@ -134,8 +134,8 @@ it('opens the connect modal with a suggested name and handle and the token metho
         ->assertSeeText('Connect GitHub')
         ->assertSeeText('Already connected GitHub? Connecting it again adds another account.')
         ->assertSeeText('Your own token')
-        ->assertSeeText('Sign in with GitHub')
-        ->assertSeeText('Not available yet. Nexus can\'t sign in with OAuth yet.')
+        ->assertSeeText('Your own OAuth app')
+        ->assertDontSeeText('Not available yet')
         ->assertSeeText('Create a fine-grained personal access token')
         ->assertSee('https://github.com/settings/personal-access-tokens/new')
         ->assertSeeText('Stored encrypted. Nexus sends it as Authorization: Bearer … and checks it by loading the tools.');
@@ -278,16 +278,6 @@ it('refuses a token with a line break inside it', function (): void {
         ->set('token', "github_pat_good\r\nX-Injected: yes")
         ->call('connect')
         ->assertHasErrors(['token' => 'The token can\'t contain line breaks or other control characters.']);
-});
-
-it('refuses OAuth sign-in until Nexus supports it', function (): void {
-    Livewire::test('pages::connections.add')
-        ->call('startConnecting', 'github')
-        ->set('method', 'oauth')
-        ->call('connect')
-        ->assertHasErrors(['method' => 'Signing in this way isn\'t available yet.']);
-
-    expect(Connection::query()->count())->toBe(0);
 });
 
 it('explains the limit once the user has as many Connections as an account may', function (): void {

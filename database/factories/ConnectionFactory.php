@@ -48,6 +48,21 @@ class ConnectionFactory extends Factory
     }
 
     /**
+     * Indicate that the Connection signs in with OAuth and hasn't signed in
+     * yet, optionally through an OAuth app of the user's own.
+     */
+    public function oauth(?string $clientId = null, ?string $clientSecret = null): static
+    {
+        return $this->state(fn (array $attributes): array => [
+            'auth_type' => ConnectionAuthType::OAuth,
+            'status' => ConnectionStatus::NeedsAuth,
+            'settings' => $clientId === null ? null : ['oauth_client_id' => $clientId],
+        ])->afterMaking(function (Connection $connection) use ($clientSecret): void {
+            $connection->secrets->put(['oauth_client_secret' => $clientSecret]);
+        });
+    }
+
+    /**
      * Indicate that the Connection was made from a gallery connector, so it
      * signs in to the connector's server.
      */

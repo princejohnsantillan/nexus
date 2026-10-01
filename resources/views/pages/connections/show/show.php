@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 use App\Actions\RefreshCatalog;
 use App\Actions\UpdateConnectionServer;
+use App\ConnectionOAuth\NexusClient;
 use App\Connectors\Connector;
 use App\Enums\ConnectionAuthType;
+use App\Enums\ConnectionStatus;
 use App\Models\Connection;
 use App\Models\Star;
 use App\Rules\HeaderName;
@@ -43,6 +45,16 @@ return new #[Title('Connection')] class extends Component
      * A new token, for a Connection that signs in to its connector with one.
      */
     public string $token = '';
+
+    /**
+     * The client ID of an OAuth app the user registered on a custom server.
+     */
+    public string $clientId = '';
+
+    /**
+     * A new secret for that app. Blank keeps the stored one.
+     */
+    public string $clientSecret = '';
 
     public function mount(): void
     {
@@ -86,6 +98,33 @@ return new #[Title('Connection')] class extends Component
         return $this->connection->auth_type === ConnectionAuthType::Header && $this->connection->headerValue() !== '';
     }
 
+    /**
+     * Whether a secret for the user's own OAuth app is stored, so a blank field keeps it.
+     */
+    #[Computed]
+    public function hasStoredClientSecret(): bool
+    {
+        return $this->connection->oauthClientId() !== null && filled($this->connection->secrets->get('oauth_client_secret'));
+    }
+
+    /**
+     * Whether the user has to sign in again before Nexus can use the server.
+     */
+    #[Computed]
+    public function needsOAuthSignIn(): bool
+    {
+        return $this->connection->usesOAuth() && $this->connection->status === ConnectionStatus::NeedsAuth;
+    }
+
+    /**
+     * The callback URL to register on an OAuth app of the user's own.
+     */
+    #[Computed]
+    public function callbackUrl(): string
+    {
+        return app(NexusClient::class)->callbackUrl();
+    }
+
     public function saveDetails(): void
     {
         $this->name = trim($this->name);
@@ -116,6 +155,8 @@ return new #[Title('Connection')] class extends Component
 
         $this->url = trim($this->url);
         $this->headerName = trim($this->headerName);
+        $this->clientId = trim($this->clientId);
+        $this->clientSecret = trim($this->clientSecret);
 
         $this->validate(
             [
@@ -123,25 +164,46 @@ return new #[Title('Connection')] class extends Component
                 'authType' => ['required', Rule::enum(ConnectionAuthType::class)],
                 'headerName' => ['exclude_unless:authType,header', 'required', 'string', 'max:64', new HeaderName],
                 'headerValue' => ['exclude_unless:authType,header', 'nullable', 'string', 'max:4096', 'not_regex:/[\x00-\x08\x0A-\x1F\x7F]/'],
+                'clientId' => ['exclude_unless:authType,oauth', 'nullable', 'string', 'max:255', 'not_regex:/[\x00-\x20\x7F]/'],
+                'clientSecret' => ['exclude_unless:authType,oauth', 'nullable', 'string', 'max:4000', 'not_regex:/[\x00-\x1F\x7F]/'],
             ],
-            ['headerValue.not_regex' => __('The header value can\'t contain line breaks or other control characters.')],
+            [
+                'headerValue.not_regex' => __('The header value can\'t contain line breaks or other control characters.'),
+                'clientId.not_regex' => __('The client ID can\'t contain spaces or control characters.'),
+                'clientSecret.not_regex' => __('The client secret can\'t contain line breaks or other control characters.'),
+            ],
             [
                 'url' => __('server URL'),
                 'authType' => __('sign-in'),
                 'headerName' => __('header name'),
                 'headerValue' => __('header value'),
+                'clientId' => __('client ID'),
+                'clientSecret' => __('client secret'),
             ],
         );
 
         $authType = ConnectionAuthType::from($this->authType);
+        $usesOAuth = $authType === ConnectionAuthType::OAuth;
 
-        $loaded = $updateConnectionServer->handle($this->connection, [
-            'url' => $this->url,
-            'auth_type' => $authType,
-            'header_name' => $authType === ConnectionAuthType::Header ? $this->headerName : null,
-        ], $authType === ConnectionAuthType::Header && $this->headerValue !== '' ? $this->headerValue : null);
+        $loaded = $updateConnectionServer->handle(
+            $this->connection,
+            [
+                'url' => $this->url,
+                'auth_type' => $authType,
+                'header_name' => $authType === ConnectionAuthType::Header ? $this->headerName : null,
+                'oauth_client_id' => $usesOAuth && $this->clientId !== '' ? $this->clientId : null,
+            ],
+            $authType === ConnectionAuthType::Header && $this->headerValue !== '' ? $this->headerValue : null,
+            $usesOAuth && $this->clientSecret !== '' ? $this->clientSecret : null,
+        );
 
-        unset($this->hasStoredHeaderValue);
+        if ($usesOAuth && ! $this->connection->hasAccessToken()) {
+            $this->redirectRoute('connections.connect', ['connection' => $this->connection]);
+
+            return;
+        }
+
+        unset($this->hasStoredHeaderValue, $this->hasStoredClientSecret, $this->needsOAuthSignIn);
         $this->resetServerForm();
         $this->toastRefresh($loaded, __('Saved.'));
     }
@@ -175,7 +237,10 @@ return new #[Title('Connection')] class extends Component
 
     public function refreshTools(RefreshCatalog $refreshCatalog): void
     {
-        $this->toastRefresh($refreshCatalog->handle($this->connection));
+        $loaded = $refreshCatalog->handle($this->connection);
+
+        unset($this->needsOAuthSignIn);
+        $this->toastRefresh($loaded);
     }
 
     public function delete(): void
@@ -196,7 +261,9 @@ return new #[Title('Connection')] class extends Component
         $this->authType = $this->connection->auth_type->value;
         $this->headerName = $this->connection->headerName();
         $this->headerValue = '';
-        $this->resetValidation(['url', 'authType', 'headerName', 'headerValue']);
+        $this->clientId = $this->connection->oauthClientId() ?? '';
+        $this->clientSecret = '';
+        $this->resetValidation(['url', 'authType', 'headerName', 'headerValue', 'clientId', 'clientSecret']);
     }
 
     /**

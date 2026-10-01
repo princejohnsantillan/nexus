@@ -43,6 +43,43 @@ final class DownstreamRequestFailed extends RuntimeException
         );
     }
 
+    /**
+     * An OAuth Connection has no access token: the user hasn't signed in yet,
+     * or their sign-in ended.
+     */
+    public static function notSignedIn(): self
+    {
+        return new self(DownstreamFailure::NeedsSignIn, __('Nexus isn\'t signed in to this server. Reconnect to sign in.'));
+    }
+
+    /**
+     * An OAuth Connection's access token expired, and the server refused to
+     * renew it (or never gave Nexus a way to).
+     */
+    public static function signInExpired(): self
+    {
+        return new self(DownstreamFailure::NeedsSignIn, __('The sign-in expired and the server didn\'t renew it. Reconnect to sign in again.'));
+    }
+
+    /**
+     * Renewing an OAuth Connection's expired access token failed for a reason
+     * that may pass, such as the server's sign-in service not answering. The
+     * sign-in itself is kept.
+     */
+    public static function renewalFailed(): self
+    {
+        return new self(DownstreamFailure::Unreachable, __('Nexus couldn\'t renew the sign-in: the server\'s sign-in service didn\'t answer properly. Try again in a moment.'));
+    }
+
+    /**
+     * Another request was renewing the Connection's access token, and didn't
+     * finish in time.
+     */
+    public static function renewalBusy(): self
+    {
+        return new self(DownstreamFailure::Timeout, __('Nexus is still renewing the sign-in in another request. Try again in a moment.'));
+    }
+
     public static function timedOut(): self
     {
         return new self(DownstreamFailure::Timeout, __('The server took too long to answer, so Nexus stopped waiting.'));
