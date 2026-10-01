@@ -83,6 +83,13 @@
                 </div>
 
                 <div class="grid gap-1 py-3 sm:grid-cols-3 sm:gap-4">
+                    <dt><flux:text>{{ __('Prompts') }}</flux:text></dt>
+                    <dd class="sm:col-span-2">
+                        <flux:link :href="route('connections.prompts', $connection)" wire:navigate>{{ trans_choice(':count prompt|:count prompts', $this->promptCount) }}</flux:link>
+                    </dd>
+                </div>
+
+                <div class="grid gap-1 py-3 sm:grid-cols-3 sm:gap-4">
                     <dt><flux:text>{{ __('Last refreshed') }}</flux:text></dt>
                     <dd class="sm:col-span-2">
                         <flux:text variant="strong">

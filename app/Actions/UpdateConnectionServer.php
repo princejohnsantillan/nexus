@@ -26,8 +26,8 @@ class UpdateConnectionServer
      * then reload its tools.
      *
      * A new URL clears every stored credential, so none is ever sent to a
-     * server it wasn't meant for, and empties the catalog, whose tools
-     * belonged to the old server. A header sign-in then needs its value
+     * server it wasn't meant for, and empties the catalog, whose tools and
+     * prompts belonged to the old server. A header sign-in then needs its value
      * again, and an OAuth sign-in starts over: the server's registered client
      * is forgotten too. Switching to no auth clears the header; switching
      * away from OAuth clears its tokens and clients.
@@ -115,6 +115,7 @@ class UpdateConnectionServer
         DB::transaction(function () use ($connection, $urlChanged, $awaitsSignIn): void {
             if ($urlChanged) {
                 $connection->tools()->delete();
+                $connection->prompts()->delete();
 
                 $connection->forceFill([
                     'status' => ConnectionStatus::Pending,

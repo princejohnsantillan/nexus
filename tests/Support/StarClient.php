@@ -10,19 +10,22 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Once;
 use Illuminate\Testing\TestResponse;
 use InvalidArgumentException;
+use Laravel\Mcp\Transport\HeaderValue;
 
 /**
  * An MCP client for tests, talking to a Star's endpoint through the HTTP
  * kernel, as a 2026-07-28 client by default:
  *
  *     $response = StarClient::for($star)->withToken($token)->callTool('wiki__search', '{"q":"x"}');
+ *     $response = StarClient::for($star)->withToken($token)->getPrompt('wiki__summarize', '{"topic":"x"}');
  *
  * - speaking('2025-11-25') makes it a client of the older era: it connects
  *   with `initialize` and sends no protocol `_meta`. A 2026-07-28 client
  *   connects with `server/discover`, puts the protocol version and its
  *   capabilities in every request's `_meta`, and mirrors the protocol
  *   version, method and name in the MCP-Protocol-Version, Mcp-Method and
- *   Mcp-Name headers, as laravel/mcp requires.
+ *   Mcp-Name headers, as laravel/mcp requires (a name that isn't plain
+ *   ASCII is sent base64-encoded, as the specification says).
  * - at($star->signedUrl()) sends every request to that URL instead of the
  *   Star's endpoint, as a client given only a signed URL does.
  * - withToken() takes an OAuth access token too (see StarOAuthFlow). Each
@@ -116,6 +119,21 @@ final class StarClient
         return $this->send('tools/call', $params);
     }
 
+    public function listPrompts(): TestResponse
+    {
+        return $this->send('prompts/list');
+    }
+
+    /**
+     * @param  string|null  $arguments  The arguments' JSON, sent as written, or null to send none.
+     */
+    public function getPrompt(string $name, ?string $arguments = '{}'): TestResponse
+    {
+        $params = '{"name":'.json_encode($name).($arguments === null ? '' : ',"arguments":'.$arguments).'}';
+
+        return $this->send('prompts/get', $params);
+    }
+
     /**
      * Send one JSON-RPC request.
      *
@@ -138,7 +156,7 @@ final class StarClient
             $name = json_decode(RawJson::member($params, 'name') ?? 'null');
 
             if (is_string($name)) {
-                $headers['Mcp-Name'] = $name;
+                $headers['Mcp-Name'] = (string) new HeaderValue($name);
             }
         } elseif ($method !== 'initialize') {
             $headers['MCP-Protocol-Version'] = $this->protocolVersion;

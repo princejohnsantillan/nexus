@@ -24,7 +24,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use LogicException;
 
 /**
- * One of a user's accounts on a remote MCP server, and its catalog of tools.
+ * One of a user's accounts on a remote MCP server, and its catalog of tools and prompts.
  *
  * Its handle prefixes its tools' names in Stars, so it never changes once
  * the Connection is created. Credentials live in the encrypted `secrets`
@@ -76,6 +76,8 @@ use LogicException;
  *
  * @property-read Collection<int, Star> $stars
  * @property-read int|null $stars_count
+ * @property-read Collection<int, ConnectionPrompt> $prompts
+ * @property-read int|null $prompts_count
  *
  * @mixin \Eloquent
  */
@@ -172,6 +174,14 @@ class Connection extends Model
     public function tools(): HasMany
     {
         return $this->hasMany(ConnectionTool::class);
+    }
+
+    /**
+     * @return HasMany<ConnectionPrompt, $this>
+     */
+    public function prompts(): HasMany
+    {
+        return $this->hasMany(ConnectionPrompt::class);
     }
 
     /**

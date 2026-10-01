@@ -7,6 +7,7 @@ use App\Enums\ConnectionStatus;
 use App\Enums\NewToolPolicy;
 use App\Jobs\RefreshCatalogInBackground;
 use App\Models\Connection;
+use App\Models\ConnectionPrompt;
 use App\Models\ConnectionTool;
 use App\Models\Star;
 use App\Models\User;
@@ -99,6 +100,37 @@ describe('tools/list', function (): void {
         Queue::fake([RefreshCatalogInBackground::class]);
 
         StarClient::for($this->star)->withToken('nxs_wrong')->listTools()->assertUnauthorized();
+
+        Queue::assertNotPushed(RefreshCatalogInBackground::class);
+    });
+});
+
+describe('prompts/list', function (): void {
+    it('queues a background refresh of each of the Star\'s Connections whose catalog is stale, as tools/list does', function (): void {
+        $this->wiki->forceFill(['catalog_refreshed_at' => now()->subHours(6)->subMinute()])->save();
+        $fresh = Connection::factory()->for($this->user)->connected()->create(['catalog_refreshed_at' => now()->subHours(5)]);
+        $this->star->connections()->attach($fresh);
+        Queue::fake([RefreshCatalogInBackground::class]);
+
+        $this->client->listPrompts()->assertOk();
+
+        expect(queuedRefreshes())->toBe([$this->wiki->id]);
+    });
+
+    it('serves the prompts as they are, and refreshes them after the response', function (): void {
+        $this->wiki->forceFill(['catalog_refreshed_at' => now()->subDay()])->save();
+        ConnectionPrompt::factory()->for($this->wiki)->create(['name' => 'old-prompt']);
+        FakeMcpServer::at()->withPrompts([['name' => 'new-prompt']]);
+
+        $this->client->listPrompts()->assertOk()->assertJsonPath('result.prompts.*.name', ['wiki__old-prompt']);
+
+        expect($this->wiki->prompts()->pluck('name')->all())->toBe(['new-prompt']);
+    });
+
+    it('queues nothing when every catalog is fresh', function (): void {
+        Queue::fake([RefreshCatalogInBackground::class]);
+
+        $this->client->listPrompts()->assertOk();
 
         Queue::assertNotPushed(RefreshCatalogInBackground::class);
     });

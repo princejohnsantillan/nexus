@@ -8,6 +8,7 @@ use App\Enums\ConnectionAuthType;
 use App\Enums\ConnectionStatus;
 use App\Exceptions\CatalogNotStored;
 use App\Models\Connection;
+use App\Models\ConnectionPrompt;
 use App\Models\ConnectionTool;
 use GuzzleHttp\Promise\PromiseInterface;
 use Illuminate\Contracts\Debug\ExceptionHandler;
@@ -260,4 +261,132 @@ it('reports a database error without the server\'s text, and records that the to
         ->and(ConnectionTool::query()->count())->toBe(0);
     Exceptions::assertReported(fn (CatalogNotStored $exception): bool => $exception->getMessage() === "Nexus could not store the catalog of Connection {$connection->id} (SQLSTATE 23000)."
         && ! $exception->getPrevious() instanceof Throwable);
+});
+
+describe('prompts', function (): void {
+    it('stores every prompt with its definition exactly as received when the server has prompts', function (): void {
+        $definition = '{"name":"summarize","title":"Summarize","description":"Summarize a page.","arguments":[{"name":"page","description":"Which page.","required":true}],"_meta":{}}';
+        FakeMcpServer::at()->withTools([['name' => 'search']])->withPrompts("[{$definition}]");
+        $connection = Connection::factory()->create();
+
+        $loaded = resolve(RefreshCatalog::class)->handle($connection);
+
+        $prompt = $connection->prompts()->sole();
+
+        expect($loaded)->toBeTrue()
+            ->and($prompt->only(['name', 'title', 'description', 'definition', 'definition_hash']))->toBe([
+                'name' => 'summarize',
+                'title' => 'Summarize',
+                'description' => 'Summarize a page.',
+                'definition' => $definition,
+                'definition_hash' => hash('sha256', $definition),
+            ])
+            ->and($prompt->arguments())->toBe([['name' => 'page', 'title' => null, 'description' => 'Which page.', 'required' => true]]);
+    });
+
+    it('does not ask a server without prompts for them, and forgets the prompts it had', function (): void {
+        $server = FakeMcpServer::at()->withTools([['name' => 'search']]);
+        $connection = Connection::factory()->connected()->create();
+        ConnectionPrompt::factory()->for($connection)->create(['name' => 'gone']);
+
+        $loaded = resolve(RefreshCatalog::class)->handle($connection);
+
+        expect($loaded)->toBeTrue()
+            ->and($server->received('prompts/list'))->toBe([])
+            ->and($connection->prompts()->count())->toBe(0);
+    });
+
+    it('rewrites changed prompts, keeps unchanged ones and removes vanished ones', function (): void {
+        $connection = Connection::factory()->connected()->create();
+        $server = FakeMcpServer::at()->withPrompts([['name' => 'keep', 'description' => 'Same'], ['name' => 'change', 'description' => 'Before'], ['name' => 'vanish']]);
+        resolve(RefreshCatalog::class)->handle($connection);
+        $kept = $connection->prompts()->where('name', 'keep')->sole();
+        $this->travel(5)->minutes();
+
+        $server->withPrompts([['name' => 'keep', 'description' => 'Same'], ['name' => 'change', 'description' => 'After'], ['name' => 'new']]);
+        resolve(RefreshCatalog::class)->handle($connection);
+
+        expect($connection->prompts()->orderBy('name')->pluck('description', 'name')->all())->toBe(['change' => 'After', 'keep' => 'Same', 'new' => null])
+            ->and($connection->prompts()->where('name', 'keep')->sole()->updated_at?->equalTo($kept->updated_at))->toBeTrue();
+    });
+
+    it('keeps any prompt name up to Nexus\'s limit of 128 characters, skipping longer, empty and invisible ones', function (): void {
+        FakeMcpServer::at()->withPrompts([
+            ['name' => 'make-this-a-page'], ['name' => 'team:review'], ['name' => 'résumer'], ['name' => 'Ask a question'], ['name' => str_repeat('é', 128)],
+            ['name' => ''], ['name' => str_repeat('a', 129)], ['name' => str_repeat('é', 129)], ['name' => "bell\u{7}"], ['name' => "zero\u{200B}width"], ['name' => "new\nline"],
+        ]);
+        $connection = Connection::factory()->create();
+
+        resolve(RefreshCatalog::class)->handle($connection);
+
+        expect($connection->prompts()->orderBy('id')->pluck('name')->all())->toBe(['make-this-a-page', 'team:review', 'résumer', 'Ask a question', str_repeat('é', 128)]);
+    });
+
+    it('stores the prompts of a server that has prompts and no tools, without asking for tools', function (string $version): void {
+        $server = FakeMcpServer::at()->speaking($version)->withoutTools()->withPrompts([['name' => 'hello']]);
+        $connection = Connection::factory()->failed()->create();
+
+        $loaded = resolve(RefreshCatalog::class)->handle($connection);
+
+        expect($loaded)->toBeTrue()
+            ->and($connection->prompts()->pluck('name')->all())->toBe(['hello'])
+            ->and($connection->tools()->count())->toBe(0)
+            ->and($connection->refresh()->only(['status', 'last_error']))->toBe(['status' => ConnectionStatus::Connected, 'last_error' => null])
+            ->and($server->received('tools/list'))->toBe([]);
+    })->with(['2026-07-28', '2025-11-25']);
+
+    it('still asks a server that declares no capabilities at all for its tools', function (): void {
+        $server = FakeMcpServer::at()
+            ->withTools([['name' => 'search']])
+            ->respondTo('initialize', FakeMcpServer::jsonRpcResult(['protocolVersion' => '2025-11-25', 'capabilities' => new stdClass, 'serverInfo' => ['name' => 'quiet', 'version' => '1.0.0']]));
+        $connection = Connection::factory()->create();
+
+        expect(resolve(RefreshCatalog::class)->handle($connection))->toBeTrue()
+            ->and($connection->tools()->pluck('name')->all())->toBe(['search'])
+            ->and($server->received('prompts/list'))->toBe([]);
+    });
+
+    it('keeps the previous prompts, and still stores the tools, when listing prompts fails', function (Closure $responder): void {
+        FakeMcpServer::at()->withTools([['name' => 'search']])->withPrompts([['name' => 'new']])->respondTo('prompts/list', $responder);
+        $connection = Connection::factory()->failed()->create();
+        ConnectionPrompt::factory()->for($connection)->create(['name' => 'kept']);
+
+        $loaded = resolve(RefreshCatalog::class)->handle($connection);
+
+        expect($loaded)->toBeTrue()
+            ->and($connection->prompts()->pluck('name')->all())->toBe(['kept'])
+            ->and($connection->tools()->pluck('name')->all())->toBe(['search'])
+            ->and($connection->refresh()->only(['status', 'last_error']))->toBe(['status' => ConnectionStatus::Connected, 'last_error' => null]);
+    })->with([
+        'server error' => [FakeMcpServer::httpStatus(503, 'Downstream secret: sk-live-leak')],
+        'JSON-RPC error' => [FakeMcpServer::error(-32603, 'Downstream secret: sk-live-leak')],
+        'timeout' => [FakeMcpServer::timeout()],
+        'malformed' => [FakeMcpServer::jsonRpcResult(['prompts' => 'nope'])],
+    ]);
+
+    it('keeps the previous prompts when the tools can\'t be listed', function (): void {
+        FakeMcpServer::at()->withPrompts([['name' => 'new']])->respondTo('tools/list', FakeMcpServer::httpStatus(503));
+        $connection = Connection::factory()->connected()->create();
+        ConnectionPrompt::factory()->for($connection)->create(['name' => 'kept']);
+
+        expect(resolve(RefreshCatalog::class)->handle($connection))->toBeFalse()
+            ->and($connection->prompts()->pluck('name')->all())->toBe(['kept']);
+    });
+
+    it('drops the prompts too when the Connection moves to another server while its prompts are listed', function (): void {
+        $connection = Connection::factory()->connected()->create(['url' => 'https://old.example.com/mcp']);
+        FakeMcpServer::at('https://old.example.com/mcp')->withPrompts([['name' => 'old_prompt']])
+            ->beforeAnswering('prompts/list', function () use ($connection): void {
+                FakeMcpServer::at('https://new.example.com/mcp');
+
+                resolve(UpdateConnectionServer::class)->handle(Connection::query()->findOrFail($connection->id), [
+                    'url' => 'https://new.example.com/mcp',
+                    'auth_type' => ConnectionAuthType::None,
+                    'header_name' => null,
+                ]);
+            });
+
+        expect(resolve(RefreshCatalog::class)->handle($connection))->toBeFalse()
+            ->and(ConnectionPrompt::query()->count())->toBe(0);
+    });
 });

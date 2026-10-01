@@ -6,6 +6,8 @@ namespace App\Mcp\Servers;
 
 use App\Downstream\RawJson;
 use App\Mcp\Methods\CallStarTool;
+use App\Mcp\Methods\GetStarPrompt;
+use App\Mcp\Methods\ListStarPrompts;
 use App\Mcp\Methods\ListStarTools;
 use App\Mcp\RawResult;
 use App\Mcp\StarCaller;
@@ -26,8 +28,9 @@ use UnexpectedValueException;
  * Star is the one the access middleware authenticated the request for.
  *
  * It speaks 2026-07-28 (`server/discover`) and 2025-11-25 (`initialize`),
- * offers the Star's tools and nothing else, and passes tool definitions
- * and results through as the exact JSON the downstream servers sent.
+ * offers the Star's tools and prompts and nothing else, and passes their
+ * definitions and results through as the exact JSON the downstream servers
+ * sent.
  */
 class StarServer extends Server
 {
@@ -40,6 +43,9 @@ class StarServer extends Server
      */
     protected array $capabilities = [
         self::CAPABILITY_TOOLS => [
+            'listChanged' => false,
+        ],
+        self::CAPABILITY_PROMPTS => [
             'listChanged' => false,
         ],
     ];
@@ -55,6 +61,8 @@ class StarServer extends Server
         'ping' => Ping::class,
         'tools/list' => ListStarTools::class,
         'tools/call' => CallStarTool::class,
+        'prompts/list' => ListStarPrompts::class,
+        'prompts/get' => GetStarPrompt::class,
     ];
 
     protected function boot(): void
@@ -67,10 +75,10 @@ class StarServer extends Server
 
     /**
      * Run the method's handler. laravel/mcp first builds a `Request` from
-     * the params for its own tools, refusing arguments that aren't an
-     * object before the handler can see them; a Star has none of its
-     * tools, and its handlers read the params themselves, so `tools/call`
-     * can record every call it refuses.
+     * the params for its own tools and prompts, refusing arguments that
+     * aren't an object before the handler can see them; a Star has none of
+     * its own, and its handlers read the params themselves, so `tools/call`
+     * and `prompts/get` can record every request they refuse.
      */
     /**
      * @return iterable<JsonRpcResponse>|JsonRpcResponse

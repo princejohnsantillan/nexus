@@ -392,3 +392,68 @@ it('cannot be serialized, since it holds the Connection\'s credentials', functio
 
     serialize(resolve(DownstreamClient::class)->session(Connection::factory()->withHeader()->create()));
 })->throws(LogicException::class, 'holds secrets, so it cannot be serialized.');
+
+describe('prompts', function (): void {
+    it('says whether the server has prompts, in either protocol era', function (string $version, bool $hasPrompts): void {
+        $server = FakeMcpServer::at()->speaking($version);
+
+        if ($hasPrompts) {
+            $server->withPrompts([]);
+        }
+
+        expect(resolve(DownstreamClient::class)->session(Connection::factory()->create())->offersPrompts())->toBe($hasPrompts);
+    })->with([
+        '2026-07-28 with prompts' => ['2026-07-28', true],
+        '2026-07-28 without' => ['2026-07-28', false],
+        '2025-11-25 with prompts' => ['2025-11-25', true],
+        '2025-11-25 without' => ['2025-11-25', false],
+    ]);
+
+    it('lists prompts exactly as the server sends them, following its cursors', function (): void {
+        $server = FakeMcpServer::at()->paginate(2)->withPrompts('[{"name":"one","arguments":[{"name":"topic","required":true}],"_meta":{}},{"name":"two"},{"name":"three"}]');
+
+        $prompts = resolve(DownstreamClient::class)->session(Connection::factory()->create())->listPrompts();
+
+        expect($prompts)->toBe(['{"name":"one","arguments":[{"name":"topic","required":true}],"_meta":{}}', '{"name":"two"}', '{"name":"three"}'])
+            ->and(array_map(fn (stdClass $message): ?string => $message->params->cursor ?? null, $server->received('prompts/list')))
+            ->toBe([null, '2']);
+    });
+
+    it('gets a prompt with its arguments exactly as given and returns the result exactly as sent', function (string $version): void {
+        $server = FakeMcpServer::at()->speaking($version)->withPrompts([['name' => 'summarize']])
+            ->onGetPrompt('summarize', fn (): string => '{"messages":[{"role":"user","content":{"type":"text","text":"Hi","_meta":{}}}]}');
+
+        $result = resolve(DownstreamClient::class)->session(Connection::factory()->create())->getPrompt('summarize', '{"topic":"laravel","n":18446744073709551615}');
+
+        $sent = collect($server->requests())->first(fn (Request $request): bool => (json_decode($request->body())->method ?? null) === 'prompts/get');
+
+        expect($result)->toBe('{"messages":[{"role":"user","content":{"type":"text","text":"Hi","_meta":{}}}]}')
+            ->and(RawJson::member(RawJson::member($sent?->body() ?? '', 'params') ?? '', 'arguments'))->toBe('{"topic":"laravel","n":18446744073709551615}')
+            ->and($server->received('prompts/get')[0]->params->name)->toBe('summarize');
+    })->with(['2026-07-28', '2025-11-25']);
+
+    it('sends empty prompt arguments as an empty object', function (): void {
+        $server = FakeMcpServer::at()->withPrompts([['name' => 'summarize']]);
+
+        resolve(DownstreamClient::class)->session(Connection::factory()->create())->getPrompt('summarize', '{}');
+
+        expect($server->received('prompts/get')[0]->params->arguments)->toEqual(new stdClass);
+    });
+
+    it('refuses prompt arguments that aren\'t a JSON object, before sending anything', function (): void {
+        $server = FakeMcpServer::at()->withPrompts([['name' => 'summarize']]);
+
+        expect(fn (): string => resolve(DownstreamClient::class)->session(Connection::factory()->create())->getPrompt('summarize', '[]'))
+            ->toThrow(InvalidArgumentException::class, 'Prompt arguments must be a JSON object.')
+            ->and($server->requests())->toBeEmpty();
+    });
+
+    it('fails a prompt the server answers with a JSON-RPC error, with a message of its own', function (): void {
+        FakeMcpServer::at()->withPrompts([['name' => 'summarize']])->respondTo('prompts/get', FakeMcpServer::error(-32602, 'Downstream secret: sk-live-leak'));
+
+        $failure = downstreamFailure(Connection::factory()->create(), fn (DownstreamSession $session): string => $session->getPrompt('summarize', '{}'));
+
+        expect($failure->failure)->toBe(DownstreamFailure::ProtocolError)
+            ->and($failure->getMessage())->toBe('The server answered with a JSON-RPC error (code -32602).');
+    });
+});

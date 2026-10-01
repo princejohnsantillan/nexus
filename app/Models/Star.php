@@ -26,7 +26,8 @@ use Illuminate\Support\Facades\URL;
  * URL stays the same when it is renamed. Its `slug`, unique among its
  * owner's Stars, names it in client configuration. Each tool of its
  * Connections is on or off by the user's own switch, or else by the Star's
- * new-tool policy; App\Stars\StarToolset works out which.
+ * new-tool policy; App\Stars\StarToolset works out which. Each prompt is
+ * on unless the user switched it off; App\Stars\StarPrompts lists them.
  *
  * @property int $id
  * @property int $user_id
@@ -64,6 +65,9 @@ use Illuminate\Support\Facades\URL;
  * @method static \Illuminate\Database\Eloquent\Builder<static>|Star whereSlug($value)
  * @method static \Illuminate\Database\Eloquent\Builder<static>|Star whereUpdatedAt($value)
  * @method static \Illuminate\Database\Eloquent\Builder<static>|Star whereUserId($value)
+ *
+ * @property-read Collection<int, StarPromptSwitch> $promptSwitches
+ * @property-read int|null $prompt_switches_count
  *
  * @mixin \Eloquent
  */
@@ -151,6 +155,16 @@ class Star extends Model
     public function toolSwitches(): HasMany
     {
         return $this->hasMany(StarToolSwitch::class);
+    }
+
+    /**
+     * The user's own on/off choices for prompts in this Star.
+     *
+     * @return HasMany<StarPromptSwitch, $this>
+     */
+    public function promptSwitches(): HasMany
+    {
+        return $this->hasMany(StarPromptSwitch::class);
     }
 
     /**

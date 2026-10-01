@@ -19,6 +19,7 @@
     <flux:navbar class="-mb-px mt-4 border-b border-zinc-200 dark:border-zinc-700">
         <flux:navbar.item :href="route('stars.show', $star)" :current="$current === 'overview'" wire:navigate>{{ __('Overview') }}</flux:navbar.item>
         <flux:navbar.item :href="route('stars.tools', $star)" :current="$current === 'tools'" wire:navigate>{{ __('Tools') }}</flux:navbar.item>
+        <flux:navbar.item :href="route('stars.prompts', $star)" :current="$current === 'prompts'" wire:navigate>{{ __('Prompts') }}</flux:navbar.item>
         <flux:navbar.item :href="route('stars.access', $star)" :current="$current === 'access'" wire:navigate>{{ __('Access') }}</flux:navbar.item>
     </flux:navbar>
 </div>

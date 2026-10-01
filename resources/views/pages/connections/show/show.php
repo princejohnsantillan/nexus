@@ -79,6 +79,12 @@ return new #[Title('Connection')] class extends Component
         return $this->connection->tools()->count();
     }
 
+    #[Computed]
+    public function promptCount(): int
+    {
+        return $this->connection->prompts()->count();
+    }
+
     /**
      * The Stars that include this Connection, which lose its tools when it is deleted.
      *
@@ -298,7 +304,7 @@ return new #[Title('Connection')] class extends Component
      */
     private function toastRefresh(bool $loaded, ?string $prefix = null, bool $onlyThisAccount = false): void
     {
-        unset($this->toolCount);
+        unset($this->toolCount, $this->promptCount);
 
         $result = match (true) {
             $loaded => trans_choice('Nexus loaded :count tool.|Nexus loaded :count tools.', $this->toolCount),
