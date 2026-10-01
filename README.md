@@ -137,6 +137,14 @@ Tests are written with Pest 5:
 
 `Tests\TestCase` calls `Http::preventStrayRequests()` and `withoutVite()`, so a test never reaches the network and doesn't need a front-end build. Fake the network edge (`Http::fake()`, Socialite fakes); don't mock our own classes. It also gives Passport an RSA key pair (`Tests\Support\PassportKeys`, made once per test process and never stored), so OAuth to Nexus runs for real in tests.
 
+Production runs on Postgres, so CI runs the suite on Postgres as well as SQLite. To run it on a local Postgres, point the `DB_*` variables at a database whose user may create databases (a parallel run makes one per process):
+
+```bash
+DB_CONNECTION=pgsql DB_HOST=127.0.0.1 DB_PORT=5432 DB_DATABASE=nexus_testing DB_USERNAME=nexus DB_PASSWORD=secret vendor/bin/pest --parallel
+```
+
+Write SQL that works on both. On Postgres a statement that fails aborts the transaction it ran in, and every later query in it fails too, so a write that may be refused and caught runs in its own `DB::transaction()` (a savepoint inside another transaction), as `App\Actions\RecordActivity` does.
+
 Faked requests pass through the [outbound guard](#outbound-requests) too, so fake `https://` URLs. `Tests\TestCase` fakes the guard's DNS so that every host resolves to a public address. To make a host resolve somewhere else, call `$this->fakeDns(['internal.example.com' => ['10.0.0.1']])`; an empty list makes the host unresolvable.
 
 #### The fake MCP server
@@ -406,6 +414,140 @@ Laravel Boost writes guidelines (`CLAUDE.md`, `AGENTS.md`), skills (`.claude/ski
 php artisan boost:update
 ```
 
+## Deploying to Laravel Cloud
+
+Production runs on [Laravel Cloud](https://cloud.laravel.com) on the Starter plan. The code is ready for it:
+
+- **Database.** Serverless Postgres. Cloud injects `DB_CONNECTION` and the connection details when the database is attached. Migrations and the test suite run on Postgres in CI.
+- **Cache.** Laravel Valkey, with `CACHE_STORE=redis`, which Cloud sets when the cache is attached. It holds the cache locks (adding Connections, Stars and tokens, renewing OAuth tokens) and the MCP rate limiter's counts.
+- **Queue.** A Flex managed queue. Cloud sets `QUEUE_CONNECTION=cloud` and configures the connection itself; the framework's `cloud` driver needs `aws/aws-sdk-php`, which is installed. Flex workers stop a job after 90 seconds, so keep every job well under that.
+- **Scheduler.** On the App cluster, for the daily activity prune. Cloud wakes a sleeping environment for each task listed by `php artisan schedule:list`, which it reads at every deploy.
+- **HTTPS.** On Laravel Cloud (`LARAVEL_CLOUD=1`) the framework trusts the edge's forwarded headers, so a request's scheme, host and address are the client's; anywhere else they are ignored. In production every URL Nexus writes is HTTPS whatever the request (`URL::forceHttps()` in `AppServiceProvider`), and `SESSION_SECURE_COOKIE=true` keeps cookies off plain HTTP.
+- **Time limit.** Cloud ends a web request after about 60 seconds, so a downstream call gives up after `NEXUS_DOWNSTREAM_CALL_TIMEOUT` (55 s), and the client gets Nexus's own timeout error instead of a gateway error. The [smoke test](#smoke-test) checks the real limit.
+
+### What to create
+
+Only these, at their smallest sizes, all in one region:
+
+| Resource | Settings |
+| --- | --- |
+| Application | From `princejohnsantillan/nexus` on GitHub, with one environment, `production`, deploying the `stars` branch (`main` once `stars` replaces it). PHP 8.4, Node 22. |
+| App cluster | The smallest Flex size, 1 replica, Scale-to-Zero on, Scheduler on, Octane off. |
+| Database | Serverless Postgres 18, 0.25 compute units as both minimum and maximum, Scale-to-Zero on, the shortest backup retention offered. |
+| Cache | Laravel Valkey, the smallest Flex size, Scale-to-Zero on if offered, the default eviction policy. |
+| Managed queue | A standard queue named `default`: Flex, 256 MiB, at most 1 worker. |
+| Edge network | The defaults: no bot categories, no rate limiting, Under Attack Mode off. MCP clients are bots, so blocking or challenging them breaks every Star. |
+
+Create nothing else: no object storage bucket (attaching one injects global AWS settings), no worker cluster, no WebSockets and no custom domain.
+
+Build commands:
+
+```bash
+composer install --no-dev --no-interaction --prefer-dist
+npm ci --audit false
+npm run build
+php artisan optimize
+```
+
+Deploy command:
+
+```bash
+php artisan migrate --force
+```
+
+Don't add `queue:restart`, `optimize:clear` or `storage:link`: Cloud restarts the workers itself, and a deploy command's changes to the filesystem don't persist.
+
+### Variables and secrets
+
+Custom environment variables:
+
+```dotenv
+APP_ENV=production
+APP_DEBUG=false
+APP_URL=https://{the environment's laravel.cloud domain}
+SESSION_SECURE_COOKIE=true
+```
+
+Leave `NEXUS_DEV_SIGN_IN` unset (the dev sign-in exists only locally anyway). The `NEXUS_` limits and timeouts keep their defaults unless you set them.
+
+These are Cloud Secrets linked to the environment, never custom variables, files or commits:
+
+| Secret | Value |
+| --- | --- |
+| `APP_KEY` | A new key from `php artisan key:generate --show` |
+| `NEXUS_MASTER_KEY` | A new key from `php artisan nexus:master-key` (the `base64:…` value after `=`) |
+| `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | The GitHub sign-in app |
+| `NEXUS_GITHUB_CLIENT_ID`, `NEXUS_GITHUB_CLIENT_SECRET` | The GitHub connector app (optional: without it, users connect GitHub with their own token or OAuth app) |
+
+Cloud never shows a secret's value again, and without the master key no stored credential can be decrypted, so keep a copy of `NEXUS_MASTER_KEY` in a password manager and never change it. Changing `APP_KEY` signs everyone out and breaks every signed URL unless the old key goes in `APP_PREVIOUS_KEYS`. A custom variable overrides a secret of the same name, so if the environment already has an `APP_KEY` custom variable, delete it.
+
+The CLI encrypts a secret before sending it. Pipe the value in, so it never appears in your shell history, then link the secrets and redeploy:
+
+```bash
+php artisan key:generate --show | cloud secret:create --name=APP_KEY --notes="Nexus production" --json -n
+pbpaste | cloud secret:create --name=NEXUS_MASTER_KEY --notes="Nexus production" --json -n  # copied from your password manager
+cloud secret:list --json -n                                  # the new secrets' IDs
+cloud environment-secret:attach production {id} {id} -n
+```
+
+### Runbook
+
+Steps marked **owner** need the owner's own accounts. Anyone signed in to the Cloud CLI can do the rest.
+
+1. **Owner:** install the Cloud CLI and sign in: `composer global require laravel/cloud-cli`, then `cloud auth` (it opens the browser). Cloud must be able to read `princejohnsantillan/nexus` on GitHub.
+2. Create the application, its `production` environment and the resources in [What to create](#what-to-create). The Cloud dashboard's canvas shows each size. The CLI can do the same (`application:create`, `database-cluster:create`, `cache:create`, `managed-queue:create`, `instance:update`; read each one's `-h` first, and `cloud instance:sizes --json -n` and `cloud cache:types --json -n` list the sizes). Don't use `cloud ship`, which provisions its own defaults.
+3. Set the build and deploy commands, the custom variables except `APP_URL`, and the `APP_KEY` and `NEXUS_MASTER_KEY` secrets.
+4. Deploy with `cloud deploy nexus production -n`, then follow it with `cloud deploy:monitor nexus production -n`. The first successful deploy gives the environment its `laravel.cloud` domain: set `APP_URL` to it.
+5. **Owner:** register two OAuth apps at <https://github.com/settings/developers> (OAuth Apps → New OAuth App), each with `APP_URL` as its homepage URL:
+    - **Nexus**, for signing in, with the callback URL `{APP_URL}/auth/github/callback`: its client ID and a new client secret are `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`.
+    - **Nexus GitHub connector**, for connecting GitHub, with the callback URL `{APP_URL}/oauth/callback`: `NEXUS_GITHUB_CLIENT_ID` and `NEXUS_GITHUB_CLIENT_SECRET`.
+
+    Store the four values as secrets (`pbpaste | cloud secret:create --name=GITHUB_CLIENT_SECRET --json -n`, and so on) and link them.
+6. Redeploy and monitor it, then check what the app sees:
+
+    ```bash
+    cloud tinker production -n --code='echo config("app.url"), " ", DB::connection()->getDriverName(), " ", config("cache.default"), " ", config("queue.default"), PHP_EOL; cache()->put("deploy-check", "ok", 60); echo cache()->get("deploy-check"), PHP_EOL;'
+    ```
+
+    It prints the HTTPS `APP_URL`, `pgsql`, `redis` and `cloud`, then `ok`.
+7. Run the smoke test and record the results on the deploy's pull request.
+
+After changing a variable, a secret or an attached resource, redeploy: Cloud applies them only to new deploys.
+
+### Smoke test
+
+On the deployed URL:
+
+1. Sign in with GitHub.
+2. Add a custom MCP server: DeepWiki, `https://mcp.deepwiki.com/mcp`, no sign-in. Its three tools load.
+3. Create a Star with DeepWiki in token mode, switch on `deepwiki__read_wiki_structure` on its Tools page (DeepWiki doesn't mark its tools read-only, so they start off), and create a token on its Access page.
+4. Call the tool from a real client: add the Star to Claude Code with the snippet on its overview and ask about a repository's wiki, or use the MCP Inspector CLI:
+
+    ```bash
+    npx @modelcontextprotocol/inspector --cli "$APP_URL/mcp/{public_id}" --transport http \
+      --header "Authorization: Bearer $NEXUS_WORK_TOKEN" \
+      --method tools/call --tool-name deepwiki__read_wiki_structure --tool-arg repoName=laravel/framework
+    ```
+
+    The call appears on the Activity page.
+5. Confirm the time limit with a deliberately slow server. The MCP reference server has a tool that waits as long as it is told. Run it behind any public HTTPS tunnel (ngrok, Herd's Expose, cloudflared):
+
+    ```bash
+    PORT=3917 npx -y @modelcontextprotocol/server-everything streamableHttp
+    ngrok http 3917
+    ```
+
+    Add it as a custom MCP server (handle `slow`, URL `https://{tunnel}/mcp`, no sign-in), include it in the Star and switch on `slow__trigger-long-running-operation`. Call it with curl, since MCP clients often give up after 60 seconds on their own and curl doesn't:
+
+    ```bash
+    curl -s -w '\nHTTP %{http_code} in %{time_total}s\n' "$APP_URL/mcp/{public_id}" \
+      -H "Authorization: Bearer $NEXUS_WORK_TOKEN" -H 'Content-Type: application/json' \
+      -H 'Accept: application/json, text/event-stream' -H 'MCP-Protocol-Version: 2025-11-25' \
+      -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"slow__trigger-long-running-operation","arguments":{"duration":50,"steps":1}}}'
+    ```
+
+    With `"duration":50` the server's result comes back after about 50 seconds. With `70`, a tool error ("The server took too long to answer, so Nexus stopped waiting.") comes back after about 55 seconds: Nexus gave up inside the platform's limit. If the edge answers with a 5xx before then, the limit is lower: set `NEXUS_DOWNSTREAM_CALL_TIMEOUT` a few seconds under it. To measure the limit itself, set `NEXUS_DOWNSTREAM_CALL_TIMEOUT=120`, redeploy, call with `100` and note when and how the request ends, then remove the variable and redeploy. Delete the `slow` Connection afterwards.
+
 ## Continuous integration
 
-[`.github/workflows/qa.yml`](.github/workflows/qa.yml) runs on every push and pull request targeting `stars`: it installs the PHP and Node dependencies, builds the front end and runs `composer qa` on PHP 8.4.
+[`.github/workflows/qa.yml`](.github/workflows/qa.yml) runs on every push and pull request targeting `stars`. Its `qa` job installs the PHP and Node dependencies, builds the front end and runs `composer qa` on PHP 8.4. Its `postgres` job runs the test suite again on Postgres 18, the database production uses.

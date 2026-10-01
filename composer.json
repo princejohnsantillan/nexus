@@ -11,6 +11,7 @@
     "license": "MIT",
     "require": {
         "php": "^8.4",
+        "aws/aws-sdk-php": "^3.399",
         "laravel/framework": "^13.34",
         "laravel/mcp": "^1.0",
         "laravel/passport": "^13.8",
