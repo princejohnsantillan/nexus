@@ -25,7 +25,7 @@
             <flux:sidebar.spacer />
 
             <flux:dropdown position="top" align="start" class="max-lg:hidden">
-                <flux:sidebar.profile :name="auth()->user()->name ?? __('Guest')" :initials="auth()->user()?->initials() ?? 'G'" icon:trailing="chevron-up-down" />
+                <flux:sidebar.profile :avatar="auth()->user()->avatar_url" :name="auth()->user()->name" :initials="auth()->user()->initials()" icon:trailing="chevron-up-down" />
                 <x-profile-menu />
             </flux:dropdown>
         </flux:sidebar>
@@ -36,7 +36,7 @@
             <flux:spacer />
 
             <flux:dropdown position="top" align="end">
-                <flux:profile :initials="auth()->user()?->initials() ?? 'G'" :aria-label="__('Profile menu')" />
+                <flux:profile :avatar="auth()->user()->avatar_url" :initials="auth()->user()->initials()" :aria-label="__('Profile menu')" />
                 <x-profile-menu />
             </flux:dropdown>
         </flux:header>
@@ -44,6 +44,8 @@
         <flux:main>
             {{ $slot }}
         </flux:main>
+
+        <x-flash-toast />
 
         @fluxScripts
     </body>

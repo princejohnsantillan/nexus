@@ -32,6 +32,18 @@ Open <https://nexus.test>. If you link the site under another name (for example 
 
 Herd serves the site, so there is nothing to start. While working on the front end, run `npm run dev` for hot reloading. `composer dev` runs everything at once: Vite, a queue worker, the log viewer and a spare `php artisan serve`.
 
+### Signing in
+
+People sign in with GitHub; Nexus stores no passwords. To use GitHub sign-in, register an OAuth app at <https://github.com/settings/developers> with the callback URL `{APP_URL}/auth/github/callback` (e.g. `https://nexus.test/auth/github/callback`) and set `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` in `.env`.
+
+Locally you can skip the OAuth app with the dev sign-in. Set `NEXUS_DEV_SIGN_IN=true` in `.env` and seed the two dev users:
+
+```bash
+php artisan db:seed
+```
+
+The welcome page then offers "Sign in as Dev User" and "Sign in as Second User". The same links work from the address bar or curl: `/dev/sign-in/dev` and `/dev/sign-in/second`. The dev sign-in only exists when `APP_ENV=local` and the flag is on; everywhere else it is a 404. Seeding again restores a deleted dev user.
+
 ## The quality gate
 
 ```bash
@@ -99,6 +111,8 @@ Set the page title with `#[Title('…')]` on the class. Pages use the app layout
 - `layouts::public` is for public pages such as the welcome page. Choose it with `#[Layout('layouts::public')]`.
 - Both include [`partials/head.blade.php`](resources/views/partials/head.blade.php), which loads the Inter font, the Vite assets and `@fluxAppearance`; both end with `@fluxScripts`.
 - Shared pieces live in `resources/views/components`: `<x-empty-state>` (every list needs a helpful empty state), `<x-appearance-switch>`, `<x-app-logo>` and `<x-icons.github>`.
+- Every page except the welcome page requires sign-in: add app routes inside the `auth` group in [`routes/web.php`](routes/web.php). Guests are sent to the welcome page, and signed-in visitors to the welcome page go to the app.
+- Toasts: in a Livewire action call `Flux::toast(...)`. To show one after a redirect, flash `toast` with its text and a variant (`success`, `warning` or `danger`): `to_route('home')->with('toast', ['variant' => 'success', 'text' => __('Saved.')])`. Both layouts render it with `<x-flash-toast>`.
 
 ### UI with Flux free
 
