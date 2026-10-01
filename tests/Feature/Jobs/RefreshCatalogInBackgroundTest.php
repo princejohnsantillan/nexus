@@ -7,7 +7,6 @@ use App\Jobs\RefreshCatalogInBackground;
 use App\Models\Connection;
 use Illuminate\Http\Client\Request;
 use Illuminate\Log\Events\MessageLogged;
-use Illuminate\Queue\MaxAttemptsExceededException;
 use Illuminate\Queue\TimeoutExceededException;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
@@ -123,6 +122,30 @@ it('queues one refresh per Connection at a time', function (): void {
     expect(Queue::pushed(RefreshCatalogInBackground::class)->map(fn (RefreshCatalogInBackground $job): int => $job->connectionId)->all())->toBe([$first->id, $second->id]);
 });
 
+it('queues no second refresh while the first one waits, for up to 30 days', function (): void {
+    config(['queue.default' => 'database']);
+    $connection = Connection::factory()->create();
+
+    RefreshCatalogInBackground::dispatch($connection->id);
+    $this->travel(30)->days();
+    $this->travel(-1)->second();
+    RefreshCatalogInBackground::dispatch($connection->id);
+
+    expect(DB::table('jobs')->count())->toBe(1);
+});
+
+it('queues a refresh again 30 days after one was lost from the queue', function (): void {
+    config(['queue.default' => 'database']);
+    $connection = Connection::factory()->create();
+    RefreshCatalogInBackground::dispatch($connection->id);
+    DB::table('jobs')->delete();
+
+    $this->travel(30)->days();
+    RefreshCatalogInBackground::dispatch($connection->id);
+
+    expect(DB::table('jobs')->count())->toBe(1);
+});
+
 it('queues the next refresh once the last one has run', function (): void {
     $server = FakeMcpServer::at()->withTools([['name' => 'search']]);
     $connection = Connection::factory()->create();
@@ -135,7 +158,6 @@ it('queues the next refresh once the last one has run', function (): void {
 
 it('records on the Connection a refresh the worker stopped for taking too long', function (): void {
     $connection = Connection::factory()->connected()->create();
-    $this->travel(2)->minutes();
 
     new RefreshCatalogInBackground($connection->id)->failed(new TimeoutExceededException('App\Jobs\RefreshCatalogInBackground has timed out.'));
 
@@ -145,29 +167,109 @@ it('records on the Connection a refresh the worker stopped for taking too long',
     ]);
 });
 
-it('records on the Connection a refresh the worker gave up on', function (): void {
-    Exceptions::fake();
+it('records on the Connection a refresh a worker died during, logs nothing, and can queue the next one', function (): void {
+    $logged = [];
+    Event::listen(MessageLogged::class, function (MessageLogged $message) use (&$logged): void {
+        $logged[] = $message->message;
+    });
     config(['queue.default' => 'database']);
     $server = FakeMcpServer::at();
     $connection = Connection::factory()->connected()->create();
     RefreshCatalogInBackground::dispatch($connection->id);
-    DB::table('jobs')->update(['attempts' => 1]);
+    DB::table('jobs')->update(['attempts' => 1, 'reserved_at' => now()->getTimestamp()]);
     $this->travel(2)->minutes();
 
     Artisan::call('queue:work', ['--once' => true, '--stop-when-empty' => true]);
 
     expect($connection->refresh()->only(['status', 'last_error']))->toBe(['status' => ConnectionStatus::Error, 'last_error' => 'Nexus could not refresh the tools in the background.'])
-        ->and($server->requests())->toBeEmpty();
-    Exceptions::assertReported(MaxAttemptsExceededException::class);
+        ->and($server->requests())->toBeEmpty()
+        ->and($logged)->toBe([])
+        ->and(DB::table('jobs')->count())->toBe(0);
+
+    RefreshCatalogInBackground::dispatch($connection->id);
+
+    expect(DB::table('jobs')->count())->toBe(1);
 });
 
-it('leaves a Connection saved while the stopped refresh ran as it is', function (): void {
-    $connection = Connection::factory()->connected()->create();
-    $this->travel(2)->minutes();
-    $connection->update(['name' => 'Renamed']);
-    $this->travel(30)->seconds();
+it('records a stopped refresh even when the Connection changed in a way that doesn\'t touch its refresh', function (Closure $makeConnection, Closure $change): void {
+    $connection = $makeConnection();
+    FakeMcpServer::at()->beforeAnswering('tools/list', function () use ($connection, $change): never {
+        $change(Connection::query()->findOrFail($connection->id));
 
-    new RefreshCatalogInBackground($connection->id)->failed(new TimeoutExceededException('App\Jobs\RefreshCatalogInBackground has timed out.'));
+        throw new RuntimeException('The worker stopped the refresh.');
+    });
+
+    expect(function () use ($connection): void {
+        RefreshCatalogInBackground::dispatch($connection->id);
+    })->toThrow(RuntimeException::class);
+
+    expect($connection->refresh()->only(['status', 'last_error']))->toBe(['status' => ConnectionStatus::Error, 'last_error' => 'Nexus could not refresh the tools in the background.']);
+})->with([
+    'a new name and note' => [
+        fn (): Connection => Connection::factory()->connected()->create(),
+        fn (Connection $connection): bool => $connection->update(['name' => 'Renamed', 'description' => 'For work']),
+    ],
+    'an OAuth access token renewed as it was used' => [
+        function (): Connection {
+            $connection = Connection::factory()->oauth()->connected()->create();
+            $connection->secrets->put(['access_token' => 'access-1', 'expires_at' => now()->addHour()->getTimestamp()]);
+            $connection->save();
+
+            return $connection;
+        },
+        function (Connection $connection): bool {
+            $connection->secrets->put(['access_token' => 'access-2']);
+
+            return $connection->save();
+        },
+    ],
+]);
+
+it('leaves the Connection as a newer sign-in or refresh left it', function (Closure $change, array $expected): void {
+    $connection = Connection::factory()->withHeader('Bearer old')->connected()->create(['catalog_refreshed_at' => now()->subDay()]);
+    FakeMcpServer::at()->beforeAnswering('tools/list', function () use ($connection, $change): never {
+        $change(Connection::query()->findOrFail($connection->id));
+
+        throw new RuntimeException('The worker stopped the refresh.');
+    });
+
+    expect(function () use ($connection): void {
+        RefreshCatalogInBackground::dispatch($connection->id);
+    })->toThrow(RuntimeException::class);
+
+    expect($connection->refresh()->only(['status', 'last_error']))->toBe($expected);
+})->with([
+    'a refresh that loaded the tools' => [
+        fn (Connection $connection): bool => $connection->forceFill(['catalog_refreshed_at' => now()])->save(),
+        ['status' => ConnectionStatus::Connected, 'last_error' => null],
+    ],
+    'a refresh that failed' => [
+        fn (Connection $connection): bool => $connection->forceFill(['status' => ConnectionStatus::NeedsAuth, 'last_error' => 'The server refused the credentials Nexus sent (HTTP 401).'])->save(),
+        ['status' => ConnectionStatus::NeedsAuth, 'last_error' => 'The server refused the credentials Nexus sent (HTTP 401).'],
+    ],
+    'a new server' => [
+        fn (Connection $connection): bool => $connection->forceFill(['url' => 'https://other.example.com/mcp'])->save(),
+        ['status' => ConnectionStatus::Connected, 'last_error' => null],
+    ],
+    'a replaced header' => [
+        function (Connection $connection): bool {
+            $connection->secrets->put(['header_value' => 'Bearer new']);
+
+            return $connection->save();
+        },
+        ['status' => ConnectionStatus::Connected, 'last_error' => null],
+    ],
+]);
+
+it('leaves the Connection as a refresh since it was queued left it, when it never started', function (): void {
+    config(['queue.default' => 'database']);
+    $connection = Connection::factory()->failed()->create();
+    RefreshCatalogInBackground::dispatch($connection->id);
+    DB::table('jobs')->update(['attempts' => 1, 'reserved_at' => now()->getTimestamp()]);
+    $this->travel(2)->minutes();
+    $connection->forceFill(['status' => ConnectionStatus::Connected, 'last_error' => null, 'catalog_refreshed_at' => now()])->save();
+
+    Artisan::call('queue:work', ['--once' => true, '--stop-when-empty' => true]);
 
     expect($connection->refresh()->only(['status', 'last_error']))->toBe(['status' => ConnectionStatus::Connected, 'last_error' => null]);
 });
