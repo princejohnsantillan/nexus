@@ -54,7 +54,7 @@
 
     <section aria-labelledby="delete-account-heading">
         <flux:heading size="lg" level="2" id="delete-account-heading">{{ __('Delete account') }}</flux:heading>
-        <flux:text class="mt-1">{{ __('Deletes your account with all of its Stars, Connections, tokens, connected apps and activity, and destroys your encryption key so your stored credentials can never be read again. This can\'t be undone.') }}</flux:text>
+        <flux:text class="mt-1">{{ __('Deleting your account permanently removes your Stars, Connections, tokens, connected apps, activity and encryption key. Backups are kept for a limited time and then removed. This can\'t be undone.') }}</flux:text>
 
         <flux:modal.trigger name="delete-account">
             <flux:button variant="danger" class="mt-4">{{ __('Delete account') }}</flux:button>
@@ -65,7 +65,7 @@
         <form wire:submit="deleteAccount" class="space-y-6">
             <div>
                 <flux:heading size="lg">{{ __('Delete your account?') }}</flux:heading>
-                <flux:text class="mt-2">{{ __('Your Stars stop working in every client, and your Connections, tokens, connected apps and activity are deleted for good.') }}</flux:text>
+                <flux:text class="mt-2">{{ __('Your Stars stop working in every client right away, and your Connections, tokens, connected apps, activity and encryption key are removed. Backups are kept for a limited time and then removed.') }}</flux:text>
             </div>
 
             <flux:input
