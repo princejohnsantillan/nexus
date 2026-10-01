@@ -9,12 +9,14 @@ use App\Enums\ConnectionStatus;
 use App\Filament\Resources\Connections\ConnectionResource;
 use App\Models\Connection;
 use Filament\Actions\Action;
+use Filament\Forms\Components\Radio;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Resources\Pages\Page;
 use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Section;
+use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Illuminate\Validation\Rules\Unique;
@@ -81,11 +83,12 @@ class AddConnection extends Page
                 default => null,
             })
             ->modalHeading("Connect {$connector->name}")
-            ->modalDescription('You\'ll sign in on the next screen. Connect the same service again to add another account.')
-            ->modalSubmitActionLabel('Continue to sign in')
+            ->modalDescription('Connect the same service again to add another account.')
+            ->modalSubmitActionLabel('Connect')
             ->fillForm(fn (): array => [
                 'name' => $this->suggestedName($connector),
                 'handle' => $this->suggestedHandle($connector),
+                'method' => $connector->suggestedMethod(),
             ])
             ->schema(fn (): array => [
                 TextInput::make('name')
@@ -102,10 +105,14 @@ class AddConnection extends Page
                     ->rows(2)
                     ->maxLength(500)
                     ->placeholder('Optional, e.g. "BetterWorld work account". Helps agents pick between two accounts.'),
+                ...$this->methodChoice($connector),
+                ...$this->tokenFields($connector),
                 ...$this->userClientFields($connector),
             ])
             ->action(function (array $data) use ($connector): void {
                 abort_unless($connector->isAvailable() && ConnectionResource::canCreate(), 403);
+
+                $withToken = $this->method($connector, $data['method'] ?? null) === 'token';
 
                 $connection = new Connection([
                     'connector' => $connector->key,
@@ -113,16 +120,84 @@ class AddConnection extends Page
                     'description' => $data['description'] ?? null,
                     'handle' => $data['handle'],
                     'url' => $connector->url,
-                    'auth_type' => ConnectionAuthType::OAuth,
+                    'auth_type' => $withToken ? ConnectionAuthType::Header : ConnectionAuthType::OAuth,
                     'status' => ConnectionStatus::Pending,
-                    'settings' => array_filter(['oauth_client_id' => $data['oauth_client_id'] ?? null]),
+                    'settings' => $withToken
+                        ? ['header_name' => $connector->token->header]
+                        : array_filter(['oauth_client_id' => $data['oauth_client_id'] ?? null]),
                 ]);
                 $connection->user()->associate(auth()->user());
-                $connection->putSecrets(['oauth_client_secret' => $data['oauth_client_secret'] ?? null]);
+                $connection->putSecrets($withToken
+                    ? ['header_value' => $connector->token->headerValue((string) $data['token'])]
+                    : ['oauth_client_secret' => $data['oauth_client_secret'] ?? null]);
                 $connection->save();
+
+                if ($withToken) {
+                    ConnectionResource::refreshTools($connection);
+                    $this->redirect(ConnectionResource::getUrl('edit', ['record' => $connection]));
+
+                    return;
+                }
 
                 $this->redirect(route('connections.oauth.connect', $connection));
             });
+    }
+
+    /**
+     * Offered only when both methods can work for this connector here.
+     *
+     * @return list<Radio>
+     */
+    protected function methodChoice(Connector $connector): array
+    {
+        if (! $connector->supportsToken() || ! $connector->supportsOAuth()) {
+            return [];
+        }
+
+        return [
+            Radio::make('method')
+                ->label('How to connect')
+                ->options([
+                    'token' => 'With your own token',
+                    'oauth' => "Sign in with {$connector->name}",
+                ])
+                ->descriptions([
+                    'token' => 'Nexus acts as you, with exactly the access you give the token. No app needed.',
+                    'oauth' => $connector->needsUserClient()
+                        ? 'Signs in through an OAuth app, which you register yourself.'
+                        : 'Signs in through this Nexus\'s app.',
+                ])
+                ->required()
+                ->live(),
+        ];
+    }
+
+    /**
+     * @return list<Section>
+     */
+    protected function tokenFields(Connector $connector): array
+    {
+        if (! $connector->supportsToken()) {
+            return [];
+        }
+
+        return [
+            Section::make('Your token')
+                ->description($connector->token->instructions)
+                ->visible(fn (Get $get): bool => $this->method($connector, $get('method')) === 'token')
+                ->schema([
+                    TextEntry::make('token_console')
+                        ->label('Create one at')
+                        ->state($connector->token->consoleUrl)
+                        ->url($connector->token->consoleUrl, shouldOpenInNewTab: true),
+                    TextInput::make('token')
+                        ->label('Token')
+                        ->password()
+                        ->revealable()
+                        ->required()
+                        ->helperText('Stored encrypted. Nexus checks it by loading the tools right away.'),
+                ]),
+        ];
     }
 
     /**
@@ -140,6 +215,7 @@ class AddConnection extends Page
         return [
             Section::make("Your {$connector->name} app")
                 ->description($connector->appInstructions)
+                ->visible(fn (Get $get): bool => $this->method($connector, $get('method')) === 'oauth')
                 ->schema([
                     TextEntry::make('callback_url')
                         ->label('Callback URL')
@@ -168,6 +244,18 @@ class AddConnection extends Page
                         ->helperText('Stored encrypted.'),
                 ]),
         ];
+    }
+
+    /**
+     * The chosen sign-in method, falling back to the only one available.
+     */
+    protected function method(Connector $connector, ?string $chosen): string
+    {
+        return match (true) {
+            ! $connector->supportsToken() => 'oauth',
+            ! $connector->supportsOAuth() => 'token',
+            default => $chosen ?? $connector->suggestedMethod(),
+        };
     }
 
     protected function suggestedName(Connector $connector): string

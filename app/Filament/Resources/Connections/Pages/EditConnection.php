@@ -35,6 +35,11 @@ class EditConnection extends EditRecord
     protected function handleRecordUpdate(Model $record, array $data): Model
     {
         $secrets = array_filter(Arr::only($data, CreateConnection::SECRET_FIELDS), filled(...));
+
+        // A connector's token is pasted bare; it gets its header prefix ("Bearer ") here.
+        if (isset($secrets['header_value']) && ($token = $record->connectorDefinition()?->token) !== null) {
+            $secrets['header_value'] = $token->headerValue($secrets['header_value']);
+        }
         $authType = $data['auth_type'] ?? $record->auth_type;
         $authType = $authType instanceof ConnectionAuthType ? $authType : ConnectionAuthType::from($authType);
 

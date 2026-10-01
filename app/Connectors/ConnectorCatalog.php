@@ -22,7 +22,7 @@ final class ConnectorCatalog
 
     protected const FIELDS = [
         'name', 'summary', 'url', 'icon', 'docs_url', 'registration', 'scopes',
-        'preview', 'requires_deployment_app', 'app',
+        'preview', 'requires_deployment_app', 'app', 'token',
     ];
 
     /**
@@ -109,6 +109,11 @@ final class ConnectorCatalog
             'app.console_url' => ['required_with:app', 'url:https'],
             'app.instructions' => ['required_with:app', 'string'],
             'app.manifest' => ['sometimes', 'array'],
+            'token' => ['sometimes', 'array:console_url,instructions,header,prefix'],
+            'token.console_url' => ['required_with:token', 'url:https'],
+            'token.instructions' => ['required_with:token', 'string'],
+            'token.header' => ['sometimes', 'string', 'regex:/^[A-Za-z0-9-]+$/'],
+            'token.prefix' => ['sometimes', 'string'],
         ]);
 
         if ($validator->fails()) {
@@ -129,6 +134,12 @@ final class ConnectorCatalog
             appManifest: $data['app']['manifest'] ?? null,
             preview: $data['preview'] ?? false,
             requiresDeploymentApp: $data['requires_deployment_app'] ?? false,
+            token: isset($data['token']) ? new TokenAuth(
+                consoleUrl: $data['token']['console_url'],
+                instructions: $data['token']['instructions'],
+                header: $data['token']['header'] ?? 'Authorization',
+                prefix: $data['token']['prefix'] ?? 'Bearer ',
+            ) : null,
         );
     }
 }

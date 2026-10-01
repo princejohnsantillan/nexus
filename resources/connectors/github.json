@@ -14,5 +14,9 @@
     "app": {
         "console_url": "https://github.com/settings/applications/new",
         "instructions": "GitHub only accepts apps registered in its developer settings. Create an OAuth app with the callback URL below, then enter its client ID and secret. Organizations may need to approve the app before their repositories are visible."
+    },
+    "token": {
+        "console_url": "https://github.com/settings/personal-access-tokens/new",
+        "instructions": "Connect as yourself with a personal access token, no OAuth app needed. A fine-grained token is best: pick the repositories it can see and grant only what your tools need (e.g. Contents, Issues and Pull requests). Classic tokens work too. Organizations may require approving fine-grained tokens."
     }
 }

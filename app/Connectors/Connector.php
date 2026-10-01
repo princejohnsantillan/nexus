@@ -28,7 +28,16 @@ final class Connector
         public readonly ?array $appManifest = null,
         public readonly bool $preview = false,
         public readonly bool $requiresDeploymentApp = false,
+        public readonly ?TokenAuth $token = null,
     ) {}
+
+    /**
+     * Whether users can connect with their own token instead of OAuth.
+     */
+    public function supportsToken(): bool
+    {
+        return $this->token !== null;
+    }
 
     /**
      * The scope to request, space-separated, or null to let the server's
@@ -61,7 +70,29 @@ final class Connector
      */
     public function isAvailable(): bool
     {
+        return $this->supportsToken() || $this->supportsOAuth();
+    }
+
+    /**
+     * Whether OAuth sign-in can work here: always, unless the connector only
+     * works with an app this deployment registered and none is configured.
+     */
+    public function supportsOAuth(): bool
+    {
         return ! $this->requiresDeploymentApp || $this->deploymentClient() !== null;
+    }
+
+    /**
+     * The sign-in method to suggest: OAuth when it needs nothing from the
+     * user, otherwise their own token if the connector accepts one.
+     */
+    public function suggestedMethod(): string
+    {
+        if (! $this->supportsToken()) {
+            return 'oauth';
+        }
+
+        return $this->supportsOAuth() && ! $this->needsUserClient() ? 'oauth' : 'token';
     }
 
     /**

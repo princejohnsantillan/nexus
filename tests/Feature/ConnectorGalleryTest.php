@@ -18,6 +18,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Laravel\Mcp\Client\OAuth\TokenSet;
 use Livewire\Livewire;
+use Tests\Support\FakeMcpServer;
 use Tests\TestCase;
 
 class ConnectorGalleryTest extends TestCase
@@ -189,6 +190,85 @@ class ConnectorGalleryTest extends TestCase
             ->assertHasNoFormErrors();
 
         $this->assertSame('https://mcp.slack.com', Connection::query()->find($connection->getKey())->setting('oauth_resource'));
+    }
+
+    public function test_github_suggests_a_personal_token_when_there_is_no_deployment_app(): void
+    {
+        Livewire::test(AddConnection::class)
+            ->mountAction(TestAction::make('connect_github')->schemaComponent('connector-github', schema: 'content'))
+            ->assertActionDataSet(['method' => 'token']);
+    }
+
+    public function test_connecting_github_with_a_personal_token_acts_as_the_user(): void
+    {
+        $github = (new FakeMcpServer('https://api.githubcopilot.com/mcp/'))->fake();
+        $github->requireAuthorization = 'Bearer github_pat_123';
+        $github->toolsJson = '[{"name":"get_me","inputSchema":{"type":"object","properties":{}},"annotations":{"readOnlyHint":true}},{"name":"list_issues","inputSchema":{"type":"object"},"annotations":{"readOnlyHint":true}}]';
+        $github->onCall = fn (): string => '{"content":[{"type":"text","text":"{\\"login\\":\\"octo-ada\\"}"}]}';
+
+        $this->connect('github', ['name' => 'GitHub', 'handle' => 'github', 'method' => 'token', 'token' => 'github_pat_123'])
+            ->assertHasNoActionErrors();
+
+        $connection = Connection::query()->sole();
+        $this->assertSame(ConnectionAuthType::Header, $connection->auth_type);
+        $this->assertSame('Authorization', $connection->setting('header_name'));
+        $this->assertSame('Bearer github_pat_123', $connection->secret('header_value'));
+        $this->assertSame(ConnectionStatus::Active, $connection->status);
+        $this->assertSame(['get_me', 'list_issues'], $connection->tools()->pluck('name')->all());
+        $this->assertSame('octo-ada', $connection->account_identity);
+    }
+
+    public function test_a_token_pasted_with_its_prefix_is_not_prefixed_twice(): void
+    {
+        (new FakeMcpServer('https://api.githubcopilot.com/mcp/'))->fake();
+
+        $this->connect('github', ['name' => 'GitHub', 'handle' => 'github', 'method' => 'token', 'token' => 'Bearer ghp_abc'])
+            ->assertHasNoActionErrors();
+
+        $this->assertSame('Bearer ghp_abc', Connection::query()->sole()->secret('header_value'));
+    }
+
+    public function test_the_token_method_requires_a_token(): void
+    {
+        $this->connect('github', ['name' => 'GitHub', 'handle' => 'github', 'method' => 'token', 'token' => ''])
+            ->assertHasActionErrors(['token' => 'required']);
+    }
+
+    public function test_choosing_oauth_without_a_deployment_app_still_asks_for_the_users_app(): void
+    {
+        $this->connect('github', ['name' => 'GitHub', 'handle' => 'github', 'method' => 'oauth'])
+            ->assertHasActionErrors(['oauth_client_id' => 'required']);
+    }
+
+    public function test_with_a_deployment_app_github_suggests_signing_in_but_tokens_still_work(): void
+    {
+        config(['nexus.connectors.github' => ['client_id' => 'deployment-app', 'client_secret' => 'deployment-secret']]);
+        (new FakeMcpServer('https://api.githubcopilot.com/mcp/'))->fake();
+
+        Livewire::test(AddConnection::class)
+            ->mountAction(TestAction::make('connect_github')->schemaComponent('connector-github', schema: 'content'))
+            ->assertActionDataSet(['method' => 'oauth']);
+
+        $this->connect('github', ['name' => 'GitHub', 'handle' => 'github', 'method' => 'token', 'token' => 'ghp_abc'])
+            ->assertHasNoActionErrors();
+
+        $this->assertSame(ConnectionAuthType::Header, Connection::query()->sole()->auth_type);
+    }
+
+    public function test_a_rotated_token_gets_its_prefix_and_the_header_name_is_locked(): void
+    {
+        $connection = Connection::factory()->for($this->user)->withHeader('Bearer old-token')->create([
+            'connector' => 'github',
+            'url' => 'https://api.githubcopilot.com/mcp/',
+        ]);
+
+        Livewire::test(EditConnection::class, ['record' => $connection->getKey()])
+            ->assertFormFieldDisabled('settings.header_name')
+            ->fillForm(['header_value' => 'new-token'])
+            ->call('save')
+            ->assertHasNoFormErrors();
+
+        $this->assertSame('Bearer new-token', Connection::query()->find($connection->getKey())->secret('header_value'));
     }
 
     /**

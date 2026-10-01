@@ -72,6 +72,8 @@ class ConnectorDefinitionsTest extends TestCase
             'registered app without instructions' => ['noapp', [...$minimal, 'registration' => 'pre_registered'], 'app field is required'],
             'scopes as a string' => ['scopestring', [...$minimal, 'scopes' => 'read write'], 'scopes'],
             'key that is not a handle' => ['Bad_Name', $minimal, 'file name is the connector key'],
+            'token without instructions' => ['tokennoinstr', [...$minimal, 'token' => ['console_url' => 'https://example.com/tokens']], 'token.instructions'],
+            'token header with spaces' => ['tokenheader', [...$minimal, 'token' => ['console_url' => 'https://example.com/tokens', 'instructions' => 'Make one.', 'header' => 'X Api Key']], 'token.header'],
         ];
     }
 

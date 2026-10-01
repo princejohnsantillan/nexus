@@ -108,6 +108,7 @@ class ConnectionResource extends Resource
                         TextInput::make('settings.header_name')
                             ->label('Header name')
                             ->default('Authorization')
+                            ->disabled(fn (?Connection $record): bool => $record?->connectorDefinition()?->supportsToken() === true)
                             ->required()
                             ->maxLength(100)
                             ->visible(static::whenAuthIs(ConnectionAuthType::Header)),
@@ -118,9 +119,11 @@ class ConnectionResource extends Resource
                             ->required(fn (string $operation): bool => $operation === 'create')
                             ->dehydrated(fn (?string $state): bool => filled($state))
                             ->placeholder('Bearer sk-…')
-                            ->helperText(fn (string $operation): string => $operation === 'create'
-                                ? 'Stored encrypted. Include the scheme if the server expects one, e.g. "Bearer …".'
-                                : 'Stored encrypted. Leave blank to keep the current value.')
+                            ->helperText(fn (string $operation, ?Connection $record): string => match (true) {
+                                $operation === 'create' => 'Stored encrypted. Include the scheme if the server expects one, e.g. "Bearer …".',
+                                $record?->connectorDefinition()?->supportsToken() === true => 'Stored encrypted. Paste a new token to replace the current one, or leave blank to keep it.',
+                                default => 'Stored encrypted. Leave blank to keep the current value.',
+                            })
                             ->visible(static::whenAuthIs(ConnectionAuthType::Header)),
                         Section::make('Your own OAuth app (optional)')
                             ->description('Most servers let Nexus register itself. Slack and GitHub don\'t: create an OAuth app there, enter its credentials here, and set its callback URL to the one below.')
