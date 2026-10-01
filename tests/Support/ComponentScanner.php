@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Support;
 
+use Illuminate\Support\Str;
 use PhpToken;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
@@ -56,10 +57,11 @@ final readonly class ComponentScanner
     public function bannedCallsIn(string $source): array
     {
         $tokens = PhpToken::tokenize($source);
+        $imports = $this->functionImports($tokens);
         $calls = [];
 
         foreach ($tokens as $index => $token) {
-            $name = $this->calledFunctionName($tokens, $index);
+            $name = $this->calledFunctionName($tokens, $index, $imports);
 
             if ($name !== null && in_array($name, $this->bannedFunctions, true)) {
                 $calls[] = $name;
@@ -70,11 +72,83 @@ final readonly class ComponentScanner
     }
 
     /**
-     * The global function called at this token, if the token starts a function call.
+     * The functions imported with `use function`, keyed by the name they are called by.
+     *
+     * Both sides are lowercase and the imported name has no leading backslash, so
+     * `use function dd as debug;` maps "debug" to "dd".
      *
      * @param  list<PhpToken>  $tokens
+     * @return array<string, string>
      */
-    private function calledFunctionName(array $tokens, int $index): ?string
+    private function functionImports(array $tokens): array
+    {
+        $imports = [];
+
+        foreach ($tokens as $index => $token) {
+            if (! $token->is(T_USE) || $this->neighbour($tokens, $index, 1)?->is(T_FUNCTION) !== true) {
+                continue;
+            }
+
+            $prefix = '';
+            $name = null;
+            $alias = null;
+            $expectsAlias = false;
+
+            for ($i = $index + 1; isset($tokens[$i]) && $tokens[$i]->text !== ';'; $i++) {
+                $current = $tokens[$i];
+
+                if ($current->is([T_STRING, T_NAME_QUALIFIED, T_NAME_FULLY_QUALIFIED])) {
+                    if ($expectsAlias) {
+                        $alias = $current->text;
+                        $expectsAlias = false;
+                    } else {
+                        $name = $current->text;
+                    }
+                } elseif ($current->is(T_AS)) {
+                    $expectsAlias = true;
+                } elseif ($current->text === '{') {
+                    $prefix = trim((string) $name, '\\').'\\';
+                    $name = null;
+                } elseif ($current->text === ',' || $current->text === '}') {
+                    $this->addImport($imports, $prefix, $name, $alias);
+                    $name = null;
+                    $alias = null;
+                }
+            }
+
+            $this->addImport($imports, $prefix, $name, $alias);
+        }
+
+        return $imports;
+    }
+
+    /**
+     * Record one imported function under the name it is called by.
+     *
+     * @param  array<string, string>  $imports
+     */
+    private function addImport(array &$imports, string $prefix, ?string $name, ?string $alias): void
+    {
+        if ($name === null) {
+            return;
+        }
+
+        $imported = strtolower(ltrim($prefix.$name, '\\'));
+        $calledAs = strtolower($alias ?? Str::afterLast($imported, '\\'));
+
+        $imports[$calledAs] = $imported;
+    }
+
+    /**
+     * The function called at this token, if the token starts a function call.
+     *
+     * Global functions come back without a namespace; calls through a `use function`
+     * import resolve to the imported function.
+     *
+     * @param  list<PhpToken>  $tokens
+     * @param  array<string, string>  $imports
+     */
+    private function calledFunctionName(array $tokens, int $index, array $imports): ?string
     {
         $token = $tokens[$index];
 
@@ -97,7 +171,11 @@ final readonly class ComponentScanner
             return null;
         }
 
-        return strtolower(ltrim($token->text, '\\'));
+        if ($token->is(T_NAME_FULLY_QUALIFIED)) {
+            return strtolower(ltrim($token->text, '\\'));
+        }
+
+        return $imports[strtolower($token->text)] ?? strtolower($token->text);
     }
 
     /**

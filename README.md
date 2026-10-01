@@ -17,12 +17,14 @@ The product spec lives in [issue #1](https://github.com/princejohnsantillan/nexu
 You need PHP 8.4, Composer 2, Node 22 and [Laravel Herd](https://herd.laravel.com).
 
 ```bash
-git clone https://github.com/princejohnsantillan/nexus.git
+git clone --branch stars https://github.com/princejohnsantillan/nexus.git
 cd nexus
 composer setup
 herd link nexus
 herd secure nexus
 ```
+
+The rewrite lives on the `stars` branch until it replaces `main`, which still holds the first version of Nexus.
 
 `composer setup` installs the PHP and Node dependencies, creates `.env` from `.env.example`, generates the app key, creates the SQLite database at `database/database.sqlite`, runs the migrations and builds the front end.
 
@@ -114,7 +116,7 @@ Tests are written with Pest 5:
 
 ### Architecture rules and banned functions
 
-[`tests/Arch/ArchitectureTest.php`](tests/Arch/ArchitectureTest.php) applies Pest's Laravel and security presets, a "no debug calls" rule and strict types for `App` and `Database`. Architecture rules can't see the anonymous classes in component files, so [`tests/Arch/ComponentScanTest.php`](tests/Arch/ComponentScanTest.php) scans every component PHP file for the same banned functions (debug helpers, `env`, `eval`, `exec` and friends, `unserialize`, `extract` and the rest), and proves the scan catches a `dd()`. The lists live in [`tests/Support/BannedFunctions.php`](tests/Support/BannedFunctions.php).
+[`tests/Arch/ArchitectureTest.php`](tests/Arch/ArchitectureTest.php) applies Pest's Laravel and security presets, a "no debug calls" rule and strict types for `App` and `Database`. Architecture rules can't see the anonymous classes in component files, so [`tests/Arch/ComponentScanTest.php`](tests/Arch/ComponentScanTest.php) scans every component PHP file for calls to the same banned functions (debug helpers, `env`, `eval`, `exec` and friends, `unserialize`, `extract` and the rest), including calls through a `use function` import or alias, and proves the scan catches a `dd()`. Like the architecture rules, it can't see dynamic calls such as `$function()` or string callables. The lists live in [`tests/Support/BannedFunctions.php`](tests/Support/BannedFunctions.php).
 
 ### Configuration and secrets
 

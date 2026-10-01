@@ -68,6 +68,47 @@ it('catches every banned function', function (string $function): void {
         ->and($scanner->bannedCallsIn("<?php \\{$function}('x');"))->toBe([$function]);
 })->with(BannedFunctions::all());
 
+it('catches banned functions called through a use function import', function (): void {
+    $scanner = new ComponentScanner(BannedFunctions::all());
+
+    $source = <<<'PHP'
+        <?php
+
+        use Livewire\Component;
+
+        use function dd as debug;
+        use function \exec as run, var_dump;
+        use function Illuminate\Support\{tap, value as get};
+
+        return new class extends Component
+        {
+            public function probe(): never
+            {
+                run('ls');
+                var_dump($this);
+                $dumper = debug(...);
+                debug($this);
+            }
+        };
+        PHP;
+
+    expect($scanner->bannedCallsIn($source))->toBe(['exec', 'var_dump', 'dd', 'dd']);
+});
+
+it('resolves a namespaced function imported under a banned name', function (): void {
+    $scanner = new ComponentScanner(BannedFunctions::all());
+
+    $source = <<<'PHP'
+        <?php
+
+        use function App\Support\inspect as dump;
+
+        dump('x');
+        PHP;
+
+    expect($scanner->bannedCallsIn($source))->toBe([]);
+});
+
 it('ignores methods, declarations and strings that share a banned name', function (): void {
     $scanner = new ComponentScanner(BannedFunctions::all());
 
