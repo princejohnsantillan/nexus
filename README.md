@@ -28,6 +28,12 @@ The rewrite lives on the `stars` branch until it replaces `main`, which still ho
 
 `composer setup` installs the PHP and Node dependencies, creates `.env` from `.env.example`, generates the app key, creates the SQLite database at `database/database.sqlite`, runs the migrations and builds the front end.
 
+Then generate a master key for credential encryption and put the line it prints in place of the empty `NEXUS_MASTER_KEY=` in `.env`:
+
+```bash
+php artisan nexus:master-key
+```
+
 Open <https://nexus.test>. If you link the site under another name (for example `herd link nexus-t2` in a git worktree), set `APP_URL` in `.env` to match, e.g. `APP_URL=https://nexus-t2.test`.
 
 Herd serves the site, so there is nothing to start. While working on the front end, run `npm run dev` for hot reloading. `composer dev` runs everything at once: Vite, a queue worker, the log viewer and a spare `php artisan serve`.
@@ -141,6 +147,18 @@ Every request through Laravel's HTTP client goes through the outbound guard in [
 ### Configuration and secrets
 
 The repository is public. Never commit `.env`, databases, keys or tokens; `.gitignore` excludes them. Nexus's own settings use the `NEXUS_` prefix, and each feature documents its variables in `.env.example` in the same change that starts reading them.
+
+### Credential encryption
+
+Every credential Nexus stores is encrypted with AES-256-GCM under its owner's own data key (`App\Encryption`). Data keys live in the `data_keys` table, wrapped by the master key in `NEXUS_MASTER_KEY`, so the database alone reveals nothing. Deleting a user deletes their data key, which leaves their old ciphertext, backups included, unreadable. Without a valid master key Nexus throws a `MasterKeyException` rather than encrypt or decrypt anything. Tests get a fresh master key from `Tests\TestCase`.
+
+A model keeps its secrets in a `secrets` column cast with `AsEncryptedSecrets`, owned by its `user_id`. Hide the column and never make it fillable. Callers never see ciphertext:
+
+```php
+$connection->secrets->get('access_token');
+$connection->secrets->put(['access_token' => $token, 'refresh_token' => null]); // null removes a secret
+$connection->save();
+```
 
 ### AI agents
 
