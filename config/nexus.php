@@ -42,6 +42,22 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Catalogs
+    |--------------------------------------------------------------------------
+    |
+    | Every Connection's catalog is refreshed in the background once a day,
+    | and when a Star lists tools from a catalog older than this many
+    | minutes. That refresh is queued after the response, so the list
+    | itself is served from the catalog as it is.
+    |
+    */
+
+    'catalogs' => [
+        'stale_after_minutes' => (int) env('NEXUS_CATALOG_STALE_AFTER_MINUTES', 360),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Limits
     |--------------------------------------------------------------------------
     |

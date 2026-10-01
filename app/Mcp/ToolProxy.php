@@ -11,7 +11,10 @@ use App\Enums\ActivityKind;
 use App\Enums\ActivityStatus;
 use App\Enums\DownstreamFailure;
 use App\Exceptions\DownstreamRequestFailed;
+use App\Jobs\RefreshCatalogInBackground;
 use App\Stars\StarTool;
+use Laravel\Mcp\Enums\ErrorCode;
+use stdClass;
 
 /**
  * Forwards one tool call through a Star to its Connection's server, and
@@ -24,6 +27,10 @@ use App\Stars\StarTool;
  * Connection needs signing in again, the message gives its reconnect link
  * (`connections.connect`), which starts an OAuth sign-in or, for a header
  * or token, opens the Connection's page.
+ *
+ * When the server says it doesn't know the tool, the Connection's catalog
+ * no longer matches the server, so a background refresh is queued once
+ * the response has been sent.
  */
 final readonly class ToolProxy
 {
@@ -67,6 +74,10 @@ final readonly class ToolProxy
         try {
             $result = $this->downstream->session($tool->connection)->callTool($tool->tool->name, $arguments);
         } catch (DownstreamRequestFailed $failed) {
+            if ($this->refusedAsInvalidParams($failed)) {
+                $this->refreshCatalogLater($tool);
+            }
+
             return [$this->statusFor($failed->failure), $this->failed($tool, $failed)];
         }
 
@@ -79,7 +90,52 @@ final readonly class ToolProxy
 
         $isError = json_decode(RawJson::member($result, 'isError') ?? 'false') === true;
 
+        if ($isError && $this->saysToolIsUnknown($tool, $result)) {
+            $this->refreshCatalogLater($tool);
+        }
+
         return [$isError ? ActivityStatus::Error : ActivityStatus::Ok, $result];
+    }
+
+    /**
+     * Whether the server refused the call as "invalid params" (JSON-RPC
+     * -32602): the error the MCP specification has a server answer a call
+     * to a tool it doesn't have with. Servers before 2025-11-25 also refuse
+     * arguments that don't fit the tool's schema with it, as when the tool
+     * changed; a refresh after arguments that were simply wrong finds
+     * nothing new.
+     */
+    private function refusedAsInvalidParams(DownstreamRequestFailed $failed): bool
+    {
+        return $failed->failure === DownstreamFailure::ToolError && $failed->jsonRpcCode === ErrorCode::INVALID_PARAMS->value;
+    }
+
+    /**
+     * Whether a tool error's text says the server doesn't know the tool, as
+     * servers built on the MCP SDKs for Python ("Unknown tool: search") and
+     * TypeScript ("Tool search not found") answer, rather than with the
+     * JSON-RPC "invalid params" error the specification asks for. The text
+     * is only matched, never kept.
+     */
+    private function saysToolIsUnknown(StarTool $tool, string $result): bool
+    {
+        $content = json_decode(RawJson::member($result, 'content') ?? '[]');
+        $pattern = '/\bunknown tool\b|\btool\W+(?:'.preg_quote($tool->tool->name, '/').'\W+)?not found\b/i';
+
+        return array_any(is_array($content) ? $content : [], fn (mixed $block): bool => $block instanceof stdClass && ($block->type ?? null) === 'text' && is_string($block->text ?? null) && preg_match($pattern, $block->text) === 1);
+    }
+
+    /**
+     * Queue a background refresh of the tool's Connection once the response
+     * has been sent.
+     */
+    private function refreshCatalogLater(StarTool $tool): void
+    {
+        $connectionId = $tool->connection->id;
+
+        defer(function () use ($connectionId): void {
+            RefreshCatalogInBackground::dispatch($connectionId);
+        });
     }
 
     private function statusFor(DownstreamFailure $failure): ActivityStatus
