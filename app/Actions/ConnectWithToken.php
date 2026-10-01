@@ -18,6 +18,7 @@ class ConnectWithToken
     public function __construct(
         private readonly SaveNewConnection $saveNewConnection,
         private readonly RefreshCatalog $refreshCatalog,
+        private readonly DeleteConnection $deleteConnection,
     ) {}
 
     /**
@@ -54,7 +55,7 @@ class ConnectWithToken
         $this->saveNewConnection->handle($user, $connection);
 
         if (! $this->refreshCatalog->handle($connection) && $connection->status === ConnectionStatus::NeedsAuth) {
-            $connection->delete();
+            $this->deleteConnection->handle($connection);
 
             throw ValidationException::withMessages([
                 'token' => __(':name didn\'t accept this token. Check that you copied all of it and that it hasn\'t expired or been revoked.', ['name' => $connector->name]),

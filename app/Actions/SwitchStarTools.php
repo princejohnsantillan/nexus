@@ -8,6 +8,7 @@ use App\Models\Connection;
 use App\Models\ConnectionTool;
 use App\Models\Star;
 use App\Models\StarToolSwitch;
+use App\Stars\StarListCache;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Facades\DB;
@@ -18,6 +19,8 @@ class SwitchStarTools
      * How many switches one insert writes.
      */
     private const int CHUNK_SIZE = 200;
+
+    public function __construct(private readonly StarListCache $starLists) {}
 
     /**
      * Switch tools of one of the Star's Connections on or off as the user's
@@ -32,7 +35,8 @@ class SwitchStarTools
      *
      * The Star's and the Connection's rows are held while the switches are
      * written, so neither can be deleted, nor the Connection taken out of
-     * the Star, halfway through.
+     * the Star, halfway through. Once they are committed, the Star's lists
+     * are worked out afresh (StarListCache).
      *
      * @param  list<string>|null  $toolNames
      *
@@ -43,6 +47,8 @@ class SwitchStarTools
         DB::transaction(function () use ($star, $connection, $enabled, $toolNames): void {
             Star::query()->whereKey($star->id)->lockForUpdate()->firstOrFail();
             $star->connections()->whereKey($connection->id)->lockForUpdate()->firstOrFail();
+
+            $this->starLists->forget($star);
 
             $switches = $star->toolSwitches()->where('connection_id', $connection->id);
 
