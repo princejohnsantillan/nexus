@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Connectors\Connector;
+use App\Connectors\ConnectorCatalog;
 use App\Enums\ConnectionAuthType;
 use App\Enums\ConnectionStatus;
 use App\Security\SecretCipher;
@@ -24,7 +26,7 @@ use SensitiveParameter;
  * data key; read it with allSecrets() or secret() and write it with
  * putSecrets().
  */
-#[Fillable(['name', 'description', 'handle', 'url', 'auth_type', 'settings', 'status', 'status_message'])]
+#[Fillable(['connector', 'name', 'description', 'handle', 'url', 'auth_type', 'settings', 'status', 'status_message'])]
 #[Hidden(['secrets'])]
 class Connection extends Model
 {
@@ -123,6 +125,14 @@ class Connection extends Model
         $this->decryptedSecrets = null;
 
         return $this;
+    }
+
+    /**
+     * The catalog connector this connection was created from, if any.
+     */
+    public function connectorDefinition(): ?Connector
+    {
+        return ConnectorCatalog::find($this->connector);
     }
 
     /**

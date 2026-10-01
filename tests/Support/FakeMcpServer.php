@@ -40,6 +40,12 @@ class FakeMcpServer
      */
     public string|array|null $requireAuthorization = null;
 
+    /** The scope the 401 challenge asks for, if any. */
+    public ?string $challengeScope = 'read write';
+
+    /** Where the 401 challenge says the protected resource metadata lives. */
+    public string $resourceMetadataUrl = 'https://svc.example.com/.well-known/oauth-protected-resource/mcp';
+
     /** @var (Closure(stdClass): string)|null Returns the raw JSON of a tools/call result. */
     public ?Closure $onCall = null;
 
@@ -66,7 +72,7 @@ class FakeMcpServer
 
         if ($this->requireAuthorization !== null && ! in_array($request->header('Authorization')[0] ?? null, (array) $this->requireAuthorization, true)) {
             return Http::response('', 401, [
-                'WWW-Authenticate' => 'Bearer resource_metadata="https://svc.example.com/.well-known/oauth-protected-resource/mcp", scope="read write"',
+                'WWW-Authenticate' => "Bearer resource_metadata=\"{$this->resourceMetadataUrl}\"".($this->challengeScope === null ? '' : ", scope=\"{$this->challengeScope}\""),
             ]);
         }
 

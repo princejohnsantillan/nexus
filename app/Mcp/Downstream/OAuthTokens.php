@@ -56,11 +56,7 @@ class OAuthTokens
             }
 
             try {
-                $tokens = $this->clients->for($connection)->refreshCredentials(
-                    $refreshToken,
-                    $connection->secret('client_id'),
-                    $connection->secret('client_secret'),
-                );
+                $tokens = $this->clients->for($connection)->refreshCredentials($refreshToken);
             } catch (OAuthException $exception) {
                 $this->needsAuth($connection, 'Refreshing the access token failed: '.$exception->getMessage());
             }
@@ -71,16 +67,24 @@ class OAuthTokens
         });
     }
 
+    /**
+     * Save a token set. The client it was issued to is remembered only when
+     * the server registered that client for this connection; apps the user
+     * or the deployment configured are always read from their settings, so
+     * rotating a deployment app's secret takes effect everywhere.
+     */
     public function store(Connection $connection, TokenSet $tokens, ?string $keepRefreshToken = null): void
     {
+        $registered = $this->clients->usesRegisteredClient($connection);
+
         $connection->putSecrets([
             'access_token' => $tokens->accessToken,
             // Servers that don't rotate refresh tokens omit them on refresh.
             'refresh_token' => $tokens->refreshToken ?? $keepRefreshToken,
             'expires_at' => $tokens->expiresAt,
             'token_type' => $tokens->tokenType,
-            'client_id' => $tokens->clientId ?? $connection->secret('client_id'),
-            'client_secret' => $tokens->clientSecret ?? $connection->secret('client_secret'),
+            'client_id' => $registered ? ($tokens->clientId ?? $connection->secret('client_id')) : null,
+            'client_secret' => $registered ? ($tokens->clientSecret ?? $connection->secret('client_secret')) : null,
         ]);
 
         $connection->forceFill(['status' => ConnectionStatus::Active, 'status_message' => null])->save();

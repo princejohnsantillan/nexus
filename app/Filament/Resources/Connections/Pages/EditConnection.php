@@ -35,14 +35,23 @@ class EditConnection extends EditRecord
     protected function handleRecordUpdate(Model $record, array $data): Model
     {
         $secrets = array_filter(Arr::only($data, CreateConnection::SECRET_FIELDS), filled(...));
-        $authType = $data['auth_type'] instanceof ConnectionAuthType ? $data['auth_type'] : ConnectionAuthType::from($data['auth_type']);
+        $authType = $data['auth_type'] ?? $record->auth_type;
+        $authType = $authType instanceof ConnectionAuthType ? $authType : ConnectionAuthType::from($authType);
 
-        $invalidatesTokens = $record->url !== $data['url']
+        $invalidatesTokens = $record->url !== ($data['url'] ?? $record->url)
             || $record->auth_type !== $authType
             || $record->setting('oauth_client_id') !== data_get($data, 'settings.oauth_client_id')
             || isset($secrets['oauth_client_secret']);
 
-        $record->fill(Arr::except($data, CreateConnection::SECRET_FIELDS));
+        // Merge settings: the form only holds the visible fields, and keys it
+        // doesn't show (like the server's own name for its resource) must survive.
+        $settings = [...($record->settings ?? []), ...($data['settings'] ?? [])];
+
+        if ($invalidatesTokens) {
+            unset($settings['oauth_resource']);
+        }
+
+        $record->fill([...Arr::except($data, CreateConnection::SECRET_FIELDS), 'settings' => $settings]);
 
         if ($invalidatesTokens) {
             $record->putSecrets([

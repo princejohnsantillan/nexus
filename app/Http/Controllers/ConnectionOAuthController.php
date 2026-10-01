@@ -43,11 +43,15 @@ class ConnectionOAuthController extends Controller
         try {
             $clients->probe($connection);
         } catch (AuthorizationRequiredException $challenge) {
+            $client = $oauth->for($connection, $challenge->resourceMetadataUrl(), $challenge->scope());
+
             try {
-                $redirect = $oauth->for($connection, $challenge->resourceMetadataUrl(), $challenge->scope())->redirect();
+                $redirect = $client->redirect();
             } catch (OAuthException $exception) {
                 return $this->fail($connection, ConnectionStatus::Error, "Couldn't start sign-in: {$exception->getMessage()}");
             }
+
+            $connection->forceFill(['settings' => [...($connection->settings ?? []), 'oauth_resource' => $client->advertisedResource()]])->save();
 
             parse_str((string) parse_url($redirect->getTargetUrl(), PHP_URL_QUERY), $query);
 

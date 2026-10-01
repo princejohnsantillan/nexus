@@ -3,8 +3,9 @@
 namespace App\Filament\Resources\Connections\Pages;
 
 use App\Filament\Resources\Connections\ConnectionResource;
-use Filament\Actions\CreateAction;
+use Filament\Actions\Action;
 use Filament\Resources\Pages\ListRecords;
+use Filament\Support\Icons\Heroicon;
 
 class ListConnections extends ListRecords
 {
@@ -13,7 +14,10 @@ class ListConnections extends ListRecords
     protected function getHeaderActions(): array
     {
         return [
-            CreateAction::make(),
+            Action::make('add')
+                ->label('Add connection')
+                ->icon(Heroicon::OutlinedPlus)
+                ->url(ConnectionResource::getUrl('add')),
         ];
     }
 }

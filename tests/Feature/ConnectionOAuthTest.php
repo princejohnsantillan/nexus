@@ -229,4 +229,104 @@ class ConnectionOAuthTest extends TestCase
             ->assertJsonPath('redirect_uris', [route('oauth.callback')])
             ->assertJsonPath('token_endpoint_auth_method', 'none');
     }
+
+    public function test_a_resource_named_by_its_origin_like_slack_is_accepted_and_used(): void
+    {
+        $this->fakeAuthorizationServer(resource: 'https://slackish.example.com', metadataPath: '/.well-known/oauth-protected-resource');
+        $connection = $this->connectionTo('https://slackish.example.com/mcp');
+
+        $query = $this->startSignIn($connection);
+
+        $this->assertSame('https://slackish.example.com', $query['resource']);
+        $this->assertSame('https://slackish.example.com', $connection->fresh()->setting('oauth_resource'));
+
+        $this->get(route('oauth.callback', ['code' => 'auth-code', 'state' => $query['state']]))->assertRedirect();
+
+        Http::assertSent(fn (Request $request): bool => $request->url() === 'https://auth2.example.com/token'
+            && $request['resource'] === 'https://slackish.example.com');
+        $this->assertSame('issued-access', $connection->fresh()->secret('access_token'));
+    }
+
+    public function test_a_resource_on_another_origin_is_refused(): void
+    {
+        $this->fakeAuthorizationServer(resource: 'https://evil.example.com/mcp', metadataPath: '/.well-known/oauth-protected-resource');
+        $connection = $this->connectionTo('https://slackish.example.com/mcp');
+
+        $this->actingAs($connection->user)->get(route('connections.oauth.connect', $connection))->assertRedirect();
+
+        $connection->refresh();
+        $this->assertSame(ConnectionStatus::Error, $connection->status);
+        $this->assertStringContainsString('did not match', $connection->status_message);
+    }
+
+    public function test_an_authorization_server_listed_with_a_trailing_slash_like_google_is_found(): void
+    {
+        $this->fakeAuthorizationServer(resource: 'https://slackish.example.com/mcp', metadataPath: '/.well-known/oauth-protected-resource/mcp', issuerListedAs: 'https://auth2.example.com/');
+        $connection = $this->connectionTo('https://slackish.example.com/mcp');
+
+        $this->assertArrayHasKey('state', $this->startSignIn($connection));
+    }
+
+    public function test_google_is_asked_for_offline_access_so_it_issues_a_refresh_token(): void
+    {
+        $this->fakeAuthorizationServer(resource: 'https://slackish.example.com/mcp', metadataPath: '/.well-known/oauth-protected-resource/mcp', authorizeAt: 'https://accounts.google.com/o/oauth2/v2/auth');
+        $connection = $this->connectionTo('https://slackish.example.com/mcp');
+
+        $query = $this->startSignIn($connection);
+
+        $this->assertSame('offline', $query['access_type']);
+        $this->assertSame('consent select_account', $query['prompt']);
+    }
+
+    public function test_a_connectors_preset_scope_is_requested_when_the_server_does_not_ask_for_one(): void
+    {
+        config(['nexus.connectors.gmail' => ['client_id' => 'google-app', 'client_secret' => 'google-secret']]);
+        $this->server->challengeScope = null;
+        $this->connection->forceFill(['connector' => 'gmail'])->save();
+
+        $query = $this->startSignIn($this->connection);
+
+        $this->assertSame('google-app', $query['client_id']);
+        $this->assertSame('https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.compose', $query['scope']);
+    }
+
+    /**
+     * A second fake server at https://slackish.example.com, with its own
+     * protected resource metadata and authorization server (auth2), so the
+     * stubs from setUp() don't answer first.
+     */
+    protected function fakeAuthorizationServer(string $resource, string $metadataPath, string $issuerListedAs = 'https://auth2.example.com', string $authorizeAt = 'https://auth2.example.com/authorize'): void
+    {
+        $server = new FakeMcpServer('https://slackish.example.com/mcp');
+        $server->requireAuthorization = 'Bearer issued-access';
+        $server->challengeScope = null;
+        $server->resourceMetadataUrl = "https://slackish.example.com{$metadataPath}";
+
+        Http::fake([
+            'https://slackish.example.com/mcp' => $server->handler(),
+            "https://slackish.example.com{$metadataPath}" => Http::response([
+                'resource' => $resource,
+                'authorization_servers' => [$issuerListedAs],
+            ]),
+            'https://auth2.example.com/.well-known/oauth-authorization-server' => Http::response([
+                'issuer' => 'https://auth2.example.com',
+                'authorization_endpoint' => $authorizeAt,
+                'token_endpoint' => 'https://auth2.example.com/token',
+                'registration_endpoint' => 'https://auth2.example.com/register',
+                'code_challenge_methods_supported' => ['S256'],
+            ]),
+            'https://auth2.example.com/register' => Http::response(['client_id' => 'registered-client'], 201),
+            'https://auth2.example.com/token' => fn (Request $request) => Http::response($this->tokenResponse($request)),
+        ]);
+    }
+
+    protected function connectionTo(string $url): Connection
+    {
+        return Connection::factory()->for($this->connection->user)->create([
+            'handle' => 'other',
+            'auth_type' => ConnectionAuthType::OAuth,
+            'status' => ConnectionStatus::Pending,
+            'url' => $url,
+        ]);
+    }
 }

@@ -4,6 +4,7 @@ namespace App\Filament\Resources\Connections;
 
 use App\Enums\ConnectionAuthType;
 use App\Enums\ConnectionStatus;
+use App\Filament\Resources\Connections\Pages\AddConnection;
 use App\Filament\Resources\Connections\Pages\CreateConnection;
 use App\Filament\Resources\Connections\Pages\EditConnection;
 use App\Filament\Resources\Connections\Pages\ListConnections;
@@ -77,8 +78,15 @@ class ConnectionResource extends Resource
                             ->placeholder('BetterWorld work workspace. Anything about BetterWorld, bw-api, deploys or teammates.')
                             ->helperText('Optional. When a vault has more than one account of the same service, agents read this to pick the right one.')
                             ->columnSpanFull(),
+                        TextEntry::make('connector')
+                            ->label('Connector')
+                            ->state(fn (?Connection $record): ?string => $record?->connectorDefinition() === null ? null : "{$record->connectorDefinition()->name} (official MCP server)")
+                            ->url(fn (?Connection $record): ?string => $record?->connectorDefinition()?->docsUrl, shouldOpenInNewTab: true)
+                            ->visible(fn (?Connection $record): bool => $record?->connectorDefinition() !== null)
+                            ->columnSpanFull(),
                         TextInput::make('url')
                             ->label('MCP server URL')
+                            ->disabled(fn (?Connection $record): bool => $record?->connectorDefinition() !== null)
                             ->required()
                             ->url()
                             ->maxLength(2048)
@@ -94,6 +102,7 @@ class ConnectionResource extends Resource
                             ->label('How Nexus signs in')
                             ->options(ConnectionAuthType::class)
                             ->default(ConnectionAuthType::OAuth)
+                            ->disabled(fn (?Connection $record): bool => $record?->connectorDefinition() !== null)
                             ->required()
                             ->live(),
                         TextInput::make('settings.header_name')
@@ -163,6 +172,11 @@ class ConnectionResource extends Resource
                     ->description(fn (Connection $record): string => collect([$record->handle, $record->account_identity])->filter()->implode(' · '))
                     ->searchable(['name', 'handle'])
                     ->sortable(),
+                TextColumn::make('connector')
+                    ->label('Type')
+                    ->state(fn (Connection $record): string => $record->connectorDefinition()->name ?? 'Custom')
+                    ->badge()
+                    ->color('gray'),
                 TextColumn::make('url')
                     ->label('Server')
                     ->formatStateUsing(fn (string $state): string => (string) parse_url($state, PHP_URL_HOST))
@@ -191,6 +205,7 @@ class ConnectionResource extends Resource
     {
         return [
             'index' => ListConnections::route('/'),
+            'add' => AddConnection::route('/add'),
             'create' => CreateConnection::route('/create'),
             'edit' => EditConnection::route('/{record}/edit'),
         ];
