@@ -310,10 +310,10 @@ describe('prompts', function (): void {
             ->and($connection->prompts()->where('name', 'keep')->sole()->updated_at?->equalTo($kept->updated_at))->toBeTrue();
     });
 
-    it('keeps any prompt name the server gives, skipping only empty, overlong and invisible ones', function (): void {
+    it('keeps any prompt name up to Nexus\'s limit of 128 characters, skipping longer, empty and invisible ones', function (): void {
         FakeMcpServer::at()->withPrompts([
             ['name' => 'make-this-a-page'], ['name' => 'team:review'], ['name' => 'résumer'], ['name' => 'Ask a question'], ['name' => str_repeat('é', 128)],
-            ['name' => ''], ['name' => str_repeat('a', 129)], ['name' => "bell\u{7}"], ['name' => "zero\u{200B}width"], ['name' => "new\nline"],
+            ['name' => ''], ['name' => str_repeat('a', 129)], ['name' => str_repeat('é', 129)], ['name' => "bell\u{7}"], ['name' => "zero\u{200B}width"], ['name' => "new\nline"],
         ]);
         $connection = Connection::factory()->create();
 

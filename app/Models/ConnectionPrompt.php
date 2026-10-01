@@ -55,6 +55,15 @@ class ConnectionPrompt extends Model
     use HasFactory;
 
     /**
+     * The longest prompt name Nexus keeps, in characters. The MCP
+     * specification sets no limit; this is Nexus's own, the same as for
+     * tool names, and the length of the name columns (here, in Stars'
+     * prompt switches and in activity entries). A prompt with a longer
+     * name is skipped.
+     */
+    public const int NAME_MAX_LENGTH = 128;
+
+    /**
      * @return BelongsTo<Connection, $this>
      */
     public function connection(): BelongsTo

@@ -12,6 +12,7 @@ use App\Enums\DownstreamFailure;
 use App\Exceptions\CatalogNotStored;
 use App\Exceptions\DownstreamRequestFailed;
 use App\Models\Connection;
+use App\Models\ConnectionPrompt;
 use Closure;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
@@ -28,11 +29,11 @@ class RefreshCatalog
     /**
      * Prompt names Nexus stores. The MCP specification sets no rule for
      * them, so any name is kept, `team:review` and `résumer` included, up
-     * to 128 characters (the column's length) and without control or
-     * invisible characters, which could make two names look alike or
-     * break the text they are shown in.
+     * to Nexus's own limit of ConnectionPrompt::NAME_MAX_LENGTH characters
+     * and without control or invisible characters, which could make two
+     * names look alike or break the text they are shown in.
      */
-    private const string PROMPT_NAME_PATTERN = '/^\P{C}{1,128}$/u';
+    private const string PROMPT_NAME_PATTERN = '/^\P{C}{1,'.ConnectionPrompt::NAME_MAX_LENGTH.'}$/u';
 
     /**
      * The columns that say which server a refresh asks and how it signs in:
