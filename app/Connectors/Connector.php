@@ -19,6 +19,7 @@ final readonly class Connector
     /**
      * @param  string  $logoSvg  The official logo, as validated SVG markup.
      * @param  list<string>  $scopes  The OAuth scopes to request; none lets the server's challenge decide.
+     * @param  bool  $selectAccount  Whether the service's sign-in page shows an account chooser when asked (`prompt=select_account`), so a second account can be connected.
      */
     public function __construct(
         public string $key,
@@ -33,6 +34,7 @@ final readonly class Connector
         public bool $requiresDeploymentApp = false,
         public ?ConnectorApp $app = null,
         public ?ConnectorToken $token = null,
+        public bool $selectAccount = false,
     ) {}
 
     /**
@@ -69,10 +71,8 @@ final readonly class Connector
 
     /**
      * Why a user can't sign in with a method on this Nexus, or null when
-     * they can.
-     *
-     * Nexus can't sign in to a server with OAuth until Connection OAuth is
-     * built, so OAuth is never available for now.
+     * they can. OAuth is available unless the connector needs this
+     * deployment's OAuth app and it has none.
      */
     public function whyUnavailable(SignInMethod $method): ?string
     {
@@ -92,7 +92,7 @@ final readonly class Connector
             ]);
         }
 
-        return __('Nexus can\'t sign in with OAuth yet.');
+        return null;
     }
 
     /**

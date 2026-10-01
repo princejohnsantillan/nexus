@@ -98,9 +98,9 @@
                         @foreach ($this->connector->methods() as $option)
                             <flux:radio
                                 :value="$option->value"
-                                :label="$option->label($this->connector->name)"
+                                :label="$option->label($this->connector->name, ownApp: $this->connector->needsUserApp())"
                                 :description="$this->connector->whyUnavailable($option) === null
-                                    ? $option->description($this->connector->name)
+                                    ? $option->description($this->connector->name, ownApp: $this->connector->needsUserApp())
                                     : __('Not available yet. :reason', ['reason' => $this->connector->whyUnavailable($option)])"
                                 :disabled="$this->connector->whyUnavailable($option) !== null"
                             />
@@ -127,6 +127,31 @@
                     />
                 @endif
 
+                @if ($method === App\Enums\SignInMethod::OAuth->value)
+                    @if ($this->connector->needsUserApp() && $this->connector->app !== null)
+                        <div class="space-y-3">
+                            <flux:text>{{ $this->connector->app->instructions }}</flux:text>
+
+                            <flux:link :href="$this->connector->app->consoleUrl" external rel="noopener noreferrer" class="text-sm">{{ __('Register an OAuth app on :name', ['name' => $this->connector->name]) }} &nearr;</flux:link>
+                        </div>
+
+                        <flux:input :value="$this->callbackUrl" readonly copyable :label="__('Callback URL')" :description="__('Enter this as the app\'s callback URL.')" class:input="font-mono" />
+
+                        <flux:input wire:model="clientId" :label="__('Client ID')" autocomplete="off" autocapitalize="off" spellcheck="false" class:input="font-mono" />
+
+                        <flux:input
+                            wire:model="clientSecret"
+                            type="password"
+                            viewable
+                            :label="__('Client secret')"
+                            :description="__('Stored encrypted.')"
+                            autocomplete="off"
+                        />
+                    @else
+                        <flux:text>{{ __('Nexus sends you to :name to approve access, then brings you back here and loads the tools.', ['name' => $this->connector->name]) }}</flux:text>
+                    @endif
+                @endif
+
                 <flux:error name="limit" />
 
                 <div class="flex justify-end gap-2">
@@ -134,7 +159,9 @@
                         <flux:button variant="ghost">{{ __('Cancel') }}</flux:button>
                     </flux:modal.close>
 
-                    <flux:button type="submit" variant="primary">{{ __('Connect and load tools') }}</flux:button>
+                    <flux:button type="submit" variant="primary">
+                        {{ $method === App\Enums\SignInMethod::OAuth->value ? __('Continue to :name', ['name' => $this->connector->name]) : __('Connect and load tools') }}
+                    </flux:button>
                 </div>
             </form>
         @endif

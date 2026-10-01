@@ -34,6 +34,10 @@ use stdClass;
  *   2025-11-25, 2025-06-18 and 2025-03-26 answer `initialize` with that version.
  * - requireHeader() and challengingWith(): an auth challenge (401 or 403
  *   with a WWW-Authenticate header) for requests without the right header.
+ * - requireOAuth(): an OAuth-protected server. It publishes protected-resource
+ *   metadata naming a FakeAuthorizationServer, refuses requests without an
+ *   access token that server issued with a 401 challenge, and accepts the
+ *   ones it issued until they expire.
  * - streaming(): answer as server-sent events instead of plain JSON;
  *   streaming(splitData: true) spreads each message over several `data:`
  *   lines with CRLF line ends, a comment and an id, as the SSE format allows.
@@ -84,6 +88,15 @@ final class FakeMcpServer
     private ?array $requiredHeader = null;
 
     private string $challenge = 'Bearer resource_metadata="https://mcp.example.com/.well-known/oauth-protected-resource/mcp"';
+
+    private ?FakeAuthorizationServer $authorizationServer = null;
+
+    /**
+     * The protected-resource metadata requireOAuth() publishes, and where.
+     *
+     * @var array{url: string|null, document: array<string, mixed>}|null
+     */
+    private ?array $resourceMetadata = null;
 
     private bool $streams = false;
 
@@ -196,6 +209,70 @@ final class FakeMcpServer
         $this->requiredHeader = ['name' => $name, 'value' => $value, 'status' => $status];
 
         return $this;
+    }
+
+    /**
+     * Require an access token from an OAuth authorization server (by default
+     * a new FakeAuthorizationServer at https://auth.example.com). The server
+     * publishes its protected-resource metadata (RFC 9728), naming that
+     * authorization server, and refuses other requests with a 401 whose
+     * challenge names the metadata's URL.
+     *
+     * @param  string|null  $resource  The resource the metadata names: the server's URL unless given.
+     * @param  string|null  $scope  The scopes the challenge asks for.
+     * @param  list<string>  $scopesSupported  The scopes the metadata lists.
+     * @param  bool  $namedInChallenge  Whether the challenge names the metadata's URL, or leaves Nexus to find it.
+     * @param  string  $metadataAt  `path` (the well-known URL with the server's path), `root` (without it) or `none` (no metadata).
+     * @param  list<string>|null  $authorizationServers  The issuers the metadata lists: the authorization server's unless given.
+     */
+    public function requireOAuth(
+        ?FakeAuthorizationServer $authorizationServer = null,
+        ?string $resource = null,
+        ?string $scope = null,
+        array $scopesSupported = [],
+        bool $namedInChallenge = true,
+        string $metadataAt = 'path',
+        ?array $authorizationServers = null,
+    ): self {
+        $this->authorizationServer = $authorizationServer ?? FakeAuthorizationServer::at();
+
+        $parts = parse_url($this->url);
+        $origin = ($parts['scheme'] ?? 'https').'://'.($parts['host'] ?? '');
+        $path = ($parts['path'] ?? '') === '/' ? '' : ($parts['path'] ?? '');
+
+        $metadataUrl = match ($metadataAt) {
+            'path' => $origin.'/.well-known/oauth-protected-resource'.$path,
+            'root' => $origin.'/.well-known/oauth-protected-resource',
+            default => null,
+        };
+
+        $this->resourceMetadata = [
+            'url' => $metadataUrl,
+            'document' => array_filter([
+                'resource' => $resource ?? $this->url,
+                'authorization_servers' => $authorizationServers ?? [$this->authorizationServer->issuer],
+                'scopes_supported' => $scopesSupported,
+                'bearer_methods_supported' => ['header'],
+            ], fn (mixed $value): bool => $value !== []),
+        ];
+
+        $this->challenge = 'Bearer realm="OAuth"'
+            .($namedInChallenge && $metadataUrl !== null ? ", resource_metadata=\"{$metadataUrl}\"" : '')
+            .($scope === null ? '' : ", scope=\"{$scope}\"");
+
+        Http::fake([$origin.'/.well-known/oauth-protected-resource*' => fn (Request $request): PromiseInterface => $this->resourceMetadata !== null && $request->url() === $this->resourceMetadata['url']
+            ? Http::response($this->resourceMetadata['document'])
+            : Http::response('Not found', 404)]);
+
+        return $this;
+    }
+
+    /**
+     * The authorization server requireOAuth() put in front of this server.
+     */
+    public function authorizationServer(): FakeAuthorizationServer
+    {
+        return $this->authorizationServer ?? throw new InvalidArgumentException('This server doesn\'t require OAuth.');
     }
 
     /**
@@ -348,6 +425,10 @@ final class FakeMcpServer
 
         if ($this->requiredHeader !== null && $request->header($this->requiredHeader['name']) !== [$this->requiredHeader['value']]) {
             return Http::response('', $this->requiredHeader['status'], ['WWW-Authenticate' => $this->challenge]);
+        }
+
+        if ($this->authorizationServer instanceof FakeAuthorizationServer && ! $this->authorizationServer->accepts($request->header('Authorization')[0] ?? '')) {
+            return Http::response('', 401, ['WWW-Authenticate' => $this->challenge]);
         }
 
         $message = json_decode($request->body());

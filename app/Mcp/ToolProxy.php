@@ -21,7 +21,9 @@ use App\Stars\StarTool;
  * client and the server sent, a tool error (`isError: true`) included.
  * When the server can't be called, the result is a tool error with Nexus's
  * own message, so the agent can tell the user what went wrong; when the
- * Connection needs signing in again, the message says where.
+ * Connection needs signing in again, the message gives its reconnect link
+ * (`connections.connect`), which starts an OAuth sign-in or, for a header
+ * or token, opens the Connection's page.
  */
 final readonly class ToolProxy
 {
@@ -103,7 +105,7 @@ final readonly class ToolProxy
         if ($failed->failure === DownstreamFailure::NeedsSignIn) {
             $message .= ' '.__('The :connection Connection needs signing in again: ask the user to reconnect it in Nexus at :url', [
                 'connection' => $tool->connection->name,
-                'url' => route('connections.show', $tool->connection),
+                'url' => route('connections.connect', $tool->connection),
             ]);
         }
 

@@ -15,11 +15,15 @@ enum ConnectionAuthType: string
     /** Nexus sends one header, such as `Authorization: Bearer …`, with every request. */
     case Header = 'header';
 
+    /** Nexus signs in on the server's own sign-in page and sends the access token it is given, renewing it when it expires. */
+    case OAuth = 'oauth';
+
     public function label(): string
     {
         return match ($this) {
             self::None => __('No auth'),
             self::Header => __('Header'),
+            self::OAuth => __('OAuth'),
         };
     }
 }

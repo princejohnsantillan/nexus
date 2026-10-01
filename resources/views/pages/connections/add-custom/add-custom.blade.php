@@ -2,7 +2,7 @@
     <flux:link :href="route('connections.add')" variant="subtle" class="text-sm" wire:navigate>&larr; {{ __('Add connection') }}</flux:link>
 
     <flux:heading size="xl" level="1" class="mt-3">{{ __('Custom MCP server') }}</flux:heading>
-    <flux:text class="mt-2">{{ __('Connect any remote MCP server by its URL. Nexus loads its tools as soon as you save.') }}</flux:text>
+    <flux:text class="mt-2">{{ __('Connect any remote MCP server by its URL. Nexus loads its tools as soon as you save, or once you sign in.') }}</flux:text>
 
     <flux:separator variant="subtle" class="my-6" />
 
@@ -34,6 +34,7 @@
         <flux:radio.group wire:model.live="authType" :label="__('Sign-in')" variant="cards" class="max-sm:flex-col">
             <flux:radio value="none" :label="__('No auth')" :description="__('The server needs no sign-in.')" />
             <flux:radio value="header" :label="__('Header')" :description="__('Nexus sends a header, such as an API key, with every request.')" />
+            <flux:radio value="oauth" :label="__('OAuth')" :description="__('You approve Nexus on the server\'s own sign-in page.')" />
         </flux:radio.group>
 
         @if ($authType === 'header')
@@ -52,11 +53,15 @@
             </div>
         @endif
 
+        @if ($authType === 'oauth')
+            <x-own-oauth-app :callback-url="$this->callbackUrl" />
+        @endif
+
         <flux:error name="limit" />
 
         <div class="flex justify-end gap-2">
             <flux:button variant="ghost" :href="route('connections.add')" wire:navigate>{{ __('Cancel') }}</flux:button>
-            <flux:button type="submit" variant="primary">{{ __('Save and load tools') }}</flux:button>
+            <flux:button type="submit" variant="primary">{{ $authType === 'oauth' ? __('Save and sign in') : __('Save and load tools') }}</flux:button>
         </div>
     </form>
 </div>

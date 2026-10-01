@@ -40,7 +40,7 @@ final class ConnectorCatalog
      */
     private const array FIELDS = [
         'name', 'summary', 'url', 'docs_url', 'registration', 'scopes',
-        'preview', 'requires_deployment_app', 'app', 'token',
+        'preview', 'requires_deployment_app', 'app', 'token', 'select_account',
     ];
 
     /**
@@ -128,6 +128,7 @@ final class ConnectorCatalog
             'scopes.*' => ['string', 'distinct', 'regex:/^\S+$/'],
             'preview' => ['sometimes', 'boolean:strict'],
             'requires_deployment_app' => ['sometimes', 'boolean:strict'],
+            'select_account' => ['sometimes', 'boolean:strict'],
             'app' => ['required_if:registration,'.ClientRegistration::PreRegistered->value, 'array:console_url,instructions,manifest'],
             'app.console_url' => ['required_with:app', 'string', 'max:2048', 'url:https'],
             'app.instructions' => ['required_with:app', 'string', 'max:1000'],
@@ -165,6 +166,7 @@ final class ConnectorCatalog
                 headerName: Arr::string($data, 'token.header_name', Connection::DEFAULT_HEADER_NAME),
                 valuePrefix: Arr::string($data, 'token.value_prefix', 'Bearer '),
             ) : null,
+            selectAccount: Arr::boolean($data, 'select_account', false),
         );
     }
 

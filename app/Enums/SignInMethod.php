@@ -15,19 +15,27 @@ enum SignInMethod: string
     /** The user signs in on the service's own consent screen. */
     case OAuth = 'oauth';
 
-    public function label(string $service): string
+    /**
+     * @param  bool  $ownApp  Whether OAuth goes through an OAuth app the user registers themselves.
+     */
+    public function label(string $service, bool $ownApp = false): string
     {
-        return match ($this) {
-            self::Token => __('Your own token'),
-            self::OAuth => __('Sign in with :service', ['service' => $service]),
+        return match (true) {
+            $this === self::Token => __('Your own token'),
+            $ownApp => __('Your own OAuth app'),
+            default => __('Sign in with :service', ['service' => $service]),
         };
     }
 
-    public function description(string $service): string
+    /**
+     * @param  bool  $ownApp  Whether OAuth goes through an OAuth app the user registers themselves.
+     */
+    public function description(string $service, bool $ownApp = false): string
     {
-        return match ($this) {
-            self::Token => __('Nexus acts as you, with exactly the access you give the token. No OAuth app needed.'),
-            self::OAuth => __('Approve Nexus on :service\'s own sign-in page.', ['service' => $service]),
+        return match (true) {
+            $this === self::Token => __('Nexus acts as you, with exactly the access you give the token. No OAuth app needed.'),
+            $ownApp => __('Register an OAuth app on :service, enter its client ID and secret, then approve Nexus on :service\'s own sign-in page.', ['service' => $service]),
+            default => __('Approve Nexus on :service\'s own sign-in page.', ['service' => $service]),
         };
     }
 }
