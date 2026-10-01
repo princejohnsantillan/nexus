@@ -41,6 +41,17 @@ it('answers a failed fetch with Nexus\'s own JSON-RPC error', function (string $
         ->and($this->canary->sightings())->toBe([]);
 })->with(['initialize', 'prompts/get'])->with(DownstreamCanary::failures());
 
+it('answers a fetch through a cached list with Nexus\'s own JSON-RPC error', function (Closure $answer): void {
+    $this->client->listPrompts()->assertOk()->assertJsonPath('result.prompts.0.name', 'wiki__summarize');
+    $this->server->respondTo('prompts/get', $answer);
+
+    $response = $this->client->getPrompt('wiki__summarize')->assertJsonPath('error.code', -32603);
+
+    expect($response->json('error.message'))->toStartWith('Nexus could not get wiki__summarize from DeepWiki.')
+        ->and($response->getContent())->not->toContain(DownstreamCanary::PREFIX)
+        ->and($this->canary->sightings())->toBe([]);
+})->with(DownstreamCanary::someFailures());
+
 it('answers a server asking for more input with Nexus\'s own message', function (): void {
     $this->server->respondTo('prompts/get', FakeMcpServer::jsonRpcResult(['resultType' => DownstreamCanary::TEXT, 'messages' => []]));
 

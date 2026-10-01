@@ -9,7 +9,10 @@ use App\Models\Connection;
 use App\Models\ConnectionTool;
 use App\Models\Star;
 use App\Models\User;
+use Illuminate\Log\Events\MessageLogged;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Sleep;
 use Tests\Support\ConnectionOAuthFlow;
 use Tests\Support\DownstreamCanary;
@@ -95,6 +98,45 @@ describe('a server that fails', function (): void {
             ->and($this->connection->refresh()->last_error)->toBe('The server answered with a JSON-RPC error (code -32000).')
             ->and($this->canary->sightings())->toBe([]);
     });
+});
+
+describe('the Star\'s cached lists', function (): void {
+    beforeEach(function (): void {
+        $this->server = FakeMcpServer::at()->withTools([['name' => 'search', 'annotations' => ['readOnlyHint' => true]]]);
+        $this->connection = Connection::factory()->for($this->user)->connected()->create(['name' => 'DeepWiki', 'handle' => 'wiki']);
+        ConnectionTool::factory()->for($this->connection)->create([
+            'name' => 'search',
+            'description' => DownstreamCanary::TEXT,
+            'definition' => '{"name":"search","description":"'.DownstreamCanary::TEXT.'","annotations":{"readOnlyHint":true}}',
+            'read_only' => true,
+        ]);
+        $this->client = toolCallsClientFor($this->connection);
+    });
+
+    it('answers a call through a cached list with Nexus\'s own message', function (Closure $answer): void {
+        $this->client->listTools()->assertOk()->assertJsonPath('result.tools.0.description', DownstreamCanary::TEXT);
+        $this->server->respondTo('tools/call', $answer);
+
+        $response = $this->client->callTool('wiki__search')->assertOk()->assertJsonPath('result.isError', true);
+
+        expect($response->json('result.content.0.text'))->toStartWith('Nexus could not call wiki__search on DeepWiki.')
+            ->and($response->getContent())->not->toContain(DownstreamCanary::PREFIX)
+            ->and($this->canary->sightings())->toBe([]);
+    })->with(DownstreamCanary::someFailures());
+
+    it('lists the tools when the database cache refuses them, reporting it without the server\'s text', function (): void {
+        config(['cache.default' => 'database']);
+        DB::unprepared("CREATE TRIGGER refuse_tool_lists BEFORE INSERT ON cache WHEN NEW.key LIKE '%.tools' BEGIN SELECT RAISE(ABORT, 'refused'); END");
+        $logged = [];
+        Event::listen(function (MessageLogged $message) use (&$logged): void {
+            $logged[] = $message->message;
+        });
+
+        $this->client->listTools()->assertOk()->assertJsonPath('result.tools.0.description', DownstreamCanary::TEXT);
+
+        expect($logged)->toBe(['Nexus could not cache the tools list of Star '.$this->connection->stars()->sole()->id.' (SQLSTATE 23000).'])
+            ->and($this->canary->sightings())->toBe([]);
+    })->skip(fn (): bool => DB::getDriverName() !== 'sqlite', 'Only local SQLite runs the database cache; on Postgres the refused write would abort the test\'s transaction.');
 });
 
 it('answers a call whose credentials can\'t go in a header with Nexus\'s own message', function (): void {
