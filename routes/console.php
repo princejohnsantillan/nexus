@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Console\Commands\RefreshCatalogsCommand;
 use App\Models\ActivityEntry;
 use Illuminate\Database\Console\PruneCommand;
 use Illuminate\Foundation\Inspiring;
@@ -13,3 +14,5 @@ Artisan::command('inspire', function (): void {
 })->purpose('Display an inspiring quote');
 
 Schedule::command(PruneCommand::class, ['--model' => [ActivityEntry::class]])->daily();
+
+Schedule::command(RefreshCatalogsCommand::class)->daily()->onOneServer();

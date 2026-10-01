@@ -26,7 +26,24 @@ use Laravel\Mcp\Schema\Implementation;
  */
 final readonly class DownstreamClient
 {
-    public function __construct(private ConnectionTokens $tokens) {}
+    /**
+     * @param  float|null  $callTimeout  Seconds to wait for each request other than the handshake; null for `nexus.downstream.call_timeout`.
+     */
+    public function __construct(
+        private ConnectionTokens $tokens,
+        private ?float $callTimeout = null,
+    ) {}
+
+    /**
+     * A client like this one that waits at most this many seconds for each
+     * request other than the handshake (or the configured call timeout,
+     * when that is shorter), for work that must end by a deadline, such as
+     * a background refresh.
+     */
+    public function withCallTimeout(float $seconds): self
+    {
+        return new self($this->tokens, min($seconds, $this->callTimeout()));
+    }
 
     public function session(Connection $connection): DownstreamSession
     {
@@ -62,7 +79,7 @@ final readonly class DownstreamClient
         $transport = new DownstreamTransport(
             $serverUrl,
             connectTimeout: config()->float('nexus.downstream.connect_timeout'),
-            callTimeout: config()->float('nexus.downstream.call_timeout'),
+            callTimeout: $this->callTimeout(),
         );
 
         if ($signedIn && $connection->auth_type === ConnectionAuthType::Header) {
@@ -80,5 +97,10 @@ final readonly class DownstreamClient
         ));
 
         return new DownstreamSession($client, $transport);
+    }
+
+    private function callTimeout(): float
+    {
+        return $this->callTimeout ?? config()->float('nexus.downstream.call_timeout');
     }
 }

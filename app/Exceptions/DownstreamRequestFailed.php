@@ -18,10 +18,14 @@ use RuntimeException;
  */
 final class DownstreamRequestFailed extends RuntimeException
 {
+    /**
+     * @param  int|null  $jsonRpcCode  The JSON-RPC error code the server answered with, when it answered with one.
+     */
     private function __construct(
         public readonly DownstreamFailure $failure,
         string $message,
         public readonly ?WwwAuthenticateChallenge $challenge = null,
+        public readonly ?int $jsonRpcCode = null,
     ) {
         parent::__construct($message);
     }
@@ -119,7 +123,7 @@ final class DownstreamRequestFailed extends RuntimeException
      */
     public static function jsonRpcError(int $code): self
     {
-        return new self(DownstreamFailure::ProtocolError, __('The server answered with a JSON-RPC error (code :code).', ['code' => $code]));
+        return new self(DownstreamFailure::ProtocolError, __('The server answered with a JSON-RPC error (code :code).', ['code' => $code]), jsonRpcCode: $code);
     }
 
     public static function unsupportedProtocolVersion(): self
@@ -137,6 +141,6 @@ final class DownstreamRequestFailed extends RuntimeException
      */
     public static function toolError(int $code): self
     {
-        return new self(DownstreamFailure::ToolError, __('The server refused the tool call with a JSON-RPC error (code :code).', ['code' => $code]));
+        return new self(DownstreamFailure::ToolError, __('The server refused the tool call with a JSON-RPC error (code :code).', ['code' => $code]), jsonRpcCode: $code);
     }
 }
