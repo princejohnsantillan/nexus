@@ -19,14 +19,15 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * Connection and name, how it ended, how long it took and how the client
  * authenticated. It is metadata only: never the arguments, the result or
  * any text from the server. It outlives its Star and Connection, whose ids
- * become null when they are deleted.
+ * become null when they are deleted. The exposed name is null when the
+ * client called without one.
  *
  * @property int $id
  * @property int $user_id
  * @property int|null $star_id
  * @property int|null $connection_id
  * @property ActivityKind $kind
- * @property string $exposed_name
+ * @property string|null $exposed_name
  * @property string|null $downstream_name
  * @property ActivityStatus $status
  * @property StarAccessMode $via

@@ -66,6 +66,27 @@ class StarServer extends Server
     }
 
     /**
+     * Run the method's handler. laravel/mcp first builds a `Request` from
+     * the params for its own tools, refusing arguments that aren't an
+     * object before the handler can see them; a Star has none of its
+     * tools, and its handlers read the params themselves, so `tools/call`
+     * can record every call it refuses.
+     */
+    /**
+     * @return iterable<JsonRpcResponse>|JsonRpcResponse
+     */
+    protected function runMethodHandle(JsonRpcRequest $request, ServerContext $context): iterable|JsonRpcResponse
+    {
+        $method = resolve($this->methods[$request->method]);
+
+        if (! $method instanceof Method) {
+            throw new UnexpectedValueException("The handler for [{$request->method}] is not an MCP method.");
+        }
+
+        return $method->handle($request, $context);
+    }
+
+    /**
      * Send a raw result with the members laravel/mcp adds to every result,
      * set in its JSON text: `resultType`, any cache hints, and Nexus's
      * server info in `_meta`, in place of the downstream server's own.

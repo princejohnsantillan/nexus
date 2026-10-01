@@ -27,24 +27,47 @@ it('says what the Star is, how tools are named, and which account each Connectio
         TEXT);
 });
 
-it('keeps to 2,048 characters by shortening the notes, then leaving them out, then cutting', function (int $connections, int $nameLength, Closure $expect): void {
+/**
+ * Give the user this many Connections with every field as long as it may
+ * be, and a Star of the longest name and description that includes them all.
+ */
+function longestStar(User $user, int $connections, int $nameLength = 100, bool $withIdentity = true): Star
+{
     for ($i = 0; $i < $connections; $i++) {
-        Connection::factory()->for($this->user)->create([
-            'name' => str_pad("Account {$i} ", $nameLength, 'n'),
-            'handle' => "account-{$i}",
+        Connection::factory()->for($user)->create([
+            'name' => str_pad(sprintf('Account %02d ', $i), $nameLength, 'n'),
+            'handle' => str_pad(sprintf('account-%02d-', $i), 24, 'h'),
+            'account_identity' => $withIdentity ? str_repeat('i', 100) : null,
             'description' => str_repeat('d', 200),
         ]);
     }
 
-    $star = Star::factory()->for($this->user)->create();
-    $star->connections()->attach($this->user->connections()->pluck('id'));
+    $star = Star::factory()->for($user)->create(['name' => str_repeat('S', 100), 'description' => str_repeat('D', 500)]);
+    $star->connections()->attach($user->connections()->pluck('id'));
 
-    $instructions = resolve(StarInstructions::class)->for($star);
+    return $star;
+}
 
-    expect(mb_strlen($instructions))->toBeLessThanOrEqual(2048);
-    $expect($instructions);
+it('shortens the "use for" notes, then leaves them out, to keep to 2,048 characters', function (int $connections, string $kept, string $leftOut): void {
+    $instructions = resolve(StarInstructions::class)->for(longestStar($this->user, $connections, nameLength: 20, withIdentity: false));
+
+    expect(mb_strlen($instructions))->toBeLessThanOrEqual(2048)
+        ->and($instructions)->toContain(str_repeat('D', 500))->toContain($kept)->not->toContain($leftOut);
 })->with([
-    'shortened notes' => [9, 20, fn (string $text): mixed => expect($text)->toContain('use for: '.str_repeat('d', 79).'…')->not->toContain(str_repeat('d', 81))],
-    'no notes' => [16, 20, fn (string $text): mixed => expect($text)->not->toContain('use for:')->toContain('- account-11: Account 11')],
-    'cut' => [25, 100, fn (string $text): mixed => expect($text)->toEndWith('…')->not->toContain('use for:')],
+    'shortened' => [5, 'use for: '.str_repeat('d', 79).'…', str_repeat('d', 80)],
+    'left out' => [9, '- account-08-hhhhhhhhhhhhh: Account 08', 'use for:'],
 ]);
+
+it('keeps a line with the handle and the start of the label for every Connection, however long they all are', function (bool $withIdentity): void {
+    $instructions = resolve(StarInstructions::class)->for(longestStar($this->user, 25, withIdentity: $withIdentity));
+
+    $lines = array_values(array_filter(explode("\n", $instructions), fn (string $line): bool => str_starts_with($line, '- ')));
+
+    expect(mb_strlen($instructions))->toBeLessThanOrEqual(2048)
+        ->and($lines)->toHaveCount(25)
+        ->and($instructions)->toContain(str_repeat('D', 199).'…')->not->toContain(str_repeat('D', 200));
+
+    foreach ($lines as $i => $line) {
+        expect($line)->toStartWith(sprintf('- account-%02d-%s: Account %02d', $i, str_repeat('h', 13), $i))->toEndWith('…');
+    }
+})->with(['with detected identities' => true, 'without' => false]);

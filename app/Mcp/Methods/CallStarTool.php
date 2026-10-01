@@ -24,7 +24,8 @@ use Laravel\Mcp\Transport\JsonRpcRequest;
  * `tools/call` for a Star: forwards a tool that is on to its Connection's
  * server, with the arguments exactly as the client sent them. A tool that
  * is off, or that none of the Star's Connections has, is refused with
- * "invalid params", as an unknown tool is, and recorded as denied.
+ * "invalid params", as an unknown tool is; so is a call without a name or
+ * with arguments that aren't an object. Every refusal is recorded as denied.
  */
 final readonly class CallStarTool implements Method
 {
@@ -45,29 +46,45 @@ final readonly class CallStarTool implements Method
         $name = $request->get('name');
 
         if (! is_string($name) || $name === '') {
+            $this->deny($startedAt, null);
+
             throw new JsonRpcException('Missing [name] parameter.', ErrorCode::INVALID_PARAMS->value, $request->id);
         }
 
         $tool = $this->toolset->tool($this->caller->star, $name);
 
         if (! $tool instanceof StarTool || ! $tool->enabled) {
-            $this->recordActivity->handle(
-                caller: $this->caller,
-                kind: ActivityKind::Tool,
-                exposedName: $name,
-                connection: $tool?->connection,
-                downstreamName: $tool?->tool->name,
-                status: ActivityStatus::Denied,
-                startedAt: $startedAt,
-            );
+            $this->deny($startedAt, $name, $tool);
 
             throw new JsonRpcException("Tool [{$name}] not found.", ErrorCode::INVALID_PARAMS->value, $request->id);
         }
 
-        $arguments = $this->arguments()
-            ?? throw new JsonRpcException('Invalid params: The [arguments] member must be an object.', ErrorCode::INVALID_PARAMS->value, $request->id);
+        $arguments = $this->arguments();
+
+        if ($arguments === null) {
+            $this->deny($startedAt, $name, $tool);
+
+            throw new JsonRpcException('Invalid params: The [arguments] member must be an object.', ErrorCode::INVALID_PARAMS->value, $request->id);
+        }
 
         return new RawResult($request->id, $this->proxy->call($this->caller, $tool, $arguments, $startedAt));
+    }
+
+    /**
+     * Record a call refused before it reached the server: by the name the
+     * client sent, if any, and the tool's Connection when the Star has it.
+     */
+    private function deny(int $startedAt, ?string $name, ?StarTool $tool = null): void
+    {
+        $this->recordActivity->handle(
+            caller: $this->caller,
+            kind: ActivityKind::Tool,
+            exposedName: $name,
+            connection: $tool?->connection,
+            downstreamName: $tool?->tool->name,
+            status: ActivityStatus::Denied,
+            startedAt: $startedAt,
+        );
     }
 
     /**

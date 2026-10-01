@@ -177,14 +177,21 @@ describe('tools/call', function (): void {
         expect($server->requests())->toBeEmpty();
     })->with(['switched off' => 'wiki__search', 'unknown tool' => 'wiki__nope', 'unknown handle' => 'nope__search', 'no handle' => 'search']);
 
-    it('refuses arguments that are not an object', function (): void {
+    it('refuses arguments that are not an object', function (string $arguments): void {
         $server = FakeMcpServer::at();
 
-        $this->client->callTool('wiki__search', '[]')
+        $this->client->callTool('wiki__search', $arguments)
             ->assertStatus(400)
-            ->assertJsonPath('error.code', -32602);
+            ->assertJsonPath('error.code', -32602)
+            ->assertJsonPath('error.message', 'Invalid params: The [arguments] member must be an object.');
 
         expect($server->requests())->toBeEmpty();
+    })->with(['empty array' => '[]', 'list' => '[1]', 'string' => '"x"', 'null' => 'null']);
+
+    it('refuses a call without a name', function (): void {
+        $this->client->speaking('2025-11-25')->send('tools/call', '{"arguments":{}}')
+            ->assertStatus(400)
+            ->assertJsonPath('error.message', 'Missing [name] parameter.');
     });
 
     it('answers a server that wants signing in again with where to reconnect', function (): void {
@@ -268,6 +275,44 @@ describe('activity', function (): void {
         'timeout' => [FakeMcpServer::timeout(), ActivityStatus::Timeout],
         'unreachable' => [FakeMcpServer::unreachable(), ActivityStatus::Error],
     ]);
+
+    it('records a call refused for its arguments or its missing name as denied', function (): void {
+        $this->client->callTool('wiki__search', '[1]')->assertStatus(400);
+        $this->client->speaking('2025-11-25')->send('tools/call', '{"arguments":{}}')->assertStatus(400);
+
+        expect(ActivityEntry::query()->orderBy('id')->get()->map->only(['exposed_name', 'connection_id', 'downstream_name', 'status'])->all())->toBe([
+            ['exposed_name' => 'wiki__search', 'connection_id' => $this->wiki->id, 'downstream_name' => 'search', 'status' => ActivityStatus::Denied],
+            ['exposed_name' => null, 'connection_id' => null, 'downstream_name' => null, 'status' => ActivityStatus::Denied],
+        ]);
+    });
+
+    it('returns the result and records the call when the Connection or the Star is deleted while the server answers', function (string $deleted, array $kept): void {
+        FakeMcpServer::at()
+            ->beforeAnswering('tools/call', fn (): mixed => $this->{$deleted}->delete())
+            ->onCall('search', fn (): array => ['content' => [['type' => 'text', 'text' => 'Found it']]]);
+
+        $this->client->callTool('wiki__search')
+            ->assertOk()
+            ->assertJsonPath('result.content.0.text', 'Found it');
+
+        expect(ActivityEntry::query()->sole()->only(['user_id', 'star_id', 'connection_id', 'status']))
+            ->toBe(['user_id' => $this->user->id, ...$kept, 'status' => ActivityStatus::Ok]);
+    })->with([
+        'Connection' => ['wiki', fn (): array => ['star_id' => test()->star->id, 'connection_id' => null]],
+        'Star' => ['star', fn (): array => ['star_id' => null, 'connection_id' => test()->wiki->id]],
+    ]);
+
+    it('returns the result but records nothing when the user is deleted while the server answers', function (): void {
+        FakeMcpServer::at()
+            ->beforeAnswering('tools/call', fn (): ?bool => $this->user->delete())
+            ->onCall('search', fn (): array => ['content' => [['type' => 'text', 'text' => 'Found it']]]);
+
+        $this->client->callTool('wiki__search')
+            ->assertOk()
+            ->assertJsonPath('result.content.0.text', 'Found it');
+
+        expect(ActivityEntry::query()->count())->toBe(0);
+    });
 
     it('records a refused call as denied, with its Connection when the tool is only switched off', function (): void {
         resolve(SwitchStarTools::class)->handle($this->star, $this->wiki, false, ['search']);

@@ -15,7 +15,7 @@ enum ActivityStatus: string
     /** The call failed, or the server answered with a tool error (`isError`). */
     case Error = 'error';
 
-    /** The Star has nothing on by that name, so Nexus refused the call. */
+    /** Nexus refused the call without forwarding it: the Star has nothing on by that name, or the call had no name or arguments that aren't an object. */
     case Denied = 'denied';
 
     /** The server took longer than the call timeout. */

@@ -19,7 +19,7 @@ return new class extends Migration
             $table->foreignId('star_id')->nullable()->constrained()->nullOnDelete();
             $table->foreignId('connection_id')->nullable()->constrained()->nullOnDelete();
             $table->string('kind', 16);
-            $table->string('exposed_name', 160);
+            $table->string('exposed_name', 160)->nullable();
             $table->string('downstream_name', 128)->nullable();
             $table->string('status', 16);
             $table->string('via', 16);
