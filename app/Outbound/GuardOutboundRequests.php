@@ -18,6 +18,12 @@ use Psr\Http\Message\RequestInterface;
  * connection. Only curl's handler honours that option and Guzzle hands
  * streamed transfers to its stream handler, so transfers are never streamed.
  *
+ * Requests always connect directly. A proxy resolves the host itself, which
+ * would bypass the pin, and Guzzle picks proxies up from the environment
+ * (HTTPS_PROXY, ALL_PROXY and friends) as well as from the request options,
+ * so every request gets an empty proxy: Guzzle's final "no proxy" decision.
+ * A request carrying curl options that connect somewhere else is refused.
+ *
  * Redirects are never followed, since a redirect could point anywhere. They
  * are switched off for every request by the global HTTP client options, and
  * because Guzzle's redirect middleware runs before this one, a request that
@@ -25,6 +31,16 @@ use Psr\Http\Message\RequestInterface;
  */
 final readonly class GuardOutboundRequests
 {
+    /**
+     * Curl options that would connect somewhere other than the approved addresses.
+     *
+     * @var list<int>
+     */
+    private const array REROUTING_CURL_OPTIONS = [
+        CURLOPT_CONNECT_TO,
+        CURLOPT_UNIX_SOCKET_PATH,
+    ];
+
     public function __construct(private OutboundGuard $guard) {}
 
     /**
@@ -38,17 +54,23 @@ final readonly class GuardOutboundRequests
                 throw new OutboundRequestBlocked('Nexus does not follow redirects.');
             }
 
-            $target = $this->guard->check((string) $request->getUri());
+            $curl = is_array($options['curl'] ?? null) ? $options['curl'] : [];
 
-            $options['stream'] = false;
+            if (array_intersect_key($curl, array_flip(self::REROUTING_CURL_OPTIONS)) !== []) {
+                throw new OutboundRequestBlocked('Nexus only connects to the addresses it approved.');
+            }
+
+            $target = $this->guard->check((string) $request->getUri());
 
             $pin = $target->curlResolveEntry();
 
             if ($pin !== null) {
-                $curl = is_array($options['curl'] ?? null) ? $options['curl'] : [];
                 $curl[CURLOPT_RESOLVE] = [$pin];
-                $options['curl'] = $curl;
             }
+
+            $options['curl'] = $curl;
+            $options['proxy'] = '';
+            $options['stream'] = false;
 
             return $handler($request, $options);
         };

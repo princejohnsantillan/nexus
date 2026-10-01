@@ -32,6 +32,52 @@ it('pins the request to the approved addresses and does not stream it', function
         ->toHaveKey('allow_redirects', false);
 });
 
+it('connects directly when the environment configures a proxy', function (string $variable): void {
+    $transferOptions = [];
+    Http::fake(['https://mcp.example.com/*' => function (Request $request, array $options) use (&$transferOptions) {
+        $transferOptions = $options;
+
+        return Http::response('ok');
+    }]);
+    putenv("{$variable}=http://127.0.0.1:18945");
+
+    try {
+        Http::get('https://mcp.example.com/mcp');
+    } finally {
+        putenv($variable);
+    }
+
+    expect($transferOptions)->toHaveKey('proxy', '');
+})->with(['HTTPS_PROXY', 'https_proxy', 'ALL_PROXY', 'all_proxy']);
+
+it('connects directly when the request asks for a proxy', function (array|string $proxy): void {
+    $transferOptions = [];
+    Http::fake(['https://mcp.example.com/*' => function (Request $request, array $options) use (&$transferOptions) {
+        $transferOptions = $options;
+
+        return Http::response('ok');
+    }]);
+
+    Http::withOptions(['proxy' => $proxy])->get('https://mcp.example.com/mcp');
+
+    expect($transferOptions)->toHaveKey('proxy', '');
+})->with([
+    'one proxy' => 'http://127.0.0.1:18945',
+    'per scheme' => [['https' => 'http://127.0.0.1:18945']],
+]);
+
+it('refuses a request with curl options that connect somewhere else', function (int $option, string|array $value): void {
+    Http::fake(['https://mcp.example.com/*' => Http::response('ok')]);
+
+    expect(fn (): Response => Http::withOptions(['curl' => [$option => $value]])->get('https://mcp.example.com/mcp'))
+        ->toThrow(OutboundRequestBlocked::class, 'Nexus only connects to the addresses it approved.');
+
+    Http::assertNothingSent();
+})->with([
+    'connect to' => [CURLOPT_CONNECT_TO, ['mcp.example.com:443:127.0.0.1:443']],
+    'unix socket' => [CURLOPT_UNIX_SOCKET_PATH, '/var/run/docker.sock'],
+]);
+
 it('blocks a request to a private address before it leaves the app', function (): void {
     $this->fakeDns(['metadata.example.com' => ['169.254.169.254']]);
     Http::fake(['https://metadata.example.com/*' => Http::response('secret')]);
