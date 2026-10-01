@@ -79,6 +79,12 @@
 
             <flux:textarea wire:model="description" :label="__('Description')" :badge="__('Optional')" :description="__('Agents see this, so say what the Star is for.')" rows="2" maxlength="500" />
 
+            <flux:radio.group wire:model="accessMode" variant="cards" class="flex-col" :label="__('Access mode')" :description="__('How clients authenticate to the Star. You can change it later on its Access page.')">
+                @foreach (App\Enums\StarAccessMode::cases() as $option)
+                    <flux:radio :value="$option->value" :label="$option->label()" :description="$option->description()" wire:key="access-mode-{{ $option->value }}" />
+                @endforeach
+            </flux:radio.group>
+
             @if ($this->connections->isEmpty())
                 <flux:callout icon="link" :heading="__('No Connections yet')">
                     <flux:callout.text>{{ __('You can create the Star now and add Connections to it later.') }}</flux:callout.text>

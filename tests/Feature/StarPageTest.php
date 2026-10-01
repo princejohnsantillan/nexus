@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Actions\SwitchStarTools;
+use App\Enums\StarAccessMode;
 use App\Models\Connection;
 use App\Models\ConnectionTool;
 use App\Models\Star;
@@ -54,6 +55,26 @@ it('shows setup for each client that reads the token from the environment', func
         ->assertSeeText("claude mcp add-json --scope user nexus-work-2 '{\"type\":\"http\",\"url\":\"{$url}\",\"headers\":{\"Authorization\":\"Bearer \${NEXUS_WORK_2_TOKEN}\"}}'")
         ->assertSeeText("[mcp_servers.nexus-work-2]\nurl = \"{$url}\"\nbearer_token_env_var = \"NEXUS_WORK_2_TOKEN\"")
         ->assertSeeText('"Authorization": "Bearer ${env:NEXUS_WORK_2_TOKEN}"');
+});
+
+it('shows setup for each client with the signed URL alone in signed-URL mode', function (): void {
+    $star = Star::factory()->for($this->user)->withAccessMode(StarAccessMode::SignedUrl)->create(['slug' => 'work']);
+    $url = $star->signedUrl();
+
+    $this->get(route('stars.show', $star))
+        ->assertOk()
+        ->assertSeeTextInOrder(['Access', 'Signed URL'])
+        ->assertSee('value="'.e($url).'"', escape: false)
+        ->assertSee(route('stars.access', $star))
+        ->assertSeeTextInOrder([
+            'claude.ai', 'Open Settings → Connectors, choose "Add custom connector" and paste this URL:', $url,
+            'Claude Code', "claude mcp add --transport http --scope user nexus-work '{$url}'",
+            'Codex', '~/.codex/config.toml', "[mcp_servers.nexus-work]\nurl = \"{$url}\"",
+            'Cursor', '~/.cursor/mcp.json', '"nexus-work": {', '"url": "'.$url.'"',
+            'Grok', '~/.grok/config.toml', "[mcp_servers.nexus-work]\nurl = \"{$url}\"",
+        ])
+        ->assertDontSeeText('NEXUS_WORK_TOKEN')
+        ->assertDontSeeText('Authorization');
 });
 
 it('lives at its public id, never its numeric id', function (): void {

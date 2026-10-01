@@ -13,17 +13,23 @@ use App\Models\Star;
  *
  * In token mode every snippet reads the token from the environment
  * variable `NEXUS_{SLUG}_TOKEN`, so it never sits in plain text in a
- * client's config file.
+ * client's config file. In signed-URL mode the snippets hold only the
+ * signed URL, which carries the credential itself.
+ *
+ * Each entry names the client and gives the snippet, with the config file
+ * it goes in, or else the instruction for using it (null for a command to
+ * run in a terminal).
  */
 final readonly class ClientSetup
 {
     /**
-     * @return list<array{client: string, file: string|null, snippet: string}>
+     * @return list<array{client: string, file: string|null, instruction: string|null, snippet: string}>
      */
     public function for(Star $star): array
     {
         return match ($star->access_mode) {
             StarAccessMode::Token => $this->withToken($star),
+            StarAccessMode::SignedUrl => $this->withUrl($star),
         };
     }
 
@@ -44,7 +50,7 @@ final readonly class ClientSetup
     }
 
     /**
-     * @return list<array{client: string, file: string|null, snippet: string}>
+     * @return list<array{client: string, file: string|null, instruction: string|null, snippet: string}>
      */
     private function withToken(Star $star): array
     {
@@ -70,10 +76,38 @@ final readonly class ClientSetup
             TOML;
 
         return [
-            ['client' => 'Claude Code', 'file' => null, 'snippet' => "claude mcp add-json --scope user {$name} '{$claudeCode}'"],
-            ['client' => 'Codex', 'file' => '~/.codex/config.toml', 'snippet' => $toml],
-            ['client' => 'Cursor', 'file' => '~/.cursor/mcp.json', 'snippet' => $cursor],
-            ['client' => 'Grok', 'file' => '~/.grok/config.toml', 'snippet' => $toml],
+            ['client' => 'Claude Code', 'file' => null, 'instruction' => null, 'snippet' => "claude mcp add-json --scope user {$name} '{$claudeCode}'"],
+            ['client' => 'Codex', 'file' => '~/.codex/config.toml', 'instruction' => null, 'snippet' => $toml],
+            ['client' => 'Cursor', 'file' => '~/.cursor/mcp.json', 'instruction' => null, 'snippet' => $cursor],
+            ['client' => 'Grok', 'file' => '~/.grok/config.toml', 'instruction' => null, 'snippet' => $toml],
+        ];
+    }
+
+    /**
+     * Setup with nothing but the URL a client adds (`Star::clientUrl()`),
+     * which carries whatever it needs to authenticate. claude.ai takes only
+     * a URL, so it can be set up this way too.
+     *
+     * @return list<array{client: string, file: string|null, instruction: string|null, snippet: string}>
+     */
+    private function withUrl(Star $star): array
+    {
+        $name = self::serverName($star);
+        $url = $star->clientUrl();
+
+        $cursor = $this->json(['mcpServers' => [$name => ['url' => $url]]], JSON_PRETTY_PRINT);
+
+        $toml = <<<TOML
+            [mcp_servers.{$name}]
+            url = "{$url}"
+            TOML;
+
+        return [
+            ['client' => 'claude.ai', 'file' => null, 'instruction' => __('Open Settings → Connectors, choose "Add custom connector" and paste this URL:'), 'snippet' => $url],
+            ['client' => 'Claude Code', 'file' => null, 'instruction' => null, 'snippet' => "claude mcp add --transport http --scope user {$name} '{$url}'"],
+            ['client' => 'Codex', 'file' => '~/.codex/config.toml', 'instruction' => null, 'snippet' => $toml],
+            ['client' => 'Cursor', 'file' => '~/.cursor/mcp.json', 'instruction' => null, 'snippet' => $cursor],
+            ['client' => 'Grok', 'file' => '~/.grok/config.toml', 'instruction' => null, 'snippet' => $toml],
         ];
     }
 

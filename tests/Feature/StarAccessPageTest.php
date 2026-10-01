@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+use App\Actions\ChangeStarAccessMode;
+use App\Enums\StarAccessMode;
 use App\Models\Star;
 use App\Models\StarToken;
 use App\Models\User;
@@ -122,4 +124,115 @@ it('escapes token names', function (): void {
     $this->get(route('stars.access', $this->star))
         ->assertOk()
         ->assertDontSee('<script>alert("token")</script>', escape: false);
+});
+
+it('shows the signed URL to copy in signed-URL mode, with no tokens', function (): void {
+    $this->star->forceFill(['access_mode' => StarAccessMode::SignedUrl])->save();
+
+    $this->get(route('stars.access', $this->star))
+        ->assertOk()
+        ->assertSeeTextInOrder(['Access mode', 'Signed URL', 'Signed URL', 'Anyone who has this URL can use the Star', 'Rotate URL'])
+        ->assertSee('value="'.e($this->star->signedUrl()).'"', escape: false)
+        ->assertDontSeeText('Create token');
+});
+
+it('rotates the signed URL after confirming, so the old one stops working', function (): void {
+    $this->star->forceFill(['access_mode' => StarAccessMode::SignedUrl])->save();
+    $oldUrl = $this->star->signedUrl();
+
+    $page = Livewire::test('pages::stars.access', ['star' => $this->star])
+        ->assertSeeText('Rotate the signed URL?')
+        ->call('rotateSignedUrl')
+        ->assertDispatched('toast-show', accessToast('Rotated. The old URL no longer works, so give your clients the new one.'));
+
+    $newUrl = $this->star->refresh()->signedUrl();
+
+    expect($this->star->signed_url_version)->toBe(2)
+        ->and($newUrl)->not->toBe($oldUrl);
+    $page->assertSee(e($newUrl), escape: false)->assertDontSee(e($oldUrl), escape: false);
+    StarClient::for($this->star)->at($oldUrl)->connect()->assertUnauthorized();
+    StarClient::for($this->star)->at($newUrl)->connect()->assertOk();
+});
+
+it('offers each access mode with a short explanation, the Star\'s own chosen', function (): void {
+    Livewire::test('pages::stars.access', ['star' => $this->star])
+        ->assertSet('accessMode', 'token')
+        ->assertSeeTextInOrder([
+            'Bearer token', 'Clients send a token you create for each of them in a header.',
+            'Signed URL', 'One secret URL that works by itself, for clients that only take a URL.',
+        ]);
+});
+
+it('switches to a signed URL after confirming, revoking the Star\'s tokens', function (): void {
+    $plainToken = StarToken::generate();
+    $token = StarToken::factory()->for($this->star)->plain($plainToken)->create();
+
+    $page = Livewire::test('pages::stars.access', ['star' => $this->star])
+        ->set('accessMode', 'signed_url')
+        ->assertSeeText('Switch to Signed URL?')
+        ->assertSeeText('Its tokens are revoked, so clients using them stop reaching the Star at once.')
+        ->call('changeAccessMode')
+        ->assertHasNoErrors()
+        ->assertDispatched('toast-show', accessToast('This Star now uses a signed URL. Copy it below and give it to your clients.'));
+
+    expect($this->star->refresh()->access_mode)->toBe(StarAccessMode::SignedUrl);
+    $page->assertSee(e($this->star->signedUrl()), escape: false);
+    $this->assertModelMissing($token);
+    StarClient::for($this->star)->withToken($plainToken)->connect()->assertUnauthorized();
+    StarClient::for($this->star)->at($this->star->signedUrl())->connect()->assertOk();
+});
+
+it('switches back to tokens after confirming, so the signed URL never works again', function (): void {
+    $this->star->forceFill(['access_mode' => StarAccessMode::SignedUrl])->save();
+    $oldUrl = $this->star->signedUrl();
+
+    Livewire::test('pages::stars.access', ['star' => $this->star])
+        ->set('accessMode', 'token')
+        ->assertSeeText('Switch to Bearer token?')
+        ->assertSeeText('Its signed URL stops working at once, and switching back later gives it a new one.')
+        ->call('changeAccessMode')
+        ->assertDispatched('toast-show', accessToast('This Star now uses tokens. Create one below for each client.'))
+        ->assertSeeText('No tokens yet');
+
+    expect($this->star->refresh()->access_mode)->toBe(StarAccessMode::Token);
+    StarClient::for($this->star)->at($oldUrl)->connect()->assertUnauthorized();
+
+    Livewire::test('pages::stars.access', ['star' => $this->star])
+        ->set('accessMode', 'signed_url')
+        ->call('changeAccessMode');
+
+    StarClient::for($this->star->refresh())->at($oldUrl)->connect()->assertUnauthorized();
+    StarClient::for($this->star)->at($this->star->signedUrl())->connect()->assertOk();
+});
+
+it('refuses an access mode that does not exist', function (): void {
+    Livewire::test('pages::stars.access', ['star' => $this->star])
+        ->set('accessMode', 'open')
+        ->call('changeAccessMode')
+        ->assertHasErrors(['accessMode']);
+
+    expect($this->star->refresh()->access_mode)->toBe(StarAccessMode::Token);
+});
+
+it('creates no token once the Star has switched away from tokens elsewhere', function (): void {
+    $page = Livewire::test('pages::stars.access', ['star' => $this->star]);
+    resolve(ChangeStarAccessMode::class)->handle($this->star->fresh(), StarAccessMode::SignedUrl);
+
+    $page->set('name', 'Laptop')
+        ->call('create')
+        ->assertHasErrors(['limit' => 'This Star no longer uses tokens. Reload the page to see how clients reach it.']);
+
+    expect($this->star->tokens()->count())->toBe(0);
+});
+
+it('rotates nothing once the Star has switched away from its signed URL elsewhere', function (): void {
+    $this->star->forceFill(['access_mode' => StarAccessMode::SignedUrl])->save();
+    $page = Livewire::test('pages::stars.access', ['star' => $this->star]);
+    resolve(ChangeStarAccessMode::class)->handle($this->star->fresh(), StarAccessMode::Token);
+    $version = $this->star->fresh()->signed_url_version;
+
+    $page->call('rotateSignedUrl')
+        ->assertDispatched('toast-show', accessToast('This Star no longer uses a signed URL. Reload the page to see how clients reach it.', 'warning'));
+
+    expect($this->star->fresh()->signed_url_version)->toBe($version);
 });

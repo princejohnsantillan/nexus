@@ -4,11 +4,13 @@ declare(strict_types=1);
 
 namespace App\Actions;
 
+use App\Enums\StarAccessMode;
 use App\Models\Star;
 use App\Models\StarToken;
 use App\Stars\NewStarToken;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class CreateStarToken
@@ -26,12 +28,14 @@ class CreateStarToken
 
     /**
      * Create a named token for the Star, unless it already has as many as
-     * `nexus.limits.tokens_per_star` allows. Only the token's hash is
-     * stored; the plain token comes back once, to show the user. Creations
-     * for one Star hold a cache lock while they count and insert, so two at
-     * once can't both pass the check.
+     * `nexus.limits.tokens_per_star` allows or no longer uses tokens. Only
+     * the token's hash is stored; the plain token comes back once, to show
+     * the user. Creations for one Star hold a cache lock while they count
+     * and insert, so two at once can't both pass the check, and the Star's
+     * row is locked while its access mode is checked, so a token can't slip
+     * in while ChangeStarAccessMode switches the Star away from tokens.
      *
-     * @throws ValidationException (under `limit`) when the Star is at the limit, or another creation for it holds the lock too long
+     * @throws ValidationException (under `limit`) when the Star is at the limit or not in token mode, or another creation for it holds the lock too long
      */
     public function handle(Star $star, string $name): NewStarToken
     {
@@ -44,17 +48,25 @@ class CreateStarToken
         }
 
         try {
-            if ($star->hasReachedTokenLimit()) {
-                throw ValidationException::withMessages(['limit' => self::limitMessage()]);
-            }
+            return DB::transaction(function () use ($star, $name): NewStarToken {
+                $accessMode = Star::query()->whereKey($star->id)->lockForUpdate()->value('access_mode');
 
-            $plainTextToken = StarToken::generate();
+                if ($accessMode !== StarAccessMode::Token) {
+                    throw ValidationException::withMessages(['limit' => __('This Star no longer uses tokens. Reload the page to see how clients reach it.')]);
+                }
 
-            $token = $star->tokens()->make(['name' => $name]);
-            $token->setPlainToken($plainTextToken);
-            $token->save();
+                if ($star->hasReachedTokenLimit()) {
+                    throw ValidationException::withMessages(['limit' => self::limitMessage()]);
+                }
 
-            return new NewStarToken($token, $plainTextToken);
+                $plainTextToken = StarToken::generate();
+
+                $token = $star->tokens()->make(['name' => $name]);
+                $token->setPlainToken($plainTextToken);
+                $token->save();
+
+                return new NewStarToken($token, $plainTextToken);
+            });
         } finally {
             $lock->release();
         }

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Actions;
 
+use App\Enums\StarAccessMode;
 use App\Models\Star;
 use App\Models\User;
 use Illuminate\Contracts\Cache\LockTimeoutException;
@@ -41,10 +42,11 @@ class CreateStar
      *
      * @param  array{name: string, description: string|null}  $attributes
      * @param  list<int>  $connectionIds  The user's Connections to include; anyone else's are ignored.
+     * @param  StarAccessMode  $accessMode  How clients will authenticate to it; ChangeStarAccessMode changes it later.
      *
      * @throws ValidationException (under `limit`) when the user is at the limit, or another creation of theirs holds the lock too long
      */
-    public function handle(User $user, array $attributes, array $connectionIds = []): Star
+    public function handle(User $user, array $attributes, array $connectionIds = [], StarAccessMode $accessMode = StarAccessMode::Token): Star
     {
         $lock = Cache::lock("users.{$user->id}.new-star", self::LOCK_SECONDS);
 
@@ -59,9 +61,10 @@ class CreateStar
                 throw ValidationException::withMessages(['limit' => self::limitMessage()]);
             }
 
-            return DB::transaction(function () use ($user, $attributes, $connectionIds): Star {
+            return DB::transaction(function () use ($user, $attributes, $connectionIds, $accessMode): Star {
                 $star = $user->stars()->make($attributes);
                 $star->slug = $this->slugFor($user, $attributes['name']);
+                $star->access_mode = $accessMode;
                 $star->save();
 
                 $star->connections()->attach(

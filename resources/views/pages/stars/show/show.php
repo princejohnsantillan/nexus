@@ -67,7 +67,7 @@ return new #[Title('Star')] class extends Component
     /**
      * Copy-paste setup for each client, for the Star's access mode.
      *
-     * @return list<array{client: string, file: string|null, snippet: string}>
+     * @return list<array{client: string, file: string|null, instruction: string|null, snippet: string}>
      */
     #[Computed]
     public function clientSetup(): array

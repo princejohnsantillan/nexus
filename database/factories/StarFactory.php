@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Database\Factories;
 
 use App\Enums\NewToolPolicy;
+use App\Enums\StarAccessMode;
 use App\Models\Connection;
 use App\Models\Star;
 use App\Models\User;
@@ -42,6 +43,16 @@ class StarFactory extends Factory
         return $this->afterCreating(function (Star $star) use ($connections): void {
             $star->connections()->attach(array_map(fn (Connection $connection): int => $connection->id, $connections));
         });
+    }
+
+    /**
+     * Indicate that clients authenticate to the Star this way.
+     */
+    public function withAccessMode(StarAccessMode $accessMode): static
+    {
+        return $this->state(fn (array $attributes): array => [
+            'access_mode' => $accessMode,
+        ]);
     }
 
     /**

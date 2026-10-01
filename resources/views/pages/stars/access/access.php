@@ -2,12 +2,15 @@
 
 declare(strict_types=1);
 
+use App\Actions\ChangeStarAccessMode;
 use App\Actions\CreateStarToken;
+use App\Enums\StarAccessMode;
 use App\Models\Star;
 use App\Models\StarToken;
 use App\Stars\ClientSetup;
 use Flux\Flux;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Validation\Rule;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\Title;
@@ -16,6 +19,11 @@ use Livewire\Component;
 return new #[Title('Star access')] class extends Component
 {
     public Star $star;
+
+    /**
+     * The access mode chosen, the Star's own until the user picks another.
+     */
+    public string $accessMode = '';
 
     /**
      * The name of the next token.
@@ -27,6 +35,20 @@ return new #[Title('Star access')] class extends Component
      */
     #[Locked]
     public ?string $newToken = null;
+
+    public function mount(): void
+    {
+        $this->accessMode = $this->star->access_mode->value;
+    }
+
+    /**
+     * The access mode chosen, or null when it isn't one.
+     */
+    #[Computed]
+    public function chosenMode(): ?StarAccessMode
+    {
+        return StarAccessMode::tryFrom($this->accessMode);
+    }
 
     /**
      * The Star's tokens, newest first.
@@ -88,6 +110,45 @@ return new #[Title('Star access')] class extends Component
 
         $this->dispatch('modal-close', name: "revoke-token-{$tokenId}", scope: $this->getId());
         Flux::toast(variant: 'success', text: __('Revoked :name. Clients using it can no longer reach this Star.', ['name' => $token->name]));
+    }
+
+    /**
+     * Switch the Star to the chosen access mode, retiring the credentials
+     * of the mode it leaves.
+     */
+    public function changeAccessMode(ChangeStarAccessMode $changeStarAccessMode): void
+    {
+        $this->validate(['accessMode' => ['required', Rule::enum(StarAccessMode::class)]]);
+
+        $accessMode = StarAccessMode::from($this->accessMode);
+        $changeStarAccessMode->handle($this->star, $accessMode);
+
+        $this->forgetTokens();
+
+        $this->dispatch('modal-close', name: 'change-access-mode', scope: $this->getId());
+        Flux::toast(variant: 'success', text: match ($accessMode) {
+            StarAccessMode::Token => __('This Star now uses tokens. Create one below for each client.'),
+            StarAccessMode::SignedUrl => __('This Star now uses a signed URL. Copy it below and give it to your clients.'),
+        });
+    }
+
+    /**
+     * Give the Star a new signed URL, so the old one stops working. A page
+     * opened before the Star switched away from signed-URL mode rotates
+     * nothing.
+     */
+    public function rotateSignedUrl(): void
+    {
+        if ($this->star->access_mode !== StarAccessMode::SignedUrl) {
+            Flux::toast(variant: 'warning', text: __('This Star no longer uses a signed URL. Reload the page to see how clients reach it.'));
+
+            return;
+        }
+
+        $this->star->rotateSignedUrl();
+
+        $this->dispatch('modal-close', name: 'rotate-signed-url', scope: $this->getId());
+        Flux::toast(variant: 'success', text: __('Rotated. The old URL no longer works, so give your clients the new one.'));
     }
 
     private function forgetTokens(): void
