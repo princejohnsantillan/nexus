@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Uri;
+use Livewire\Livewire;
 use Tests\Support\ConnectionOAuthFlow;
 use Tests\Support\FakeAuthorizationServer;
 use Tests\Support\FakeMcpServer;
@@ -534,4 +535,66 @@ it('needs the user signed in to Nexus for the callback', function (): void {
     auth()->logout();
 
     $this->get(route('oauth.callback', ['code' => 'code', 'state' => 'state']))->assertRedirect(route('home'));
+});
+
+/**
+ * Change the user's own OAuth app on the Connection through its page.
+ */
+function useOwnApp(Connection $connection, string $clientId): void
+{
+    Livewire::test('pages::connections.show', ['connection' => Connection::query()->findOrFail($connection->id)])
+        ->set('clientId', $clientId)
+        ->call('saveServer')
+        ->assertHasNoErrors();
+}
+
+it('drops a sign-in started as a client the user has since replaced with an app of their own', function (?string $startedAs): void {
+    $authorizationServer = FakeAuthorizationServer::at()->acceptingClient('old-app')->acceptingClient('new-app');
+    FakeMcpServer::at()->requireOAuth($authorizationServer);
+    $connection = Connection::factory()->for($this->user)->oauth($startedAs)->create();
+    $callback = $authorizationServer->approve(ConnectionOAuthFlow::start($this, $connection));
+
+    useOwnApp($connection, 'new-app');
+
+    $this->get($callback)
+        ->assertRedirect(route('connections.show', $connection))
+        ->assertSessionHas('toast.text', 'The Connection\'s server or sign-in changed while you were signing in. Start again.');
+
+    expect($connection->refresh()->hasAccessToken())->toBeFalse()
+        ->and($connection->oauthClientId())->toBe('new-app')
+        ->and($connection->setting('client_id'))->toBeNull()
+        ->and($authorizationServer->tokenRequests())->toBe([]);
+})->with(['the user\'s previous app' => 'old-app', 'a registered client' => null]);
+
+it('doesn\'t store a sign-in whose client the user replaced while its code was being exchanged', function (): void {
+    $authorizationServer = FakeAuthorizationServer::at()->acceptingClient('old-app')->acceptingClient('new-app');
+    FakeMcpServer::at()->requireOAuth($authorizationServer);
+    $connection = Connection::factory()->for($this->user)->oauth('old-app')->create();
+    $callback = $authorizationServer->approve(ConnectionOAuthFlow::start($this, $connection));
+    $authorizationServer->beforeAnswering('token', fn () => useOwnApp($connection, 'new-app'));
+
+    $this->get($callback)
+        ->assertRedirect(route('connections.show', $connection))
+        ->assertSessionHas('toast.text', 'The Connection changed while you were signing in, so Nexus didn\'t keep the sign-in. Start again.');
+
+    expect($authorizationServer->tokenRequests('authorization_code'))->toHaveCount(1)
+        ->and($connection->refresh()->hasAccessToken())->toBeFalse()
+        ->and($connection->oauthClientId())->toBe('new-app')
+        ->and($connection->setting('client_id'))->toBeNull();
+});
+
+it('finishes a sign-in after only the user\'s app secret changed', function (): void {
+    $authorizationServer = FakeAuthorizationServer::at()->acceptingClient('my-app', 'new-secret');
+    FakeMcpServer::at()->requireOAuth($authorizationServer)->withTools([['name' => 'search']]);
+    $connection = Connection::factory()->for($this->user)->oauth('my-app', 'old-secret')->create();
+    $callback = $authorizationServer->approve(ConnectionOAuthFlow::start($this, $connection));
+
+    Livewire::test('pages::connections.show', ['connection' => Connection::query()->findOrFail($connection->id)])
+        ->set('clientSecret', 'new-secret')
+        ->call('saveServer');
+
+    $this->get($callback)->assertSessionHas('toast.variant', 'success');
+
+    expect($connection->refresh()->setting('client_id'))->toBe('my-app')
+        ->and($authorizationServer->tokenRequests('authorization_code')[0]['client_secret'])->toBe('new-secret');
 });

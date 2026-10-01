@@ -165,9 +165,9 @@ it('renews once when a request that waited for the lock finds the token another 
     $this->travel(2)->hours();
     $stale = Connection::query()->findOrFail($this->connection->id);
 
-    expect(resolve(ConnectionTokens::class)->accessToken($this->connection))->toBe('access-token-2')
+    expect(resolve(ConnectionTokens::class)->accessToken($this->connection, FakeMcpServer::DEFAULT_URL))->toBe('access-token-2')
         ->and($stale->secrets->get('access_token'))->toBe('access-token-1')
-        ->and(resolve(ConnectionTokens::class)->accessToken($stale))->toBe('access-token-2')
+        ->and(resolve(ConnectionTokens::class)->accessToken($stale, FakeMcpServer::DEFAULT_URL))->toBe('access-token-2')
         ->and($this->auth->tokenRequests('refresh_token'))->toHaveCount(1)
         ->and($stale->refresh()->status)->toBe(ConnectionStatus::Connected)
         ->and($stale->secrets->get('refresh_token'))->toBe('refresh-token-2');
@@ -333,3 +333,34 @@ it('doesn\'t keep a client registered with a server the Connection moved away fr
         ->and($stored->settings)->toBeNull()
         ->and($stored->secrets->all())->toBe([]);
 });
+
+it('gives a session opened for the old server no token once the Connection moved and signed in to a new one', function (bool $expired): void {
+    if ($expired) {
+        $this->travel(2)->hours();
+    }
+
+    $session = resolve(DownstreamClient::class)->session($this->connection);
+    $replacement = FakeMcpServer::at('https://replacement.example.com/mcp')
+        ->requireOAuth(FakeAuthorizationServer::at('https://auth.replacement.example.com'))
+        ->withTools([['name' => 'search']]);
+
+    Livewire::test('pages::connections.show', ['connection' => Connection::query()->findOrFail($this->connection->id)])
+        ->set('url', 'https://replacement.example.com/mcp')
+        ->call('saveServer')
+        ->assertRedirect(route('connections.connect', $this->connection));
+    ConnectionOAuthFlow::signIn($this, Connection::query()->findOrFail($this->connection->id), $replacement->authorizationServer());
+    $this->connection->refresh();
+    $requestsBefore = count($this->server->requests());
+
+    try {
+        $session->listTools();
+        $failure = null;
+    } catch (DownstreamRequestFailed $failed) {
+        $failure = $failed;
+    }
+
+    expect(Connection::query()->findOrFail($this->connection->id)->hasAccessToken())->toBeTrue()
+        ->and($failure?->failure)->toBe(DownstreamFailure::NeedsSignIn)
+        ->and(array_slice($this->server->requests(), $requestsBefore))->toBe([])
+        ->and($this->auth->tokenRequests('refresh_token'))->toBe([]);
+})->with(['with an expired token' => true, 'with a current token' => false]);

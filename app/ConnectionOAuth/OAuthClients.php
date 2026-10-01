@@ -93,6 +93,25 @@ final readonly class OAuthClients
     }
 
     /**
+     * Whether this client is still the one the Connection is set up to sign
+     * in as, short of discovering its server again: the user's own app with
+     * this ID, else the deployment's app with this ID, else Nexus's metadata
+     * document, else the client the server registered with this ID.
+     */
+    public function isCurrent(Connection $connection, OAuthClientSource $source, string $clientId): bool
+    {
+        $ownClientId = $connection->oauthClientId();
+        $app = $ownClientId === null ? $connection->connector()?->deploymentApp() : null;
+
+        return match ($source) {
+            OAuthClientSource::OwnApp => $ownClientId === $clientId,
+            OAuthClientSource::DeploymentApp => $app !== null && $app['client_id'] === $clientId,
+            OAuthClientSource::MetadataDocument => $ownClientId === null && $app === null && $clientId === $this->nexus->metadataDocumentUrl(),
+            OAuthClientSource::Registered => $ownClientId === null && $app === null && $connection->setting('registered_client_id') === $clientId,
+        };
+    }
+
+    /**
      * The client the Connection's current sign-in was issued to, or null
      * when it isn't signed in.
      */

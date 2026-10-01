@@ -51,19 +51,31 @@ final readonly class ConnectionTokens
     ) {}
 
     /**
-     * The Connection's access token, renewed first when it has expired or is
-     * about to. A renewed token, and the refresh token a server rotated, are
-     * stored on the Connection (which must be saved; it is re-read).
+     * The Connection's access token for a request to its server, renewed
+     * first when it has expired or is about to. A renewed token, and the
+     * refresh token a server rotated, are stored on the Connection (which
+     * must be saved; it is re-read).
+     *
+     * The token is only ever for the server it will be sent to: once the
+     * Connection signs in somewhere else (it moved to another server, perhaps
+     * signing in there too, or stopped using OAuth), a request still bound
+     * for its old server gets no token at all.
      *
      * When the server refuses to renew, the sign-in has ended: its tokens are
      * forgotten and the Connection needs sign-in, with a last error saying
      * so. A renewal that fails for a reason that may pass, such as the
      * server not answering, keeps the sign-in.
      *
+     * @param  string  $serverUrl  The server the request goes to: the URL its session was opened with.
+     *
      * @throws DownstreamRequestFailed
      */
-    public function accessToken(Connection $connection): string
+    public function accessToken(Connection $connection, string $serverUrl): string
     {
+        if (! $this->signsInTo($connection, $serverUrl)) {
+            throw DownstreamRequestFailed::notSignedIn();
+        }
+
         $token = $this->currentToken($connection);
 
         if ($token !== null) {
@@ -75,8 +87,8 @@ final readonly class ConnectionTokens
         }
 
         try {
-            return $this->signInLock->hold($connection, function () use ($connection): string {
-                if (! $connection->usesOAuth()) {
+            return $this->signInLock->hold($connection, function () use ($connection, $serverUrl): string {
+                if (! $this->signsInTo($connection, $serverUrl)) {
                     throw DownstreamRequestFailed::notSignedIn();
                 }
 
@@ -93,19 +105,20 @@ final readonly class ConnectionTokens
      * Store the tokens of a new sign-in, and the settings that say how to
      * renew them, holding the Connection's SignInLock, so a renewal of the
      * previous sign-in that is still running can't overwrite them. The
-     * Connection is re-read first and must still sign in to the same
-     * server; it is then pending until its tools load.
+     * Connection is re-read first, and the sign-in must still apply to it
+     * (the same server and client); it is then pending until its tools load.
      *
+     * @param  Closure(): bool  $stillApplies  Whether the sign-in still applies to the Connection as re-read.
      * @param  array<string, string>  $signIn  The settings describing the sign-in (see Connection::OAUTH_SIGN_IN_SETTINGS).
      * @return bool Whether the tokens were stored.
      *
      * @throws LockTimeoutException when another change holds the lock too long
      */
-    public function storeSignIn(Connection $connection, string $serverUrl, IssuedTokens $tokens, array $signIn): bool
+    public function storeSignIn(Connection $connection, Closure $stillApplies, IssuedTokens $tokens, array $signIn): bool
     {
         try {
-            return $this->signInLock->hold($connection, function () use ($connection, $serverUrl, $tokens, $signIn): bool {
-                if ($connection->url !== $serverUrl || ! $connection->usesOAuth()) {
+            return $this->signInLock->hold($connection, function () use ($connection, $stillApplies, $tokens, $signIn): bool {
+                if (! $stillApplies()) {
                     return false;
                 }
 
@@ -123,6 +136,14 @@ final readonly class ConnectionTokens
         } catch (ModelNotFoundException) {
             return false;
         }
+    }
+
+    /**
+     * Whether the Connection signs in with OAuth to this server.
+     */
+    private function signsInTo(Connection $connection, string $serverUrl): bool
+    {
+        return $connection->usesOAuth() && $connection->url === $serverUrl;
     }
 
     /**

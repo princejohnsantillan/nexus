@@ -170,7 +170,8 @@ final readonly class ConnectionSignIn
 
     /**
      * Check the user came back from the sign-in that is pending: for a
-     * Connection that still signs in with OAuth to the same server, with
+     * Connection that still signs in with OAuth to the same server, as the
+     * same client, with
      * the server's approval, from the authorization server Nexus sent them
      * to (RFC 9207).
      *
@@ -186,7 +187,7 @@ final readonly class ConnectionSignIn
      */
     private function checkReturn(Connection $connection, PendingSignIn $pending, array $query): void
     {
-        if (! $connection->usesOAuth() || $connection->url !== $pending->serverUrl) {
+        if (! $this->stillApplies($connection, $pending)) {
             throw ConnectionSignInFailed::because(__('The Connection\'s server or sign-in changed while you were signing in. Start again.'));
         }
 
@@ -204,7 +205,21 @@ final readonly class ConnectionSignIn
     }
 
     /**
-     * Store the new sign-in's tokens, and how to renew them.
+     * Whether a pending sign-in still applies to the Connection: it signs in
+     * with OAuth to the same server, and is still set up to sign in as the
+     * client the sign-in started with, so the user hasn't changed their own
+     * OAuth app since.
+     */
+    private function stillApplies(Connection $connection, PendingSignIn $pending): bool
+    {
+        return $connection->usesOAuth()
+            && $connection->url === $pending->serverUrl
+            && $this->clients->isCurrent($connection, $pending->clientSource, $pending->clientId);
+    }
+
+    /**
+     * Store the new sign-in's tokens, and how to renew them, unless the
+     * Connection changed while the code was being exchanged.
      *
      * @throws ConnectionSignInFailed
      */
@@ -222,7 +237,7 @@ final readonly class ConnectionSignIn
         ], fn (?string $value): bool => $value !== null);
 
         try {
-            $stored = $this->tokens->storeSignIn($connection, $pending->serverUrl, $tokens, $signIn);
+            $stored = $this->tokens->storeSignIn($connection, fn (): bool => $this->stillApplies($connection, $pending), $tokens, $signIn);
         } catch (LockTimeoutException) {
             throw ConnectionSignInFailed::busy();
         }

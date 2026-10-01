@@ -20,7 +20,9 @@ use Laravel\Mcp\Schema\Implementation;
  *
  * Opening a session sends nothing; it connects on its first request. An
  * OAuth Connection's access token is read for every request, and renewed
- * first when it has expired (see ConnectionTokens).
+ * first when it has expired (see ConnectionTokens). A session stays bound to
+ * the server it was opened for: once the Connection signs in somewhere else,
+ * the session gets no token and fails as needing sign-in.
  */
 final readonly class DownstreamClient
 {
@@ -55,8 +57,10 @@ final readonly class DownstreamClient
 
     private function open(Connection $connection, bool $signedIn): DownstreamSession
     {
+        $serverUrl = $connection->url;
+
         $transport = new DownstreamTransport(
-            $connection->url,
+            $serverUrl,
             connectTimeout: config()->float('nexus.downstream.connect_timeout'),
             callTimeout: config()->float('nexus.downstream.call_timeout'),
         );
@@ -66,7 +70,7 @@ final readonly class DownstreamClient
         }
 
         if ($signedIn && $connection->auth_type === ConnectionAuthType::OAuth) {
-            $transport->withToken(fn (): string => $this->tokens->accessToken($connection));
+            $transport->withToken(fn (): string => $this->tokens->accessToken($connection, $serverUrl));
         }
 
         $client = new DownstreamMcpClient($transport, new Implementation(
