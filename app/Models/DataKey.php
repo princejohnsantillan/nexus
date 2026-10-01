@@ -14,8 +14,10 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * A user's own encryption key, stored wrapped by the deployment's master key.
  *
  * Only App\Encryption\DataKeys creates and reads these. Deleting the user
- * cascades to their data key, which leaves every secret encrypted with it
- * permanently unreadable.
+ * cascades to their data key, so the live database can no longer decrypt
+ * their secrets. A database backup still holds the wrapped key, so it can be
+ * decrypted with the master key until it ages out; shredding backups too
+ * needs an external key store (KMS), which comes later.
  *
  * @property int $id
  * @property int $user_id

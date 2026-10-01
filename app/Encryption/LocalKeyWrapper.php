@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Encryption;
 
+use App\Concerns\KeepsSecretsInMemory;
 use App\Exceptions\MasterKeyException;
 use Illuminate\Container\Attributes\Config;
 use Illuminate\Contracts\Encryption\DecryptException;
@@ -19,6 +20,8 @@ use SensitiveParameter;
  */
 final readonly class LocalKeyWrapper implements KeyWrapper
 {
+    use KeepsSecretsInMemory;
+
     private const string CIPHER = 'aes-256-gcm';
 
     private Encrypter $encrypter;
@@ -36,23 +39,31 @@ final readonly class LocalKeyWrapper implements KeyWrapper
         return 'local';
     }
 
+    /**
+     * The wrapped plaintext is "{user id}:{base64 data key}", built without
+     * any call that could throw while holding the key.
+     */
     public function wrap(#[SensitiveParameter] string $dataKey, int $userId): string
     {
-        return $this->encrypter->encryptString(json_encode([
-            'user_id' => $userId,
-            'key' => base64_encode($dataKey),
-        ], JSON_THROW_ON_ERROR));
+        return $this->encrypter->encryptString($userId.':'.base64_encode($dataKey));
     }
 
     public function unwrap(string $wrappedKey, int $userId): string
     {
-        $payload = json_decode($this->encrypter->decryptString($wrappedKey), true);
+        $plaintext = $this->encrypter->decryptString($wrappedKey);
+        $owner = $userId.':';
 
-        if (! is_array($payload) || ($payload['user_id'] ?? null) !== $userId || ! is_string($payload['key'] ?? null)) {
+        if (! str_starts_with($plaintext, $owner)) {
             throw new DecryptException('The data key does not belong to this user.');
         }
 
-        return base64_decode($payload['key'], true) ?: throw new DecryptException('The data key is corrupt.');
+        $dataKey = base64_decode(substr($plaintext, strlen($owner)), true);
+
+        if ($dataKey === false || strlen($dataKey) !== 32) {
+            throw new DecryptException('The data key is corrupt.');
+        }
+
+        return $dataKey;
     }
 
     /**

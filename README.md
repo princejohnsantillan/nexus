@@ -150,7 +150,7 @@ The repository is public. Never commit `.env`, databases, keys or tokens; `.giti
 
 ### Credential encryption
 
-Every credential Nexus stores is encrypted with AES-256-GCM under its owner's own data key (`App\Encryption`). Data keys live in the `data_keys` table, wrapped by the master key in `NEXUS_MASTER_KEY`, so the database alone reveals nothing. Deleting a user deletes their data key, which leaves their old ciphertext, backups included, unreadable. Without a valid master key Nexus throws a `MasterKeyException` rather than encrypt or decrypt anything. Tests get a fresh master key from `Tests\TestCase`.
+Every credential Nexus stores is encrypted with AES-256-GCM under its owner's own data key (`App\Encryption`). Data keys live in the `data_keys` table, wrapped by the master key in `NEXUS_MASTER_KEY`, so the database alone reveals nothing. Deleting an account permanently removes its data key and ciphertext from the live database. Database backups still hold both, so a restored backup can be decrypted again with the master key; backups age out under the database's backup retention. True crypto-shredding of backups needs an external key store (KMS), which comes later. Without a valid master key Nexus throws a `MasterKeyException` rather than encrypt or decrypt anything. Tests get a fresh master key from `Tests\TestCase`.
 
 A model keeps its secrets in a `secrets` column cast with `AsEncryptedSecrets`, owned by its `user_id`. Hide the column and never make it fillable. Callers never see ciphertext:
 
@@ -159,6 +159,8 @@ $connection->secrets->get('access_token');
 $connection->secrets->put(['access_token' => $token, 'refresh_token' => null]); // null removes a secret
 $connection->save();
 ```
+
+Objects that hold plaintext secrets or keys (`Secrets`, `DataKeys`, `SecretCipher`, `LocalKeyWrapper`) use `App\Concerns\KeepsSecretsInMemory`: serializing one throws, so put the model in a queued job, never its secrets (a model serializes only ciphertext), and dumps show `[redacted]`. Mark parameters that carry secrets `#[\SensitiveParameter]`, and never let an exception from a native function that received a secret (such as `json_encode()`) escape: its trace keeps the arguments.
 
 ### AI agents
 

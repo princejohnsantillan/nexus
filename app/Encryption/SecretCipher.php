@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace App\Encryption;
 
+use App\Concerns\KeepsSecretsInMemory;
 use Illuminate\Contracts\Encryption\DecryptException;
+use Illuminate\Contracts\Encryption\EncryptException;
 use Illuminate\Encryption\Encrypter;
 use JsonException;
 use SensitiveParameter;
@@ -18,6 +20,8 @@ use SensitiveParameter;
  */
 final readonly class SecretCipher
 {
+    use KeepsSecretsInMemory;
+
     public const string CIPHER = 'aes-256-gcm';
 
     public function __construct(private DataKeys $dataKeys) {}
@@ -25,12 +29,12 @@ final readonly class SecretCipher
     /**
      * @param  array<array-key, mixed>  $secrets
      *
-     * @throws JsonException when a value can't be encoded as JSON
+     * @throws EncryptException when a value can't be encoded as JSON
      */
     public function encrypt(int $userId, #[SensitiveParameter] array $secrets): string
     {
         return $this->encrypter($this->dataKeys->forUser($userId))
-            ->encryptString(json_encode($secrets, JSON_THROW_ON_ERROR));
+            ->encryptString($this->encode($secrets));
     }
 
     /**
@@ -46,6 +50,21 @@ final readonly class SecretCipher
         $secrets = json_decode($this->encrypter($dataKey)->decryptString($ciphertext), true);
 
         return is_array($secrets) ? $secrets : throw new DecryptException('The decrypted secrets are not an array.');
+    }
+
+    /**
+     * A JsonException's trace keeps the native json_encode() frame, secrets
+     * and all, so it is replaced by an exception that starts here instead.
+     *
+     * @param  array<array-key, mixed>  $secrets
+     */
+    private function encode(#[SensitiveParameter] array $secrets): string
+    {
+        try {
+            return json_encode($secrets, JSON_THROW_ON_ERROR);
+        } catch (JsonException) {
+            throw new EncryptException('The secrets could not be encoded as JSON.');
+        }
     }
 
     private function encrypter(#[SensitiveParameter] string $dataKey): Encrypter

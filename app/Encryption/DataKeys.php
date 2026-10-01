@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Encryption;
 
+use App\Concerns\KeepsSecretsInMemory;
 use App\Models\DataKey;
 use Illuminate\Container\Attributes\Scoped;
 use Illuminate\Contracts\Encryption\DecryptException;
@@ -19,6 +20,8 @@ use Illuminate\Encryption\Encrypter;
 #[Scoped]
 final class DataKeys
 {
+    use KeepsSecretsInMemory;
+
     /**
      * Unwrapped data keys by user id.
      *

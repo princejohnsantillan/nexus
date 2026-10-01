@@ -7,7 +7,9 @@ use App\Exceptions\MasterKeyException;
 use App\Models\DataKey;
 use App\Models\User;
 use Illuminate\Contracts\Encryption\DecryptException;
+use Illuminate\Contracts\Encryption\EncryptException;
 use Tests\Support\Tamper;
+use Tests\Support\TraceArguments;
 
 it('decrypts the secrets it encrypted for a user', function (): void {
     $user = User::factory()->create();
@@ -79,3 +81,31 @@ it('refuses to decrypt without a master key', function (): void {
 
     resolve(SecretCipher::class)->decrypt($user->id, $ciphertext);
 })->throws(MasterKeyException::class, 'NEXUS_MASTER_KEY is not set');
+
+it('fails to encrypt a value JSON cannot encode without keeping the secrets in the exception', function (): void {
+    ini_set('zend.exception_ignore_args', '0');
+    $user = User::factory()->create();
+
+    expect(fn (): string => resolve(SecretCipher::class)->encrypt($user->id, ['token' => 'sk-live-123', 'invalid' => "\xB1"]))
+        ->toThrow(function (EncryptException $exception): void {
+            $capturedSensitiveArguments = collect($exception->getTrace())
+                ->flatMap(fn (array $frame): array => $frame['args'] ?? [])
+                ->contains(fn (mixed $argument): bool => $argument instanceof SensitiveParameterValue);
+
+            expect($exception->getMessage())->toBe('The secrets could not be encoded as JSON.')
+                ->and($exception->getPrevious())->toBeNull()
+                ->and($capturedSensitiveArguments)->toBeTrue()
+                ->and(TraceArguments::contain($exception, 'sk-live-123'))->toBeFalse();
+        });
+});
+
+it('never puts the configured master key in an exception', function (): void {
+    ini_set('zend.exception_ignore_args', '0');
+    config(['nexus.encryption.master_key' => 'base64:almost-my-real-master-key']);
+
+    expect(fn (): SecretCipher => resolve(SecretCipher::class))
+        ->toThrow(function (MasterKeyException $exception): void {
+            expect($exception->getMessage())->not->toContain('almost-my-real-master-key')
+                ->and(TraceArguments::contain($exception, 'almost-my-real-master-key'))->toBeFalse();
+        });
+});

@@ -19,9 +19,10 @@ it('unwraps a data key for the user it was wrapped for', function (): void {
 
 it('accepts the master key with or without the base64: prefix', function (): void {
     $masterKey = base64_encode(random_bytes(32));
-    $wrapped = new LocalKeyWrapper('base64:'.$masterKey)->wrap('a data key', 7);
+    $dataKey = random_bytes(32);
+    $wrapped = new LocalKeyWrapper('base64:'.$masterKey)->wrap($dataKey, 7);
 
-    expect(new LocalKeyWrapper($masterKey)->unwrap($wrapped, 7))->toBe('a data key');
+    expect(new LocalKeyWrapper($masterKey)->unwrap($wrapped, 7))->toBe($dataKey);
 });
 
 it('refuses to unwrap a data key for another user', function (): void {
@@ -30,6 +31,13 @@ it('refuses to unwrap a data key for another user', function (): void {
 
     $wrapper->unwrap($wrapped, 8);
 })->throws(DecryptException::class, 'The data key does not belong to this user.');
+
+it('refuses to unwrap a data key that is not 32 bytes', function (): void {
+    $wrapper = new LocalKeyWrapper('base64:'.base64_encode(random_bytes(32)));
+    $wrapped = $wrapper->wrap(random_bytes(16), 7);
+
+    $wrapper->unwrap($wrapped, 7);
+})->throws(DecryptException::class, 'The data key is corrupt.');
 
 it('refuses to unwrap a data key wrapped by another master key', function (): void {
     $wrapped = new LocalKeyWrapper('base64:'.base64_encode(random_bytes(32)))->wrap(random_bytes(32), 7);

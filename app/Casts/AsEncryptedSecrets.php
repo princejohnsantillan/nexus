@@ -8,6 +8,7 @@ use App\Encryption\Secrets;
 use Illuminate\Contracts\Database\Eloquent\CastsAttributes;
 use Illuminate\Database\Eloquent\Model;
 use LogicException;
+use SensitiveParameter;
 
 /**
  * Stores a model's secrets as one blob, encrypted with the data key of the
@@ -42,7 +43,7 @@ final class AsEncryptedSecrets implements CastsAttributes
     /**
      * @param  array<string, mixed>  $attributes
      */
-    public function set(Model $model, string $key, mixed $value, array $attributes): ?string
+    public function set(Model $model, string $key, #[SensitiveParameter] mixed $value, array $attributes): ?string
     {
         return $value?->ciphertextFor($this->ownerId($attributes));
     }

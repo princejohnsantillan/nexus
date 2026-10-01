@@ -5,7 +5,9 @@ declare(strict_types=1);
 use App\Models\DataKey;
 use App\Models\User;
 use Illuminate\Contracts\Encryption\DecryptException;
+use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\DB;
+use Tests\Fixtures\JobCarrying;
 use Tests\Fixtures\SecretHolder;
 
 beforeEach(function (): void {
@@ -112,3 +114,32 @@ it('refuses to save secrets without an owner', function (): void {
     $holder->secrets->put(['access_token' => 'sk-live-123']);
     $holder->save();
 })->throws(LogicException::class, 'Set the owner (user_id) before saving secrets.');
+
+it('queues a model holding secrets with only their ciphertext', function (): void {
+    config(['queue.default' => 'database']);
+    $holder = SecretHolder::query()->create(['user_id' => User::factory()->create()->id]);
+    $holder->secrets->put(['access_token' => 'sk-live-saved']);
+    $holder->save();
+    $holder->secrets->put(['refresh_token' => 'sk-live-unsaved']);
+
+    Bus::dispatch(new JobCarrying($holder));
+
+    $payload = DB::table('jobs')->sole()->payload;
+    expect($payload)->not->toContain('sk-live-saved')->not->toContain('sk-live-unsaved');
+
+    app()->forgetScopedInstances();
+    $queuedHolder = unserialize(json_decode((string) $payload, true)['data']['command'])->cargo;
+    expect($queuedHolder->secrets->all())->toBe(['access_token' => 'sk-live-saved', 'refresh_token' => 'sk-live-unsaved']);
+});
+
+it('refuses to queue the secrets themselves', function (): void {
+    config(['queue.default' => 'database']);
+    $holder = SecretHolder::query()->create(['user_id' => User::factory()->create()->id]);
+    $holder->secrets->put(['access_token' => 'sk-live-123']);
+    $holder->save();
+
+    expect(fn (): mixed => Bus::dispatch(new JobCarrying($holder->secrets)))
+        ->toThrow(RuntimeException::class, 'App\Encryption\Secrets holds secrets, so it cannot be serialized.');
+
+    expect(DB::table('jobs')->count())->toBe(0);
+});

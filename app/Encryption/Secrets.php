@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Encryption;
 
+use App\Concerns\KeepsSecretsInMemory;
 use Illuminate\Contracts\Encryption\DecryptException;
 use LogicException;
 use SensitiveParameter;
@@ -17,6 +18,8 @@ use SensitiveParameter;
  */
 final class Secrets
 {
+    use KeepsSecretsInMemory;
+
     /**
      * The decrypted secrets, once read.
      *
