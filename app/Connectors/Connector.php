@@ -6,10 +6,14 @@ use Filament\Support\Icons\Heroicon;
 
 /**
  * A ready-made connection to an official MCP server: everything except the
- * user's own sign-in.
+ * user's own sign-in. Defined by a JSON file in resources/connectors.
  */
 final class Connector
 {
+    /**
+     * @param  list<string>  $scopes
+     * @param  array<string, mixed>|null  $appManifest
+     */
     public function __construct(
         public readonly string $key,
         public readonly string $name,
@@ -18,7 +22,7 @@ final class Connector
         public readonly Heroicon $icon,
         public readonly string $docsUrl,
         public readonly ClientRegistration $registration = ClientRegistration::Automatic,
-        public readonly ?string $scope = null,
+        public readonly array $scopes = [],
         public readonly ?string $appConsoleUrl = null,
         public readonly ?string $appInstructions = null,
         public readonly ?array $appManifest = null,
@@ -27,29 +31,12 @@ final class Connector
     ) {}
 
     /**
-     * Whether users can connect it at all. Some connectors can only use an
-     * app this deployment registered (e.g. Gmail, whose server is in
-     * Google's Developer Preview and needs an enrolled Cloud project).
+     * The scope to request, space-separated, or null to let the server's
+     * challenge decide.
      */
-    public function isAvailable(): bool
+    public function scope(): ?string
     {
-        return ! $this->requiresDeploymentApp || $this->deploymentClient() !== null;
-    }
-
-    /**
-     * The provider's app manifest with Nexus's callback filled in, for
-     * providers that can create an app from one (Slack).
-     */
-    public function appManifestJson(string $callbackUrl): ?string
-    {
-        if ($this->appManifest === null) {
-            return null;
-        }
-
-        $manifest = $this->appManifest;
-        data_set($manifest, 'oauth_config.redirect_urls', [$callbackUrl]);
-
-        return (string) json_encode($manifest, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+        return $this->scopes === [] ? null : implode(' ', $this->scopes);
     }
 
     /**
@@ -68,6 +55,16 @@ final class Connector
     }
 
     /**
+     * Whether users can connect it at all. Some connectors can only use an
+     * app this deployment registered (e.g. Gmail, whose server is in
+     * Google's Developer Preview and needs an enrolled Cloud project).
+     */
+    public function isAvailable(): bool
+    {
+        return ! $this->requiresDeploymentApp || $this->deploymentClient() !== null;
+    }
+
+    /**
      * Whether the user has to bring their own OAuth app to sign in.
      */
     public function needsUserClient(): bool
@@ -75,5 +72,28 @@ final class Connector
         return $this->registration === ClientRegistration::PreRegistered
             && ! $this->requiresDeploymentApp
             && $this->deploymentClient() === null;
+    }
+
+    /**
+     * The provider's app manifest with its placeholders filled in:
+     * "{{callback_url}}" becomes Nexus's OAuth callback and "{{scopes}}" the
+     * connector's scopes.
+     */
+    public function appManifestJson(string $callbackUrl): ?string
+    {
+        if ($this->appManifest === null) {
+            return null;
+        }
+
+        $fill = function (mixed $value) use (&$fill, $callbackUrl): mixed {
+            return match (true) {
+                is_array($value) => array_map($fill, $value),
+                $value === '{{callback_url}}' => $callbackUrl,
+                $value === '{{scopes}}' => $this->scopes,
+                default => $value,
+            };
+        };
+
+        return (string) json_encode($fill($this->appManifest), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
     }
 }

@@ -1,0 +1,18 @@
+{
+    "name": "GitHub",
+    "summary": "Repositories, issues, pull requests, code search and Actions.",
+    "url": "https://api.githubcopilot.com/mcp/",
+    "icon": "o-code-bracket",
+    "docs_url": "https://github.com/github/github-mcp-server/blob/main/docs/remote-server.md",
+    "registration": "pre_registered",
+    "scopes": [
+        "repo",
+        "read:org",
+        "read:user",
+        "user:email"
+    ],
+    "app": {
+        "console_url": "https://github.com/settings/applications/new",
+        "instructions": "GitHub only accepts apps registered in its developer settings. Create an OAuth app with the callback URL below, then enter its client ID and secret. Organizations may need to approve the app before their repositories are visible."
+    }
+}

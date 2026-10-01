@@ -78,25 +78,26 @@ return [
     |
     | Some official servers (Slack, GitHub) only accept OAuth apps registered
     | in their developer consoles. Register one per deployment and set its
-    | credentials here, and users only have to sign in. Without one, each
-    | user is asked to bring their own app. Callback: {APP_URL}/oauth/callback
+    | credentials, and users only have to sign in; without one, each user is
+    | asked to bring their own. Callback: {APP_URL}/oauth/callback
+    |
+    | Each connector in resources/connectors/{key}.json reads
+    | NEXUS_{KEY}_CLIENT_ID and NEXUS_{KEY}_CLIENT_SECRET (dashes become
+    | underscores). Credentials never go in the JSON files.
     |
     */
 
-    'connectors' => [
-        'slack' => [
-            'client_id' => env('NEXUS_SLACK_CLIENT_ID'),
-            'client_secret' => env('NEXUS_SLACK_CLIENT_SECRET'),
-        ],
-        'github' => [
-            'client_id' => env('NEXUS_GITHUB_CLIENT_ID'),
-            'client_secret' => env('NEXUS_GITHUB_CLIENT_SECRET'),
-        ],
-        'gmail' => [
-            'client_id' => env('NEXUS_GMAIL_CLIENT_ID'),
-            'client_secret' => env('NEXUS_GMAIL_CLIENT_SECRET'),
-        ],
-    ],
+    'connectors' => collect(glob(resource_path('connectors/*.json')) ?: [])
+        ->mapWithKeys(function (string $file): array {
+            $key = basename($file, '.json');
+            $env = 'NEXUS_'.strtoupper(str_replace('-', '_', $key));
+
+            return [$key => [
+                'client_id' => env("{$env}_CLIENT_ID"),
+                'client_secret' => env("{$env}_CLIENT_SECRET"),
+            ]];
+        })
+        ->all(),
 
     'logs' => [
         'retention_days' => (int) env('NEXUS_LOG_RETENTION_DAYS', 30),

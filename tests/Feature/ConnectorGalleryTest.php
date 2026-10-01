@@ -166,10 +166,13 @@ class ConnectorGalleryTest extends TestCase
     {
         $manifest = json_decode((string) ConnectorCatalog::find('slack')->appManifestJson('https://nexus.example/oauth/callback'), true);
 
+        $slack = ConnectorCatalog::find('slack');
+
         $this->assertSame(['https://nexus.example/oauth/callback'], $manifest['oauth_config']['redirect_urls']);
-        $this->assertSame(ConnectorCatalog::SLACK_SCOPES, $manifest['oauth_config']['scopes']['user']);
+        $this->assertCount(30, $slack->scopes);
+        $this->assertSame($slack->scopes, $manifest['oauth_config']['scopes']['user']);
         $this->assertTrue($manifest['settings']['is_mcp_enabled']);
-        $this->assertSame(implode(' ', ConnectorCatalog::SLACK_SCOPES), ConnectorCatalog::find('slack')->scope);
+        $this->assertSame(implode(' ', $slack->scopes), $slack->scope());
     }
 
     public function test_editing_a_connection_keeps_settings_the_form_does_not_show(): void

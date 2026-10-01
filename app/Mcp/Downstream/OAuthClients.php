@@ -18,7 +18,7 @@ class OAuthClients
             new OAuthConfig(
                 clientId: $clientId,
                 clientSecret: $clientSecret,
-                scope: $connection->setting('oauth_scope') ?? $connection->connectorDefinition()?->scope,
+                scope: $connection->setting('oauth_scope') ?? $connection->connectorDefinition()?->scope(),
                 redirectUri: route('oauth.callback'),
             ),
             $connection->setting('oauth_resource') ?? $connection->url,
