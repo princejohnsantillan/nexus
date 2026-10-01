@@ -178,6 +178,7 @@ class ConnectionResource extends Resource
                 TextColumn::make('connector')
                     ->label('Type')
                     ->state(fn (Connection $record): string => $record->connectorDefinition()->name ?? 'Custom')
+                    ->icon(fn (Connection $record): Heroicon|string => $record->connectorDefinition()->icon ?? Heroicon::OutlinedServerStack)
                     ->badge()
                     ->color('gray'),
                 TextColumn::make('url')

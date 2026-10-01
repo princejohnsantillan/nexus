@@ -11,7 +11,8 @@ use Illuminate\Validation\Rule;
  * The connectors users can pick instead of configuring a server by hand.
  *
  * Each is a JSON file in resources/connectors, named after its key
- * (slack.json → "slack"). Each must point at the service's own, official
+ * (slack.json → "slack"), with an optional official logo at
+ * resources/connectors/logos/{key}.svg. Each must point at the service's own, official
  * remote MCP server, and should set its scopes explicitly: without them,
  * Nexus requests every scope a server advertises.
  */
@@ -41,6 +42,14 @@ final class ConnectorCatalog
     public static function directory(): string
     {
         return resource_path('connectors');
+    }
+
+    /**
+     * Where a connector's official logo lives, if it has one.
+     */
+    public static function logoPath(string $key): string
+    {
+        return resource_path("connectors/logos/{$key}.svg");
     }
 
     /**
@@ -98,7 +107,7 @@ final class ConnectorCatalog
             'name' => ['required', 'string', 'max:50'],
             'summary' => ['required', 'string', 'max:300'],
             'url' => ['required', 'url:https'],
-            'icon' => ['required', Rule::enum(Heroicon::class)],
+            'icon' => ['sometimes', Rule::enum(Heroicon::class)],
             'docs_url' => ['required', 'url:https'],
             'registration' => ['required', Rule::enum(ClientRegistration::class)],
             'scopes' => ['sometimes', 'list'],
@@ -125,7 +134,7 @@ final class ConnectorCatalog
             name: $data['name'],
             summary: $data['summary'],
             url: $data['url'],
-            icon: Heroicon::from($data['icon']),
+            icon: file_exists(self::logoPath($key)) ? "connector-{$key}" : Heroicon::tryFrom($data['icon'] ?? '') ?? Heroicon::OutlinedPuzzlePiece,
             docsUrl: $data['docs_url'],
             registration: ClientRegistration::from($data['registration']),
             scopes: $data['scopes'] ?? [],

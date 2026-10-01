@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Connectors\ConnectorCatalog;
 use App\Connectors\InvalidConnectorDefinition;
+use Filament\Support\Icons\Heroicon;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Str;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -43,6 +44,27 @@ class ConnectorDefinitionsTest extends TestCase
         $this->assertSame(['client_id', 'client_secret'], array_keys(config('nexus.connectors.slack')));
     }
 
+    public function test_connectors_with_an_official_logo_use_it(): void
+    {
+        foreach (ConnectorCatalog::all() as $key => $connector) {
+            if (! file_exists(ConnectorCatalog::logoPath($key))) {
+                continue;
+            }
+
+            $this->assertSame("connector-{$key}", $connector->icon);
+            $this->assertStringStartsWith('<svg', svg("connector-{$key}")->toHtml());
+        }
+
+        $this->assertFileExists(ConnectorCatalog::logoPath('slack'));
+    }
+
+    public function test_shipped_logos_contain_nothing_executable_or_external(): void
+    {
+        foreach (glob(ConnectorCatalog::directory().'/logos/*.svg') as $logo) {
+            $this->assertDoesNotMatchRegularExpression('/<script|<style|<foreignObject|<image|\son[a-z]+\s*=|javascript:|href\s*=|@import/i', (string) file_get_contents($logo), basename($logo));
+        }
+    }
+
     public function test_a_minimal_definition_loads_with_defaults(): void
     {
         $this->write('sentry', $this->minimal());
@@ -50,6 +72,7 @@ class ConnectorDefinitionsTest extends TestCase
         $sentry = ConnectorCatalog::load($this->directory)['sentry'];
 
         $this->assertSame('Sentry', $sentry->name);
+        $this->assertSame(Heroicon::OutlinedBugAnt, $sentry->icon, 'Without a logo file, the Heroicon from the definition is used.');
         $this->assertSame([], $sentry->scopes);
         $this->assertNull($sentry->scope());
         $this->assertFalse($sentry->preview);

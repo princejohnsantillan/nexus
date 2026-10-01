@@ -7,6 +7,9 @@ use Filament\Support\Icons\Heroicon;
 /**
  * A ready-made connection to an official MCP server: everything except the
  * user's own sign-in. Defined by a JSON file in resources/connectors.
+ *
+ * Its icon is the service's own logo when resources/connectors/logos has
+ * one ("connector-{key}"), otherwise the Heroicon its file names.
  */
 final class Connector
 {
@@ -19,7 +22,7 @@ final class Connector
         public readonly string $name,
         public readonly string $summary,
         public readonly string $url,
-        public readonly Heroicon $icon,
+        public readonly Heroicon|string $icon,
         public readonly string $docsUrl,
         public readonly ClientRegistration $registration = ClientRegistration::Automatic,
         public readonly array $scopes = [],

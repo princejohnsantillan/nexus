@@ -16,6 +16,7 @@ use Filament\Infolists\Components\TextEntry;
 use Filament\Resources\Pages\Page;
 use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Section;
+use Filament\Schemas\Components\Text;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
@@ -38,11 +39,16 @@ class AddConnection extends Page
 
     public function content(Schema $schema): Schema
     {
+        $names = collect(ConnectorCatalog::all())->pluck('name')->join(', ', ' and ');
+
         return $schema->components([
             Grid::make(['default' => 1, 'md' => 2, 'xl' => 3])->schema([
                 ...collect(ConnectorCatalog::all())->map(fn (Connector $connector): Section => $this->card($connector))->values()->all(),
                 $this->customCard(),
             ]),
+            Text::make("{$names} and their logos are trademarks of their respective owners, shown only to identify each service. Nexus is not affiliated with or endorsed by them.")
+                ->color('gray')
+                ->size('xs'),
         ]);
     }
 

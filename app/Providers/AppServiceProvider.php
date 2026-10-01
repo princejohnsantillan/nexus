@@ -11,6 +11,7 @@ use App\Security\KmsKeyWrapper;
 use App\Security\LocalKeyWrapper;
 use App\Security\OutboundGuard;
 use Aws\Kms\KmsClient;
+use BladeUI\Icons\Factory as IconFactory;
 use Carbon\CarbonInterval;
 use Closure;
 use Illuminate\Cache\RateLimiting\Limit;
@@ -46,6 +47,12 @@ class AppServiceProvider extends ServiceProvider
                 report: false,
             ));
         });
+
+        // Official service logos for connectors: resources/connectors/logos/slack.svg is "connector-slack".
+        $this->callAfterResolving(IconFactory::class, fn (IconFactory $icons) => $icons->add('nexus-connectors', [
+            'path' => resource_path('connectors/logos'),
+            'prefix' => 'connector',
+        ]));
 
         $this->app->singleton(OutboundGuard::class, fn (): OutboundGuard => new OutboundGuard(
             blockPrivateNetworks: (bool) config('nexus.outbound.block_private_networks'),

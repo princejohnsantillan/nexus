@@ -46,6 +46,8 @@ class ConnectorGalleryTest extends TestCase
         }
 
         $response->assertSee('Custom MCP server');
+        $response->assertSee('fill="#e3066a"', escape: false);
+        $response->assertSee('are trademarks of their respective owners');
     }
 
     public function test_every_connector_points_at_an_https_mcp_server(): void
