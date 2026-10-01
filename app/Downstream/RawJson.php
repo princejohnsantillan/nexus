@@ -26,6 +26,44 @@ final class RawJson
      */
     public static function member(string $json, string $key): ?string
     {
+        $found = null;
+
+        foreach (self::members($json) ?? [] as [$name, $start, $end]) {
+            if ($name === $key) {
+                $found = substr($json, $start, $end - $start);
+            }
+        }
+
+        return $found;
+    }
+
+    /**
+     * The JSON object with the value of one member replaced by the given
+     * JSON text, and the rest of the document exactly as it was, or null
+     * when the document isn't an object or has no such member. Duplicates
+     * of the member are all replaced.
+     */
+    public static function withMember(string $json, string $key, string $value): ?string
+    {
+        $replaced = null;
+
+        foreach (array_reverse(self::members($json) ?? []) as [$name, $start, $end]) {
+            if ($name === $key) {
+                $replaced = substr_replace($replaced ?? $json, $value, $start, $end - $start);
+            }
+        }
+
+        return $replaced;
+    }
+
+    /**
+     * The name of each member of a JSON object, with the offsets where its
+     * value starts and ends, or null when the document isn't an object.
+     *
+     * @return list<array{mixed, int, int}>|null
+     */
+    private static function members(string $json): ?array
+    {
         $offset = self::skipWhitespace($json, 0);
 
         if (($json[$offset] ?? '') !== '{') {
@@ -35,10 +73,10 @@ final class RawJson
         $offset = self::skipWhitespace($json, $offset + 1);
 
         if (($json[$offset] ?? '') === '}') {
-            return null;
+            return [];
         }
 
-        $found = null;
+        $members = [];
 
         while (true) {
             $keyEnd = ($json[$offset] ?? '') === '"' ? self::skipString($json, $offset) : null;
@@ -61,14 +99,11 @@ final class RawJson
                 return null;
             }
 
-            if ($name === $key) {
-                $found = substr($json, $valueStart, $valueEnd - $valueStart);
-            }
-
+            $members[] = [$name, $valueStart, $valueEnd];
             $offset = self::skipWhitespace($json, $valueEnd);
 
             if (($json[$offset] ?? '') === '}') {
-                return $found;
+                return $members;
             }
 
             if (($json[$offset] ?? '') !== ',') {

@@ -51,6 +51,7 @@ return [
 
     'limits' => [
         'connections_per_user' => (int) env('NEXUS_CONNECTIONS_PER_USER', 25),
+        'stars_per_user' => (int) env('NEXUS_STARS_PER_USER', 10),
     ],
 
     /*

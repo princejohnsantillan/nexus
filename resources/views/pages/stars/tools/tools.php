@@ -1,0 +1,160 @@
+<?php
+
+declare(strict_types=1);
+
+use App\Actions\SwitchStarTools;
+use App\Enums\NewToolPolicy;
+use App\Models\Connection;
+use App\Models\ConnectionTool;
+use App\Models\Star;
+use App\Stars\StarTool;
+use App\Stars\StarToolset;
+use Flux\Flux;
+use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
+use Livewire\Attributes\Computed;
+use Livewire\Attributes\Title;
+use Livewire\Component;
+
+return new #[Title('Star tools')] class extends Component
+{
+    public Star $star;
+
+    /**
+     * Shows only the tools whose exposed name or title contains it.
+     */
+    public string $search = '';
+
+    public string $policy = '';
+
+    public function mount(): void
+    {
+        $this->policy = $this->star->new_tool_policy->value;
+    }
+
+    /**
+     * Each of the Star's Connections, by name, with the tools the filter
+     * shows and how many of all its tools are on.
+     *
+     * @return list<array{connection: Connection, tools: list<StarTool>, enabled: int, total: int}>
+     */
+    #[Computed]
+    public function groups(): array
+    {
+        $tools = [];
+
+        foreach (resolve(StarToolset::class)->tools($this->star) as $tool) {
+            $tools[$tool->connection->id][] = $tool;
+        }
+
+        $connections = $this->star->connections()->orderBy('name')->orderBy('connections.id')->get();
+
+        return array_values($connections->map(fn (Connection $connection): array => [
+            'connection' => $connection,
+            'tools' => array_values(array_filter($tools[$connection->id] ?? [], $this->isShown(...))),
+            'enabled' => count(array_filter($tools[$connection->id] ?? [], fn (StarTool $tool): bool => $tool->enabled)),
+            'total' => count($tools[$connection->id] ?? []),
+        ])->all());
+    }
+
+    public function updatedPolicy(): void
+    {
+        $this->validate(['policy' => ['required', Rule::enum(NewToolPolicy::class)]]);
+
+        $policy = NewToolPolicy::from($this->policy);
+
+        $this->star->update(['new_tool_policy' => $policy]);
+
+        $this->forgetTools();
+
+        Flux::toast(variant: 'success', text: __('New-tool policy: :policy.', ['policy' => $policy->label()]));
+    }
+
+    /**
+     * Switch one tool on or off as the user's own choice.
+     */
+    public function switchTool(int $toolId, bool $enabled, SwitchStarTools $switchStarTools): void
+    {
+        $tool = $this->findTool($toolId);
+
+        $switchStarTools->handle($this->star, $tool->connection, $enabled, [$tool->name]);
+
+        $this->forgetTools();
+    }
+
+    /**
+     * Let one tool follow the new-tool policy again.
+     */
+    public function resetTool(int $toolId, SwitchStarTools $switchStarTools): void
+    {
+        $tool = $this->findTool($toolId);
+
+        $switchStarTools->handle($this->star, $tool->connection, null, [$tool->name]);
+
+        $this->forgetTools();
+    }
+
+    /**
+     * Switch every tool the filter shows for one Connection on (`on`) or off
+     * (`off`), or let them follow the policy again (`reset`). Without a
+     * filter that is all of its tools.
+     */
+    public function switchConnection(int $connectionId, string $choice, SwitchStarTools $switchStarTools): void
+    {
+        $enabled = match ($choice) {
+            'on' => true,
+            'off' => false,
+            'reset' => null,
+            default => abort(404),
+        };
+
+        $connection = $this->star->connections()->findOrFail($connectionId);
+
+        $group = collect($this->groups)->firstWhere('connection.id', $connection->id);
+        $filtered = trim($this->search) !== '';
+
+        $toolNames = $filtered ? array_map(fn (StarTool $tool): string => $tool->tool->name, $group['tools'] ?? []) : null;
+        $count = $toolNames === null ? $group['total'] ?? 0 : count($toolNames);
+
+        $switchStarTools->handle($this->star, $connection, $enabled, $toolNames);
+
+        $this->forgetTools();
+
+        $replace = ['connection' => $connection->name];
+
+        Flux::toast(variant: 'success', text: match ($enabled) {
+            true => trans_choice('Switched on :count :connection tool.|Switched on :count :connection tools.', $count, $replace),
+            false => trans_choice('Switched off :count :connection tool.|Switched off :count :connection tools.', $count, $replace),
+            null => trans_choice(':count :connection tool follows the policy again.|:count :connection tools follow the policy again.', $count, $replace),
+        });
+    }
+
+    /**
+     * One of the Star's tools, by its catalog id.
+     */
+    private function findTool(int $toolId): ConnectionTool
+    {
+        return ConnectionTool::query()
+            ->whereKey($toolId)
+            ->whereIn('connection_id', $this->star->connections()->pluck('connections.id'))
+            ->with('connection')
+            ->firstOrFail();
+    }
+
+    /**
+     * Whether the filter shows the tool: its exposed name or title contains the search.
+     */
+    private function isShown(StarTool $tool): bool
+    {
+        $search = trim($this->search);
+
+        return $search === ''
+            || Str::contains($tool->name, $search, ignoreCase: true)
+            || ($tool->tool->title !== null && Str::contains($tool->tool->title, $search, ignoreCase: true));
+    }
+
+    private function forgetTools(): void
+    {
+        unset($this->groups);
+    }
+};

@@ -118,6 +118,16 @@
             <div>
                 <flux:heading size="lg">{{ __('Delete :name?', ['name' => $connection->name]) }}</flux:heading>
                 <flux:text class="mt-2">{{ __('Its stored credentials and its tools are removed, and agents can no longer use them. This can\'t be undone.') }}</flux:text>
+
+                @if ($this->stars->isNotEmpty())
+                    <flux:text class="mt-4">{{ trans_choice('It is removed from this Star:|It is removed from these Stars:', $this->stars->count()) }}</flux:text>
+
+                    <ul class="mt-2 list-disc space-y-1 ps-5">
+                        @foreach ($this->stars as $star)
+                            <li wire:key="delete-star-{{ $star->id }}"><flux:text variant="strong">{{ $star->name }}</flux:text></li>
+                        @endforeach
+                    </ul>
+                @endif
             </div>
 
             <div class="flex justify-end gap-2">

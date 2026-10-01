@@ -49,6 +49,8 @@ use Illuminate\Support\Str;
  *
  * @property-read Collection<int, Connection> $connections
  * @property-read int|null $connections_count
+ * @property-read Collection<int, Star> $stars
+ * @property-read int|null $stars_count
  *
  * @mixin \Eloquent
  */
@@ -85,6 +87,22 @@ class User extends Authenticatable
     public function hasReachedConnectionLimit(): bool
     {
         return $this->connections()->count() >= config()->integer('nexus.limits.connections_per_user');
+    }
+
+    /**
+     * @return HasMany<Star, $this>
+     */
+    public function stars(): HasMany
+    {
+        return $this->hasMany(Star::class);
+    }
+
+    /**
+     * Whether the user has as many Stars as `nexus.limits.stars_per_user` allows.
+     */
+    public function hasReachedStarLimit(): bool
+    {
+        return $this->stars()->count() >= config()->integer('nexus.limits.stars_per_user');
     }
 
     /**
