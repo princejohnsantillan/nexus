@@ -96,7 +96,7 @@ it('reads each shipped connector\'s deployment OAuth app from its own environmen
     $catalog = new ConnectorCatalog(resource_path('connectors'));
 
     expect(array_keys(config()->array('nexus.connectors')))->toEqualCanonicalizing(array_keys($catalog->all()))
-        ->and(config()->array('nexus.connectors.github'))->toBe(['client_id' => null, 'client_secret' => null])
+        ->and(array_keys(config()->array('nexus.connectors.github')))->toBe(['client_id', 'client_secret'])
         ->and($catalog->find('github')->environmentVariable('CLIENT_ID'))->toBe('NEXUS_GITHUB_CLIENT_ID')
         ->and(File::get(base_path('.env.example')))->toContain("NEXUS_GITHUB_CLIENT_ID=\nNEXUS_GITHUB_CLIENT_SECRET=");
 });
@@ -109,6 +109,8 @@ it('names environment variables after the key, with underscores for dashes', fun
 
 it('uses the deployment\'s OAuth app when one is configured, so users need none of their own', function (): void {
     $github = app(ConnectorCatalog::class)->find('github');
+
+    config(['nexus.connectors.github' => ['client_id' => '', 'client_secret' => '']]);
 
     expect($github->deploymentApp())->toBeNull()
         ->and($github->needsUserApp())->toBeTrue();
