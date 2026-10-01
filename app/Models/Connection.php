@@ -194,6 +194,86 @@ class Connection extends Model
     }
 
     /**
+     * Which service the Connection is an account of: its connector, or for a
+     * custom server the host of its URL.
+     */
+    public function serviceKey(): string
+    {
+        if ($this->connector_key !== null) {
+            return 'connector:'.$this->connector_key;
+        }
+
+        $host = parse_url($this->url, PHP_URL_HOST);
+
+        return 'host:'.(is_string($host) ? strtolower($host) : '');
+    }
+
+    /**
+     * How agents tell this account apart from others of its service: its
+     * name, the account it signed in as, and what the user said to use it
+     * for, when known, e.g. "GitHub · octocat — use for: work".
+     *
+     * @param  int|null  $noteLength  The longest the "use for" note may be, cut with "…"; 0 leaves it out, null keeps it whole.
+     */
+    public function accountLabel(?int $noteLength = null): string
+    {
+        $label = $this->name;
+
+        if (filled($this->account_identity)) {
+            $label .= ' · '.$this->account_identity;
+        }
+
+        $note = $this->description ?? '';
+
+        if ($noteLength !== null && mb_strlen($note) > $noteLength) {
+            $note = $noteLength === 0 ? '' : mb_substr($note, 0, $noteLength - 1).'…';
+        }
+
+        if (filled($note)) {
+            $label .= ' — '.__('use for: :note', ['note' => $note]);
+        }
+
+        return $label;
+    }
+
+    /**
+     * The ids of the Connections among these that share their service with
+     * another of them: siblings, which a Star labels with their accounts so
+     * agents can tell their tools apart.
+     *
+     * @param  iterable<Connection>  $connections
+     * @return list<int>
+     */
+    public static function idsWithSiblings(iterable $connections): array
+    {
+        $idsByService = [];
+
+        foreach ($connections as $connection) {
+            $idsByService[$connection->serviceKey()][] = $connection->id;
+        }
+
+        return array_merge(...array_values(array_filter($idsByService, fn (array $ids): bool => count($ids) > 1)));
+    }
+
+    /**
+     * The user's other Connections of the same service, by name: the other
+     * accounts, which refreshing this one leaves alone.
+     *
+     * @return Collection<int, Connection>
+     */
+    public function sameServiceConnections(): Collection
+    {
+        return Connection::query()
+            ->where('user_id', $this->user_id)
+            ->whereKeyNot($this->id)
+            ->orderBy('name')
+            ->orderBy('id')
+            ->get()
+            ->filter(fn (Connection $other): bool => $other->serviceKey() === $this->serviceKey())
+            ->values();
+    }
+
+    /**
      * Whether Nexus signs in with a token the user pasted for its connector.
      */
     public function usesConnectorToken(): bool

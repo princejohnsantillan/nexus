@@ -22,6 +22,16 @@
                 <flux:button icon="arrow-path" wire:click="refreshTools">{{ __('Refresh tools') }}</flux:button>
             </div>
 
+            @if ($this->sameServiceConnections->isNotEmpty())
+                <flux:text size="sm" class="mt-2">
+                    {{ trans_choice(
+                        'Refresh tools reloads only this account. :names is another account of the same service, with its own Refresh tools.|Refresh tools reloads only this account. :names are other accounts of the same service, each with its own Refresh tools.',
+                        $this->sameServiceConnections->count(),
+                        ['names' => $this->sameServiceNames],
+                    ) }}
+                </flux:text>
+            @endif
+
             <dl class="mt-4 divide-y divide-zinc-200 border-y border-zinc-200 dark:divide-zinc-700 dark:border-zinc-700">
                 <div class="grid gap-1 py-3 sm:grid-cols-3 sm:gap-4">
                     <dt><flux:text>{{ __('Status') }}</flux:text></dt>
@@ -51,6 +61,17 @@
                                 · {{ __('client ID') }} <span class="font-mono">{{ $connection->oauthClientId() }}</span>
                             @endif
                         </flux:text>
+                    </dd>
+                </div>
+
+                <div class="grid gap-1 py-3 sm:grid-cols-3 sm:gap-4">
+                    <dt><flux:text>{{ __('Account') }}</flux:text></dt>
+                    <dd class="min-w-0 sm:col-span-2">
+                        @if (filled($connection->account_identity))
+                            <flux:text variant="strong" class="break-all">{{ $connection->account_identity }}</flux:text>
+                        @else
+                            <flux:text>{{ __('Not detected. Nexus names the account when the server says which one it is.') }}</flux:text>
+                        @endif
                     </dd>
                 </div>
 

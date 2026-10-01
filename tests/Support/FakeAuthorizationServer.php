@@ -37,7 +37,9 @@ use InvalidArgumentException;
  * - namingItselfOnReturn(): it adds `iss` when sending the user back and
  *   says so in its metadata.
  * - issuingTokensFor(): how long access tokens last (null: forever);
- *   keepingRefreshTokens() stops rotating them; withoutRefreshTokens().
+ *   keepingRefreshTokens() stops rotating them; withoutRefreshTokens();
+ *   withTokenFields() adds fields to every token response, such as the
+ *   `workspace_name` Notion names the account with.
  * - respondTo('token' | 'register', $responder): replace an endpoint's answer.
  * - beforeAnswering('token' | 'register', $callback): run something while that
  *   request is in flight, to play out a race.
@@ -71,6 +73,11 @@ final class FakeAuthorizationServer
     private bool $rotatesRefreshTokens = true;
 
     private bool $issuesRefreshTokens = true;
+
+    /**
+     * @var array<string, mixed>
+     */
+    private array $tokenFields = [];
 
     /**
      * Known clients: their secrets, null for public clients.
@@ -230,6 +237,16 @@ final class FakeAuthorizationServer
     public function withoutRefreshTokens(): self
     {
         $this->issuesRefreshTokens = false;
+
+        return $this;
+    }
+
+    /**
+     * @param  array<string, mixed>  $fields
+     */
+    public function withTokenFields(array $fields): self
+    {
+        $this->tokenFields = [...$this->tokenFields, ...$fields];
 
         return $this;
     }
@@ -472,7 +489,7 @@ final class FakeAuthorizationServer
         $accessToken = "access-token-{$number}";
         $this->accessTokens[$accessToken] = $this->tokenLifetime === null ? null : now()->getTimestamp() + $this->tokenLifetime;
 
-        $response = ['access_token' => $accessToken, 'token_type' => 'Bearer'];
+        $response = ['access_token' => $accessToken, 'token_type' => 'Bearer', ...$this->tokenFields];
 
         if ($this->tokenLifetime !== null) {
             $response['expires_in'] = $this->tokenLifetime;

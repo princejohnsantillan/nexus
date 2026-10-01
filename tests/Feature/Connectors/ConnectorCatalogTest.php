@@ -145,7 +145,9 @@ it('ships GitHub with a token method and its pre-registered OAuth app\'s scopes'
         ->and($github->token?->instructions)->toContain('fine-grained')
         ->and($github->token?->headerName)->toBe('Authorization')
         ->and($github->token?->valuePrefix)->toBe('Bearer ')
-        ->and($github->selectAccount)->toBeTrue();
+        ->and($github->selectAccount)->toBeTrue()
+        ->and($github->profileTool?->name)->toBe('get_me')
+        ->and($github->profileTool?->field)->toBe('login');
 });
 
 it('ships Notion and Linear with automatic client registration and no token method', function (string $key, string $url): void {
@@ -217,7 +219,17 @@ it('loads a minimal definition with defaults', function (): void {
         ->and($sentry->requiresDeploymentApp)->toBeFalse()
         ->and($sentry->app)->toBeNull()
         ->and($sentry->token)->toBeNull()
+        ->and($sentry->profileTool)->toBeNull()
         ->and($sentry->logoSvg)->toBe(TEST_CONNECTOR_LOGO);
+});
+
+it('reads the profile tool that names the account, and where its result names it', function (): void {
+    writeConnector($this->directory, 'sentry', [...minimalDefinition(), 'profile_tool' => ['name' => 'whoami', 'field' => 'user.email']]);
+
+    $profileTool = new ConnectorCatalog($this->directory)->find('sentry')->profileTool;
+
+    expect($profileTool?->name)->toBe('whoami')
+        ->and($profileTool?->field)->toBe('user.email');
 });
 
 it('reads a token method\'s header name and value prefix', function (): void {
@@ -255,6 +267,10 @@ it('refuses an invalid definition, naming the file and the problem', function (s
     'select_account as a string' => ['selectstring', [...minimalDefinition(), 'select_account' => 'yes'], 'The select account field must be true or false.'],
     'a token without instructions' => ['tokennoinstr', [...minimalDefinition(), 'token' => ['console_url' => 'https://example.com/tokens']], 'The token.instructions field is required when token is present.'],
     'a token header with a space' => ['tokenheader', [...minimalDefinition(), 'token' => ['console_url' => 'https://example.com/tokens', 'instructions' => 'Make one.', 'header_name' => 'X Api Key']], 'Enter a header name such as Authorization or X-API-Key'],
+    'a profile tool without a field' => ['profilefield', [...minimalDefinition(), 'profile_tool' => ['name' => 'whoami']], 'The profile tool.field field is required when profile tool is present.'],
+    'a profile tool name MCP doesn\'t allow' => ['profilename', [...minimalDefinition(), 'profile_tool' => ['name' => 'who am i', 'field' => 'login']], 'The profile tool.name field format is invalid.'],
+    'a profile tool field that isn\'t a path' => ['profilepath', [...minimalDefinition(), 'profile_tool' => ['name' => 'whoami', 'field' => 'user..login']], 'The profile tool.field field format is invalid.'],
+    'an unknown profile tool field' => ['profileextra', [...minimalDefinition(), 'profile_tool' => ['name' => 'whoami', 'field' => 'login', 'arguments' => []]], 'The profile tool field must be an array.'],
     'a file name that isn\'t a handle' => ['Bad_Name', minimalDefinition(), 'the file name is the connector\'s key'],
     'a file name too long for a handle' => [str_repeat('a', 21), minimalDefinition(), 'the file name is the connector\'s key'],
 ]);

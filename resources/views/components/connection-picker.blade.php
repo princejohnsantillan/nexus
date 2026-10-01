@@ -22,9 +22,7 @@
                     <flux:text size="sm" class="mt-0.5 truncate">
                         <span class="font-mono">{{ $connection->handle }}</span>
                         · {{ trans_choice(':count tool|:count tools', $connection->tools_count ?? 0) }}
-                        @if (filled($connection->description))
-                            · {{ __('Use for: :description', ['description' => $connection->description]) }}
-                        @endif
+                        <x-account-label :connection="$connection" separated />
                     </flux:text>
                 </div>
             </div>

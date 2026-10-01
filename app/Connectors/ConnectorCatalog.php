@@ -40,7 +40,7 @@ final class ConnectorCatalog
      */
     private const array FIELDS = [
         'name', 'summary', 'url', 'docs_url', 'registration', 'scopes',
-        'preview', 'requires_deployment_app', 'app', 'token', 'select_account',
+        'preview', 'requires_deployment_app', 'app', 'token', 'select_account', 'profile_tool',
     ];
 
     /**
@@ -138,6 +138,9 @@ final class ConnectorCatalog
             'token.instructions' => ['required_with:token', 'string', 'max:1000'],
             'token.header_name' => ['sometimes', 'string', new HeaderName],
             'token.value_prefix' => ['sometimes', 'string', 'max:50', 'not_regex:/[\x00-\x1F\x7F]/'],
+            'profile_tool' => ['sometimes', 'array:name,field'],
+            'profile_tool.name' => ['required_with:profile_tool', 'string', 'regex:/^[A-Za-z0-9_.-]{1,128}$/'],
+            'profile_tool.field' => ['required_with:profile_tool', 'string', 'max:100', 'regex:/^[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)*$/'],
         ]);
 
         if ($validator->fails()) {
@@ -167,6 +170,10 @@ final class ConnectorCatalog
                 valuePrefix: Arr::string($data, 'token.value_prefix', 'Bearer '),
             ) : null,
             selectAccount: Arr::boolean($data, 'select_account', false),
+            profileTool: isset($data['profile_tool']) ? new ConnectorProfileTool(
+                name: Arr::string($data, 'profile_tool.name'),
+                field: Arr::string($data, 'profile_tool.field'),
+            ) : null,
         );
     }
 

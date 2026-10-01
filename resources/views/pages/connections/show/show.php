@@ -14,6 +14,7 @@ use App\Rules\HeaderName;
 use App\Rules\McpServerUrl;
 use Flux\Flux;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Arr;
 use Illuminate\Validation\Rule;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Title;
@@ -87,6 +88,30 @@ return new #[Title('Connection')] class extends Component
     public function stars(): Collection
     {
         return $this->connection->stars()->orderBy('name')->orderBy('stars.id')->get();
+    }
+
+    /**
+     * The user's other Connections of the same service: the other accounts,
+     * whose tools refreshing this one leaves alone.
+     *
+     * @return Collection<int, Connection>
+     */
+    #[Computed]
+    public function sameServiceConnections(): Collection
+    {
+        return $this->connection->sameServiceConnections();
+    }
+
+    /**
+     * The names of the user's other Connections of the same service, as one
+     * phrase: "GitHub 2 and GitHub 3".
+     */
+    #[Computed]
+    public function sameServiceNames(): string
+    {
+        $names = array_map(fn (Connection $connection): string => $connection->name, $this->sameServiceConnections->all());
+
+        return Arr::join($names, ', ', __(' and '));
     }
 
     /**
@@ -240,7 +265,7 @@ return new #[Title('Connection')] class extends Component
         $loaded = $refreshCatalog->handle($this->connection);
 
         unset($this->needsOAuthSignIn);
-        $this->toastRefresh($loaded);
+        $this->toastRefresh($loaded, onlyThisAccount: true);
     }
 
     public function delete(): void
@@ -267,9 +292,11 @@ return new #[Title('Connection')] class extends Component
     }
 
     /**
-     * Say how the catalog refresh that just ran went.
+     * Say how the catalog refresh that just ran went, after what led to it.
+     * With `onlyThisAccount`, also say it left the user's other accounts of
+     * the same service alone, if they have any.
      */
-    private function toastRefresh(bool $loaded, ?string $prefix = null): void
+    private function toastRefresh(bool $loaded, ?string $prefix = null, bool $onlyThisAccount = false): void
     {
         unset($this->toolCount);
 
@@ -279,6 +306,10 @@ return new #[Title('Connection')] class extends Component
             default => __('Nexus couldn\'t load the tools.'),
         };
 
-        Flux::toast(variant: $loaded ? 'success' : 'danger', text: trim($prefix.' '.$result));
+        $note = $onlyThisAccount && $this->sameServiceConnections->isNotEmpty()
+            ? __('Only this account was refreshed, not :names.', ['names' => $this->sameServiceNames])
+            : '';
+
+        Flux::toast(variant: $loaded ? 'success' : 'danger', text: trim($prefix.' '.$result.' '.$note));
     }
 };

@@ -58,6 +58,17 @@ function resultText(TestResponse $response): string
     return $response->json('result.content.0.text');
 }
 
+/**
+ * A client with a token for a new Star of the user's that includes these
+ * Connections, with every tool on.
+ */
+function clientForStarIncluding(User $user, Connection ...$connections): StarClient
+{
+    $star = Star::factory()->for($user)->withPolicy(NewToolPolicy::All)->including(...$connections)->create();
+
+    return StarClient::for($star)->withToken(resolve(CreateStarToken::class)->handle($star, 'Laptop')->plainTextToken);
+}
+
 describe('connecting', function (): void {
     it('answers a 2026-07-28 client\'s server/discover as the Star', function (): void {
         $this->client->connect()
@@ -116,6 +127,47 @@ describe('tools/list', function (): void {
         $this->star->update(['new_tool_policy' => NewToolPolicy::All]);
 
         $this->client->listTools()->assertJsonPath('result.tools', []);
+    });
+});
+
+describe('accounts of the same service', function (): void {
+    it('starts each tool\'s description with its account when the Star has two GitHub accounts, so agents can tell them apart', function (): void {
+        $work = Connection::factory()->for($this->user)->fromConnector('github')->connected()->create(['name' => 'GitHub', 'handle' => 'github', 'account_identity' => 'octocat', 'description' => 'work repositories']);
+        $personal = Connection::factory()->for($this->user)->fromConnector('github')->connected()->create(['name' => 'GitHub 2', 'handle' => 'github-2', 'account_identity' => 'hubot']);
+
+        foreach ([$work, $personal] as $connection) {
+            catalogTool($connection, '{"name":"get_me","description":"Get details of the authenticated GitHub user.","inputSchema":{"type":"object","properties":{}},"annotations":{"readOnlyHint":true},"_meta":{"x":{}}}');
+        }
+
+        $response = clientForStarIncluding($this->user, $work, $personal)->listTools()->assertOk();
+
+        expect(rawResult($response))->toStartWith('{"tools":['
+            .'{"name":"github__get_me","description":"From GitHub · octocat — use for: work repositories\n\nGet details of the authenticated GitHub user.","inputSchema":{"type":"object","properties":{}},"annotations":{"readOnlyHint":true},"_meta":{"x":{}}},'
+            .'{"name":"github-2__get_me","description":"From GitHub 2 · hubot\n\nGet details of the authenticated GitHub user.","inputSchema":{"type":"object","properties":{}},"annotations":{"readOnlyHint":true},"_meta":{"x":{}}}'
+            .']');
+    });
+
+    it('labels the accounts of a custom server by its host, leaving a lone Connection\'s descriptions as its server sent them', function (): void {
+        $openSource = Connection::factory()->for($this->user)->connected()->create(['name' => 'DeepWiki', 'handle' => 'deepwiki', 'url' => 'https://mcp.deepwiki.com/mcp', 'description' => 'open source questions']);
+        $mirror = Connection::factory()->for($this->user)->connected()->create(['name' => 'DeepWiki 2', 'handle' => 'deepwiki-2', 'url' => 'https://mcp.deepwiki.com/sse']);
+        $github = Connection::factory()->for($this->user)->fromConnector('github')->connected()->create(['name' => 'GitHub', 'handle' => 'github', 'account_identity' => 'octocat']);
+        catalogTool($openSource, '{"name":"ask_question","inputSchema":{"type":"object"}}');
+        catalogTool($mirror, '{"name":"ask_question","description":"","inputSchema":{"type":"object"}}');
+        catalogTool($github, '{"name":"get_me","description":"Get details of the authenticated GitHub user.","inputSchema":{"type":"object"}}');
+
+        clientForStarIncluding($this->user, $openSource, $mirror, $github)->listTools()
+            ->assertJsonPath('result.tools.*.name', ['deepwiki__ask_question', 'deepwiki-2__ask_question', 'github__get_me'])
+            ->assertJsonPath('result.tools.*.description', ['From DeepWiki — use for: open source questions', 'From DeepWiki 2', 'Get details of the authenticated GitHub user.']);
+    });
+
+    it('gives a Star\'s only GitHub account no label, whatever the user\'s other Stars include', function (): void {
+        $work = Connection::factory()->for($this->user)->fromConnector('github')->connected()->create(['handle' => 'github', 'account_identity' => 'octocat', 'description' => 'work']);
+        $personal = Connection::factory()->for($this->user)->fromConnector('github')->connected()->create(['handle' => 'github-2', 'account_identity' => 'hubot']);
+        catalogTool($work, '{"name":"get_me","description":"Get details of the authenticated GitHub user.","inputSchema":{"type":"object"}}');
+        Star::factory()->for($this->user)->including($work, $personal)->create();
+
+        clientForStarIncluding($this->user, $work)->listTools()
+            ->assertJsonPath('result.tools.*.description', ['Get details of the authenticated GitHub user.']);
     });
 });
 

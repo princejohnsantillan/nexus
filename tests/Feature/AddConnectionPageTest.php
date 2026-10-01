@@ -198,6 +198,25 @@ it('connects GitHub with a token, stored encrypted and sent as a bearer token, a
     $this->get(route('connections.show', $connection))->assertOk()->assertSeeText('Connected. Nexus loaded 2 tools.');
 });
 
+it('labels a GitHub Connection made with a token with the login GitHub names', function (): void {
+    FakeMcpServer::at(GITHUB_MCP_URL)
+        ->requireHeader('Authorization', 'Bearer github_pat_good')
+        ->withTools([['name' => 'get_me', 'annotations' => ['readOnlyHint' => true]]])
+        ->onCall('get_me', fn (): array => ['content' => [['type' => 'text', 'text' => '{"login":"octocat","id":583231}']]]);
+
+    Livewire::test('pages::connections.add')
+        ->call('startConnecting', 'github')
+        ->set('token', 'github_pat_good')
+        ->call('connect')
+        ->assertHasNoErrors();
+
+    $connection = $this->user->connections()->sole();
+
+    expect($connection->account_identity)->toBe('octocat');
+
+    $this->get(route('connections.index'))->assertOk()->assertSeeTextInOrder(['GitHub', 'octocat', 'github']);
+});
+
 it('doesn\'t send the prefix twice when the token is pasted with it', function (): void {
     FakeMcpServer::at(GITHUB_MCP_URL)->requireHeader('Authorization', 'Bearer github_pat_good')->withTools([['name' => 'get_me']]);
 

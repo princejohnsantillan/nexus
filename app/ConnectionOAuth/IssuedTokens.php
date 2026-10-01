@@ -17,19 +17,22 @@ final readonly class IssuedTokens
     /**
      * @param  string|null  $refreshToken  Null when the server issued none, or (on renewal) kept the one Nexus has.
      * @param  int|null  $expiresAt  When the access token expires, as a Unix timestamp; null when the server didn't say.
+     * @param  string|null  $accountIdentity  The account the response says was signed in to (see DetectAccountIdentity), or null when it doesn't say.
      */
     public function __construct(
         #[SensitiveParameter] public string $accessToken,
         #[SensitiveParameter] public ?string $refreshToken,
         public ?int $expiresAt,
+        public ?string $accountIdentity = null,
     ) {}
 
     /**
      * The tokens in a token response, or null when it holds no access token.
      *
      * @param  array<string, mixed>  $response
+     * @param  string|null  $accountIdentity  The account the response names.
      */
-    public static function fromResponse(#[SensitiveParameter] array $response): ?self
+    public static function fromResponse(#[SensitiveParameter] array $response, ?string $accountIdentity = null): ?self
     {
         $accessToken = $response['access_token'] ?? null;
         $refreshToken = $response['refresh_token'] ?? null;
@@ -43,6 +46,7 @@ final readonly class IssuedTokens
             accessToken: $accessToken,
             refreshToken: is_string($refreshToken) && $refreshToken !== '' ? $refreshToken : null,
             expiresAt: is_int($expiresIn) || (is_string($expiresIn) && ctype_digit($expiresIn)) ? now()->getTimestamp() + (int) $expiresIn : null,
+            accountIdentity: $accountIdentity,
         );
     }
 }

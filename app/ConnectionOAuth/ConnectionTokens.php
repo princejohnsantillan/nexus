@@ -106,7 +106,9 @@ final readonly class ConnectionTokens
      * renew them, holding the Connection's SignInLock, so a renewal of the
      * previous sign-in that is still running can't overwrite them. The
      * Connection is re-read first, and the sign-in must still apply to it
-     * (the same server and client); it is then pending until its tools load.
+     * (the same server and client); it is then pending until its tools load,
+     * and labelled with the account the token response named, if any, since
+     * the user may have signed in to another account.
      *
      * @param  Closure(): bool  $stillApplies  Whether the sign-in still applies to the Connection as re-read.
      * @param  array<string, string>  $signIn  The settings describing the sign-in (see Connection::OAUTH_SIGN_IN_SETTINGS).
@@ -129,7 +131,11 @@ final readonly class ConnectionTokens
                     'refresh_token' => $tokens->refreshToken,
                     'expires_at' => $tokens->expiresAt,
                 ]);
-                $connection->forceFill(['status' => ConnectionStatus::Pending, 'last_error' => null])->save();
+                $connection->forceFill([
+                    'status' => ConnectionStatus::Pending,
+                    'last_error' => null,
+                    'account_identity' => $tokens->accountIdentity,
+                ])->save();
 
                 return true;
             });
@@ -162,7 +168,8 @@ final readonly class ConnectionTokens
     }
 
     /**
-     * Renew the access token with the refresh token, and store the result.
+     * Renew the access token with the refresh token, and store the result,
+     * with the account the server named, if it named one.
      *
      * @throws DownstreamRequestFailed
      */
@@ -194,6 +201,7 @@ final readonly class ConnectionTokens
                 'refresh_token' => $tokens->refreshToken ?? $refreshToken,
                 'expires_at' => $tokens->expiresAt,
             ]);
+            $connection->account_identity = $tokens->accountIdentity ?? $connection->account_identity;
             $connection->save();
         });
 

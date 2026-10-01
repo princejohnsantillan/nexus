@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\ConnectionOAuth;
 
+use App\Actions\DetectAccountIdentity;
 use App\Exceptions\ConnectionSignInFailed;
 use App\Exceptions\DownstreamRequestFailed;
 use Illuminate\Http\Client\Response;
@@ -13,7 +14,8 @@ use SensitiveParameter;
  * Token requests to an authorization server: exchanging a sign-in's
  * authorization code, and renewing an access token with a refresh token.
  * Both name the resource (RFC 8707) and authenticate the client the way it
- * was set up to. Neither ever repeats text from the server.
+ * was set up to, and keep any account the response names (such as Notion's
+ * workspace) with the tokens. Neither ever repeats text from the server.
  */
 final readonly class TokenEndpoint
 {
@@ -25,7 +27,10 @@ final readonly class TokenEndpoint
      */
     private const array PASSING_ERRORS = ['server_error', 'temporarily_unavailable'];
 
-    public function __construct(private OAuthRequests $requests) {}
+    public function __construct(
+        private OAuthRequests $requests,
+        private DetectAccountIdentity $detectAccountIdentity,
+    ) {}
 
     /**
      * Exchange the authorization code a sign-in returned with, proving it
@@ -55,7 +60,7 @@ final readonly class TokenEndpoint
             throw ConnectionSignInFailed::codeRefused($response->status(), $answer['error'] ?? null);
         }
 
-        return IssuedTokens::fromResponse($answer)
+        return IssuedTokens::fromResponse($answer, $this->detectAccountIdentity->fromTokenResponse($answer))
             ?? throw ConnectionSignInFailed::because(__('The server finished the sign-in without giving Nexus an access token.'));
     }
 
@@ -89,7 +94,7 @@ final readonly class TokenEndpoint
             throw DownstreamRequestFailed::renewalFailed();
         }
 
-        return IssuedTokens::fromResponse($answer) ?? throw DownstreamRequestFailed::renewalFailed();
+        return IssuedTokens::fromResponse($answer, $this->detectAccountIdentity->fromTokenResponse($answer)) ?? throw DownstreamRequestFailed::renewalFailed();
     }
 
     /**

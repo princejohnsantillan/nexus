@@ -184,3 +184,33 @@ it('exposes the definition exactly as the server sent it, with the exposed name'
     expect($this->toolset->enabledTool($star, 'wiki__search')?->definition())
         ->toBe('{"name":"wiki__search","description":"Find things.","inputSchema":{"type":"object","properties":{},"maximum":18446744073709551615,"other":1e400},"annotations":{"readOnlyHint":true,"name":"not this one"}}');
 });
+
+it('labels the tools of Connections of the same service, and only those', function (array $first, array $second, bool $siblings): void {
+    $one = Connection::factory()->for($this->user)->create(['name' => 'One', 'handle' => 'one', ...$first]);
+    $two = Connection::factory()->for($this->user)->create(['name' => 'Two', 'handle' => 'two', ...$second]);
+    ConnectionTool::factory()->for($one)->create(['name' => 'search']);
+    ConnectionTool::factory()->for($two)->create(['name' => 'search']);
+    $star = Star::factory()->for($this->user)->including($one, $two)->create();
+
+    expect(array_map(fn (StarTool $tool): bool => str_starts_with($tool->description() ?? '', 'From '), $this->toolset->tools($star)))
+        ->toBe([$siblings, $siblings]);
+})->with([
+    'the same connector' => [['connector_key' => 'github'], ['connector_key' => 'github'], true],
+    'custom servers on the same host' => [['url' => 'https://mcp.deepwiki.com/mcp'], ['url' => 'https://MCP.DeepWiki.com/sse'], true],
+    'custom servers on other hosts' => [['url' => 'https://mcp.deepwiki.com/mcp'], ['url' => 'https://mcp.example.com/mcp'], false],
+    'different connectors' => [['connector_key' => 'github'], ['connector_key' => 'linear'], false],
+    'a connector and a custom server on its host' => [['connector_key' => 'github', 'url' => 'https://api.githubcopilot.com/mcp/'], ['url' => 'https://api.githubcopilot.com/mcp/'], false],
+]);
+
+it('labels a tool looked up by its exposed name as it does in the list', function (): void {
+    $work = Connection::factory()->for($this->user)->fromConnector('github')->create(['name' => 'GitHub', 'handle' => 'github', 'account_identity' => 'octocat']);
+    $personal = Connection::factory()->for($this->user)->fromConnector('github')->create(['name' => 'GitHub 2', 'handle' => 'github-2']);
+    ConnectionTool::factory()->for($work)->create(['name' => 'get_me']);
+    ConnectionTool::factory()->for($personal)->create(['name' => 'get_me']);
+    $star = Star::factory()->for($this->user)->including($work, $personal)->create();
+
+    $listed = collect($this->toolset->tools($star))->firstWhere('name', 'github__get_me');
+
+    expect($this->toolset->tool($star, 'github__get_me')?->definition())->toBe($listed?->definition())
+        ->and($listed?->description())->toStartWith('From GitHub · octocat');
+});

@@ -46,6 +46,7 @@
                                     </flux:heading>
                                     <flux:text size="sm" class="mt-0.5">
                                         <span class="font-mono">{{ $group['connection']->handle }}</span>
+                                        <x-account-label :connection="$group['connection']" separated />
                                         · {{ __(':enabled of :total on', ['enabled' => $group['enabled'], 'total' => $group['total']]) }}
                                     </flux:text>
                                 </div>
