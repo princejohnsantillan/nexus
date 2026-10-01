@@ -11,6 +11,10 @@
         "user:email"
     ],
     "select_account": true,
+    "profile_tool": {
+        "name": "get_me",
+        "field": "login"
+    },
     "app": {
         "console_url": "https://github.com/settings/applications/new",
         "instructions": "GitHub only accepts OAuth apps registered in its developer settings. Register one with the callback URL below, then enter its client ID and secret. Organizations may need to approve the app before their repositories are visible."

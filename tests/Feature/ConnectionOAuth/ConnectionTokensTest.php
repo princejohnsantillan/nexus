@@ -84,6 +84,21 @@ it('renews an access token that has expired, or is about to, before using it, an
         ->and(last($this->server->requests())->header('Authorization'))->toBe(['Bearer access-token-2']);
 })->with(['expired' => 61, 'expiring within a minute' => 59]);
 
+it('updates the account when a renewal names it, and keeps it when a renewal doesn\'t', function (): void {
+    $this->connection->forceFill(['account_identity' => 'Old Workspace'])->save();
+    $this->travel(2)->hours();
+
+    expect(listingFailure($this->connection))->toBeNull()
+        ->and($this->connection->refresh()->account_identity)->toBe('Old Workspace');
+
+    $this->auth->withTokenFields(['workspace_name' => 'BetterWorld']);
+    $this->travel(2)->hours();
+
+    expect(listingFailure($this->connection))->toBeNull()
+        ->and($this->connection->refresh()->account_identity)->toBe('BetterWorld')
+        ->and($this->auth->tokenRequests('refresh_token'))->toHaveCount(2);
+});
+
 it('keeps the refresh token when the server doesn\'t rotate it', function (): void {
     $this->auth->keepingRefreshTokens();
     $this->travel(2)->hours();

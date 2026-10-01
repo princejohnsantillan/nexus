@@ -1,6 +1,7 @@
 {{--
-    The top of every Connection page: its logo, name, handle and status, and
-    the row of links to its sub-pages. `current` names the page being shown.
+    The top of every Connection page: its logo, name, status, handle and
+    account label, and the row of links to its sub-pages. `current` names
+    the page being shown.
 --}}
 @props([
     'connection',
@@ -18,9 +19,7 @@
 
     <flux:text class="mt-1">
         <span class="font-mono">{{ $connection->handle }}</span>
-        @if (filled($connection->description))
-            · {{ __('Use for: :description', ['description' => $connection->description]) }}
-        @endif
+        <x-account-label :connection="$connection" separated />
     </flux:text>
 
     <flux:navbar class="-mb-px mt-4 border-b border-zinc-200 dark:border-zinc-700">

@@ -33,9 +33,12 @@ class UpdateConnectionServer
      * away from OAuth clears its tokens and clients.
      *
      * An OAuth sign-in also ends when the user's own OAuth app changes, since
-     * its tokens were issued to the old one. An OAuth Connection that isn't
-     * signed in needs sign-in, and its tools aren't reloaded: send the user to
-     * its `connections.connect` route next.
+     * its tokens were issued to the old one. The account the Connection
+     * signed in as is forgotten when the server, the sign-in method or the
+     * header value changes, since it may be another account now; the
+     * refresh, or the next OAuth sign-in, detects it again. An OAuth
+     * Connection that isn't signed in needs sign-in, and its tools aren't
+     * reloaded: send the user to its `connections.connect` route next.
      *
      * The change holds the Connection's SignInLock and applies to the
      * Connection as re-read once it has it, so it waits for a token renewal
@@ -102,6 +105,10 @@ class UpdateConnectionServer
         $connection->settings = $settings === [] ? null : $settings;
 
         $this->updateOAuth($connection, $server['oauth_client_id'] ?? null, $clientSecret, $urlChanged);
+
+        if ($urlChanged || $connection->isDirty('auth_type') || $headerValue !== null) {
+            $connection->account_identity = null;
+        }
 
         $awaitsSignIn = $connection->usesOAuth() && ! $connection->hasAccessToken();
 

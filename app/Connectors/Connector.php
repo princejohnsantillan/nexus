@@ -20,6 +20,7 @@ final readonly class Connector
      * @param  string  $logoSvg  The official logo, as validated SVG markup.
      * @param  list<string>  $scopes  The OAuth scopes to request; none lets the server's challenge decide.
      * @param  bool  $selectAccount  Whether the service's sign-in page shows an account chooser when asked (`prompt=select_account`), so a second account can be connected.
+     * @param  ConnectorProfileTool|null  $profileTool  The tool that says which account Nexus is signed in as, if the server has one.
      */
     public function __construct(
         public string $key,
@@ -35,6 +36,7 @@ final readonly class Connector
         public ?ConnectorApp $app = null,
         public ?ConnectorToken $token = null,
         public bool $selectAccount = false,
+        public ?ConnectorProfileTool $profileTool = null,
     ) {}
 
     /**

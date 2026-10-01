@@ -33,14 +33,19 @@ class RefreshCatalog
      */
     private const array SIGN_IN_COLUMNS = ['url', 'auth_type', 'settings', 'secrets'];
 
-    public function __construct(private readonly DownstreamClient $downstream) {}
+    public function __construct(
+        private readonly DownstreamClient $downstream,
+        private readonly DetectAccountIdentity $detectAccountIdentity,
+    ) {}
 
     /**
      * Re-read a Connection's tools from its server and store them as its
      * catalog: tools are matched by name, changed ones are rewritten, vanished
      * ones are removed, and tools with names the MCP specification doesn't
      * allow are skipped. Each definition is stored as the exact JSON the
-     * server sent. The Connection is then connected, with no last error.
+     * server sent. The Connection is then connected, with no last error,
+     * and labelled with the account its connector's profile tool names (such
+     * as GitHub's login), when it has one that answers.
      *
      * When the server can't be listed, the previous catalog stays, and the
      * Connection's status and last error (a Nexus-authored message) say why.
@@ -57,7 +62,8 @@ class RefreshCatalog
         $signIn = $this->signInOf($connection);
 
         try {
-            $tools = $this->downstream->session($connection)->listTools();
+            $session = $this->downstream->session($connection);
+            $tools = $session->listTools();
         } catch (DownstreamRequestFailed $failed) {
             $this->storeIfCurrent($connection, $signIn, function () use ($connection, $failed): void {
                 $connection->forceFill([
@@ -69,7 +75,9 @@ class RefreshCatalog
             return false;
         }
 
-        return $this->storeIfCurrent($connection, $signIn, function () use ($connection, $tools): void {
+        $identity = $this->detectAccountIdentity->fromProfileTool($connection, $session, $tools);
+
+        return $this->storeIfCurrent($connection, $signIn, function () use ($connection, $tools, $identity): void {
             $storedHashes = $connection->tools()->pluck('definition_hash', 'name');
             $names = [];
 
@@ -101,6 +109,7 @@ class RefreshCatalog
                 'status' => ConnectionStatus::Connected,
                 'last_error' => null,
                 'catalog_refreshed_at' => now(),
+                ...$identity === null ? [] : ['account_identity' => $identity],
             ])->save();
         });
     }

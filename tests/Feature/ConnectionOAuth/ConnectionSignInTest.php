@@ -280,6 +280,44 @@ it('signs GitHub in through the deployment\'s OAuth app, asking for the connecto
         ->and(json_encode($connection->secrets->all()))->not->toContain('deployment-secret');
 });
 
+it('labels the Connection with the account its token response names, such as Notion\'s workspace', function (): void {
+    $server = FakeMcpServer::at()->requireOAuth()->withTools([['name' => 'search']]);
+    $server->authorizationServer()->withTokenFields(['workspace_name' => 'BetterWorld', 'workspace_id' => 'w-1']);
+    $connection = Connection::factory()->for($this->user)->oauth()->create();
+
+    ConnectionOAuthFlow::signIn($this, $connection, $server->authorizationServer());
+
+    expect($connection->refresh()->account_identity)->toBe('BetterWorld');
+});
+
+it('forgets the account of an earlier sign-in when a new one names none, since it may be another account', function (): void {
+    $server = FakeMcpServer::at()->requireOAuth()->withTools([['name' => 'search']]);
+    $server->authorizationServer()->withTokenFields(['workspace_name' => 'BetterWorld']);
+    $connection = Connection::factory()->for($this->user)->oauth()->create();
+    ConnectionOAuthFlow::signIn($this, $connection, $server->authorizationServer());
+
+    $server->authorizationServer()->withTokenFields(['workspace_name' => null]);
+    ConnectionOAuthFlow::signIn($this, $connection, $server->authorizationServer());
+
+    expect($connection->refresh()->account_identity)->toBeNull();
+});
+
+it('labels a GitHub Connection signed in with OAuth with the login its profile tool names', function (): void {
+    config(['nexus.connectors.github' => ['client_id' => 'deployment-app', 'client_secret' => 'deployment-secret']]);
+    $authorizationServer = FakeAuthorizationServer::at('https://github.com/login/oauth')
+        ->withoutRegistration()
+        ->acceptingClient('deployment-app', 'deployment-secret');
+    FakeMcpServer::at('https://api.githubcopilot.com/mcp/')
+        ->requireOAuth($authorizationServer)
+        ->withTools([['name' => 'get_me']])
+        ->onCall('get_me', fn (): array => ['content' => [['type' => 'text', 'text' => '{"login":"octocat","id":583231}']]]);
+    $connection = Connection::factory()->for($this->user)->fromConnector('github')->oauth()->create();
+
+    ConnectionOAuthFlow::signIn($this, $connection, $authorizationServer);
+
+    expect($connection->refresh()->account_identity)->toBe('octocat');
+});
+
 it('asks for every scope the server lists when its challenge names none', function (): void {
     FakeMcpServer::at()->requireOAuth(scopesSupported: ['read', 'write']);
     $connection = Connection::factory()->for($this->user)->oauth()->create();

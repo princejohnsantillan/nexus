@@ -18,6 +18,10 @@ use Illuminate\Database\Eloquent\Relations\Relation;
  * says for the tool's current annotations, so a tool that stops being
  * read-only on its server stops being on under the read-only policy.
  * Switches are kept by tool name, so they survive catalog refreshes.
+ *
+ * Connections of the same service in the Star (siblings, such as two GitHub
+ * accounts) are told apart by their account labels, which lead their tools'
+ * descriptions.
  */
 class StarToolset
 {
@@ -47,11 +51,12 @@ class StarToolset
             $switches[$switch->connection_id][$switch->tool_name] = $switch->enabled;
         }
 
+        $siblingIds = Connection::idsWithSiblings($connections);
         $tools = [];
 
         foreach ($connections as $connection) {
             foreach ($connection->tools as $tool) {
-                $tools[] = $this->expose($star, $connection, $tool, $switches[$connection->id][$tool->name] ?? null);
+                $tools[] = $this->expose($star, $connection, $tool, $switches[$connection->id][$tool->name] ?? null, $siblingIds);
             }
         }
 
@@ -91,7 +96,8 @@ class StarToolset
 
         [$handle, $toolName] = explode(self::SEPARATOR, $name, 2);
 
-        $connection = $star->connections()->where('handle', $handle)->first();
+        $connections = $star->connections()->get();
+        $connection = $connections->first(fn (Connection $connection): bool => $connection->handle === $handle);
         $tool = $connection?->tools()->where('name', $toolName)->first();
 
         if ($connection === null || $tool === null) {
@@ -100,10 +106,13 @@ class StarToolset
 
         $switch = $star->toolSwitches()->where('connection_id', $connection->id)->where('tool_name', $toolName)->first();
 
-        return $this->expose($star, $connection, $tool, $switch?->enabled);
+        return $this->expose($star, $connection, $tool, $switch?->enabled, Connection::idsWithSiblings($connections));
     }
 
-    private function expose(Star $star, Connection $connection, ConnectionTool $tool, ?bool $switch): StarTool
+    /**
+     * @param  list<int>  $siblingIds  The Star's Connections that share their service with another of them.
+     */
+    private function expose(Star $star, Connection $connection, ConnectionTool $tool, ?bool $switch, array $siblingIds): StarTool
     {
         return new StarTool(
             connection: $connection,
@@ -111,6 +120,7 @@ class StarToolset
             name: $connection->handle.self::SEPARATOR.$tool->name,
             enabled: $switch ?? $star->new_tool_policy->enables($tool),
             switch: $switch,
+            hasSiblings: in_array($connection->id, $siblingIds, true),
         );
     }
 }

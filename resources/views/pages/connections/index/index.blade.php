@@ -40,8 +40,8 @@
                                 <div class="min-w-0">
                                     <flux:link :href="route('connections.show', $connection)" wire:navigate class="font-medium">{{ $connection->name }}</flux:link>
 
-                                    @if (filled($connection->description))
-                                        <flux:text size="sm" class="mt-0.5 max-w-xs truncate">{{ __('Use for: :description', ['description' => $connection->description]) }}</flux:text>
+                                    @if (filled($connection->account_identity) || filled($connection->description))
+                                        <flux:text size="sm" class="mt-0.5 max-w-xs truncate"><x-account-label :connection="$connection" /></flux:text>
                                     @endif
                                 </div>
                             </div>
