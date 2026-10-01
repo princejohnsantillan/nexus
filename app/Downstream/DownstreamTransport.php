@@ -29,11 +29,11 @@ use Throwable;
  * - Requests go through Laravel's HTTP client, so the outbound guard checks
  *   and pins every one of them.
  * - The connect timeout limits connecting, the handshake and ending the
- *   session; the call timeout limits every other request. The call timeout
- *   is also the most the session's requests take altogether, counted from
- *   its first one: each request gets the time left, if less, renewing an
- *   OAuth token included, and none is sent once it has run out. So a slow
- *   handshake can't push a tool call past the web request's time limit.
+ *   session; the call timeout limits every other request. The session
+ *   timeout is the most the session's requests take altogether, counted
+ *   from its first one: each request gets the time left, if less, renewing
+ *   an OAuth token included, and none is sent once it has run out. So a
+ *   slow handshake can't push a tool call past the web request's time limit.
  * - A failed request throws DownstreamRequestFailed with a Nexus-authored
  *   message. A server wants sign-in when it answers 401 or 403, or rejects
  *   the token with an `invalid_token` challenge under another status (GitHub
@@ -91,7 +91,7 @@ final class DownstreamTransport extends HttpTransport
 
     /**
      * When the session's time is up, in milliseconds since the epoch: the
-     * call timeout after its first request started.
+     * session timeout after its first request started.
      */
     private ?int $deadline = null;
 
@@ -99,6 +99,7 @@ final class DownstreamTransport extends HttpTransport
         string $url,
         private readonly float $connectTimeout,
         private readonly float $callTimeout,
+        private readonly float $sessionTimeout,
     ) {
         parent::__construct($url);
     }
@@ -125,7 +126,7 @@ final class DownstreamTransport extends HttpTransport
             $this->lastRequestId = $requestId;
         }
 
-        $this->deadline ??= Date::now()->getTimestampMs() + (int) round($this->callTimeout * 1000);
+        $this->deadline ??= Date::now()->getTimestampMs() + (int) round($this->sessionTimeout * 1000);
 
         try {
             $request = Http::withHeaders($this->headers($headers))->withBody($message, 'application/json');

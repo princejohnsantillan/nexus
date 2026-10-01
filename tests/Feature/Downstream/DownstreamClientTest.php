@@ -214,6 +214,19 @@ it('gives a session\'s requests the call timeout altogether, so a slow handshake
     ]);
 });
 
+it('keeps the configured call timeout as the session\'s whole time when each request\'s is shorter', function (): void {
+    $this->freezeSecond();
+    $server = FakeMcpServer::at()
+        ->withTools([['name' => 'search']])
+        ->beforeAnswering('initialize', fn () => $this->travel(40)->seconds());
+
+    resolve(DownstreamClient::class)->withCallTimeout(20)->session(Connection::factory()->create())->callTool('search', '{}');
+
+    $call = collect($server->requests())->search(fn (Request $request): bool => (json_decode($request->body())->method ?? null) === 'tools/call');
+
+    expect($server->transferOptions()[$call])->toMatchArray(['connect_timeout' => 10.0, 'timeout' => 15.0]);
+});
+
 it('times out without sending more once the session\'s time is up', function (): void {
     $this->freezeSecond();
     $server = FakeMcpServer::at()
