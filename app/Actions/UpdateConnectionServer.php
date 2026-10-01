@@ -27,10 +27,11 @@ class UpdateConnectionServer
      *
      * @param  array{url: string, auth_type: ConnectionAuthType, header_name: string|null}  $server
      * @param  string|null  $headerValue  A new value for a header sign-in, or null to keep the stored one.
+     * @return bool Whether the tools loaded.
      *
      * @throws ValidationException when a header sign-in has no value to send
      */
-    public function handle(Connection $connection, array $server, #[SensitiveParameter] ?string $headerValue = null): void
+    public function handle(Connection $connection, array $server, #[SensitiveParameter] ?string $headerValue = null): bool
     {
         $urlChanged = $server['url'] !== $connection->url;
 
@@ -78,6 +79,6 @@ class UpdateConnectionServer
             $connection->save();
         });
 
-        $this->refreshCatalog->handle($connection);
+        return $this->refreshCatalog->handle($connection);
     }
 }

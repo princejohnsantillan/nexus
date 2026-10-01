@@ -7,10 +7,12 @@ namespace App\Downstream;
 use App\Concerns\KeepsSecretsInMemory;
 use App\Exceptions\DownstreamRequestFailed;
 use App\Exceptions\OutboundRequestBlocked;
+use Closure;
 use GuzzleHttp\Exception\ConnectTimeoutException;
 use GuzzleHttp\Exception\NetworkTimeoutException;
 use GuzzleHttp\Exception\ResponseTimeoutException;
 use Illuminate\Http\Client\HttpClientException;
+use Illuminate\Http\Client\Response as ClientResponse;
 use Illuminate\Support\Facades\Http;
 use Laravel\Mcp\Client\Exceptions\TransportException;
 use Laravel\Mcp\Client\OAuth\WwwAuthenticateChallenge;
@@ -37,9 +39,12 @@ use Throwable;
  *   they can't handle with `"id": "server-error"`) are readdressed to the
  *   request. Without that, the protocol can't pair the error with its request
  *   and never falls back to the older handshake.
- * - It keeps every raw message it receives. The protocol decodes JSON into
- *   arrays, which turns `{}` into `[]`, so the session reads results from the
- *   raw messages instead.
+ * - Server-sent events are read as the SSE format defines them: an event's
+ *   `data:` lines are joined, and comments and other fields are skipped.
+ * - It keeps every raw message it receives, and can send a tool call's
+ *   arguments as raw JSON. The protocol decodes and encodes JSON as PHP
+ *   values, which turns `{}` into `[]` and rounds long numbers, so the
+ *   session reads results from, and writes arguments into, the raw text.
  *
  * It holds the Connection's credentials, so it can't be serialized.
  */
@@ -60,6 +65,11 @@ final class DownstreamTransport extends HttpTransport
      * @var list<string>
      */
     private array $received = [];
+
+    /**
+     * The JSON object to send as the arguments of the tool call being made.
+     */
+    private ?string $toolArguments = null;
 
     public function __construct(
         string $url,
@@ -82,6 +92,10 @@ final class DownstreamTransport extends HttpTransport
         $method = $request instanceof stdClass ? $request->method ?? null : null;
         $hadSession = $this->sessionId !== null;
         $alreadyQueued = count($this->queue);
+
+        if ($method === 'tools/call' && $this->toolArguments !== null) {
+            $message = $this->withToolArguments($message, $this->toolArguments);
+        }
 
         try {
             $response = Http::withHeaders($this->headers($headers))
@@ -147,22 +161,64 @@ final class DownstreamTransport extends HttpTransport
     }
 
     /**
-     * The result of the last response received, decoded with objects kept as
-     * objects. Forgets every message received so far.
+     * The result of the last response received, as the exact JSON object the
+     * server sent. Forgets every message received so far.
      */
-    public function takeLastResult(): ?stdClass
+    public function takeLastResult(): ?string
     {
         [$received, $this->received] = [$this->received, []];
 
         foreach (array_reverse($received) as $message) {
-            $response = json_decode($message);
+            $result = RawJson::member($message, 'result');
 
-            if ($response instanceof stdClass && ($response->result ?? null) instanceof stdClass) {
-                return $response->result;
+            if ($result !== null && RawJson::isObject($result)) {
+                return $result;
             }
         }
 
         return null;
+    }
+
+    /**
+     * Make a request whose `tools/call` messages carry these arguments, the
+     * JSON object exactly as given, in place of the `{}` the protocol encodes.
+     *
+     * @template TResult
+     *
+     * @param  Closure(): TResult  $request
+     * @return TResult
+     */
+    public function sendingToolArguments(string $arguments, Closure $request): mixed
+    {
+        $this->toolArguments = $arguments;
+
+        try {
+            return $request();
+        } finally {
+            $this->toolArguments = null;
+        }
+    }
+
+    /**
+     * Read a server-sent event stream: each event's `data:` lines, joined by
+     * newlines, are one message. Comments and the other fields are skipped,
+     * and the last event needn't end with a blank line.
+     */
+    protected function readSseStream(ClientResponse $response): void
+    {
+        $data = [];
+
+        foreach (preg_split('/\r\n|\r|\n/', $response->body()) ?: [] as $line) {
+            if ($line === '') {
+                $this->queueSseEvent(implode("\n", $data));
+                $data = [];
+            } elseif ($line === 'data' || str_starts_with($line, 'data:')) {
+                $value = substr($line, 5);
+                $data[] = str_starts_with($value, ' ') ? substr($value, 1) : $value;
+            }
+        }
+
+        $this->queueSseEvent(implode("\n", $data));
     }
 
     /**
@@ -185,7 +241,8 @@ final class DownstreamTransport extends HttpTransport
     }
 
     /**
-     * Give errors queued for this request the request's id, whatever id the server put on them.
+     * Give errors queued for this request the request's id, whatever id the
+     * server put on them. The error itself is kept as the server sent it.
      */
     private function readdressErrors(int $alreadyQueued, mixed $requestId): void
     {
@@ -194,14 +251,26 @@ final class DownstreamTransport extends HttpTransport
         }
 
         foreach (array_slice($this->queue, $alreadyQueued, preserve_keys: true) as $index => $message) {
-            $response = json_decode($message);
+            $error = RawJson::member($message, 'error');
 
-            if ($response instanceof stdClass && isset($response->error) && ($response->id ?? null) !== $requestId) {
-                $response->id = $requestId;
-
-                $this->queue[$index] = (string) json_encode($response, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PRESERVE_ZERO_FRACTION);
+            if ($error !== null && json_decode(RawJson::member($message, 'id') ?? 'null') !== $requestId) {
+                $this->queue[$index] = '{"jsonrpc":"2.0","id":'.json_encode($requestId).',"error":'.$error.'}';
             }
         }
+    }
+
+    /**
+     * Put the arguments into a `tools/call` message in place of the empty
+     * object the protocol encoded. The first `"arguments":{}` in the message
+     * is that one: only the tool's name comes before it, and a JSON string
+     * can't contain an unescaped quote.
+     */
+    private function withToolArguments(string $message, string $arguments): string
+    {
+        $placeholder = '"arguments":{}';
+        $at = strpos($message, $placeholder);
+
+        return $at === false ? $message : substr_replace($message, '"arguments":'.$arguments, $at, strlen($placeholder));
     }
 
     /**

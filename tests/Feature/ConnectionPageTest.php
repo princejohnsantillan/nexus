@@ -226,6 +226,20 @@ it('says why a refresh failed', function (): void {
     expect($connection->refresh()->status)->toBe(ConnectionStatus::Error);
 });
 
+it('says the tools didn\'t load when the Connection is deleted in another tab during a refresh', function (): void {
+    $connection = Connection::factory()->for($this->user)->create();
+    FakeMcpServer::at()
+        ->withTools([['name' => 'search', 'description' => 'Downstream secret: sk-live-leak']])
+        ->beforeAnswering('tools/list', fn (): mixed => Connection::query()->whereKey($connection->id)->delete());
+
+    Livewire::test('pages::connections.show', ['connection' => $connection])
+        ->call('refreshTools')
+        ->assertOk()
+        ->assertDispatched('toast-show', toastSaying('Nexus couldn\'t load the tools.', 'danger'));
+
+    expect(ConnectionTool::query()->count())->toBe(0);
+});
+
 it('deletes the Connection and its tools after confirming', function (): void {
     $connection = Connection::factory()->for($this->user)->create(['name' => 'DeepWiki']);
     ConnectionTool::factory()->for($connection)->create();

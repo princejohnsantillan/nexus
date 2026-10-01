@@ -149,12 +149,13 @@ $server = FakeMcpServer::at('https://mcp.example.com/mcp')              // the d
 
 Out of the box it is a 2025-11-25 server, like most today: it answers `server/discover` with "method not found", then `initialize`, and lists no tools. Script the rest:
 
-- `withTools()` takes tool definitions as arrays or as a JSON string; use the string when `{}` must stay `{}`. `paginate(2)` serves them two to a page, with cursors.
+- `withTools()` takes tool definitions as arrays or as a JSON string; the string is sent exactly as written, so use it when `{}` or long numbers must survive. `paginate(2)` serves them two to a page, with cursors.
 - `onCall()` answers `tools/call` for a tool with a result (an array, or its raw JSON). Unknown tools get a JSON-RPC "invalid params" error.
 - `speaking('2026-07-28')` answers `server/discover`; `speaking('2025-06-18')` or `'2025-03-26'` answers `initialize` with that version.
 - `requireHeader('Authorization', 'Bearer …')` refuses other requests with a 401 (or the status you pass) and the `WWW-Authenticate` header set by `challengingWith()`.
-- `streaming()` answers with server-sent events instead of plain JSON.
+- `streaming()` answers with server-sent events instead of plain JSON; `streaming(splitData: true)` spreads each message over several `data:` lines, with CRLF line ends, a comment and an id.
 - `respondTo($method, $responder)` replaces the answer to one method. The responders are `FakeMcpServer::error()` (a JSON-RPC error), `errorWithId()` (one carrying a placeholder or another request's id), `httpStatus()`, `raw()` (any body, e.g. malformed JSON), `timeout()` and `unreachable()`.
+- `beforeAnswering($method, $callback)` runs the callback while that request is in flight, to play out a race such as the Connection being deleted or moved mid-refresh.
 
 Afterwards, `received('tools/call')` returns the JSON-RPC messages it got, decoded with objects kept as objects, `requests()` the HTTP requests (for headers), and `transferOptions()` the HTTP client's options for each one, such as its timeouts. Anything sent to another URL is a stray request and fails the test.
 
@@ -169,12 +170,12 @@ Every request through Laravel's HTTP client goes through the outbound guard in [
 ```php
 $session = $downstream->session($connection);
 
-$tools = $session->listTools();                       // list<stdClass>, every page
-$result = $session->callTool('search', $arguments);   // stdClass in, stdClass out
+$tools = $session->listTools();                                 // list<string>: each tool's JSON, every page
+$result = $session->callTool('search', '{"query":"laravel"}');  // JSON object in, JSON object out
 ```
 
-- Tools and results come back exactly as the server sent them, decoded with objects kept as objects, and arguments are sent exactly as given, so `{}` stays `{}`. Encode them with `json_encode()` again and nothing changes.
-- It speaks 2026-07-28 (`server/discover`) where the server does, and otherwise falls back to `initialize`, accepting servers that settle on 2025-11-25, 2025-06-18 or 2025-03-26. It follows `tools/list` cursors, and pairs errors that come back with a placeholder or mismatched id with their request.
+- Tools and results come back as the exact JSON text the server sent, and a tool call's arguments go out as the exact JSON object given. Nothing is decoded and encoded on the way, which would turn `{}` into `[]`, round long numbers and fail on ones like `1e400`. Decode a copy with `json_decode()` to read it; keep the text to store or forward it. `App\Downstream\RawJson` cuts members and elements out of JSON text without decoding them.
+- It speaks 2026-07-28 (`server/discover`) where the server does, and otherwise falls back to `initialize`, accepting servers that settle on 2025-11-25, 2025-06-18 or 2025-03-26. It follows `tools/list` cursors, pairs errors that come back with a placeholder or mismatched id with their request, and reads server-sent events as the SSE format defines them (an event's `data:` lines joined).
 - `NEXUS_DOWNSTREAM_CONNECT_TIMEOUT` (10 s) limits connecting and the handshake; `NEXUS_DOWNSTREAM_CALL_TIMEOUT` (55 s, under Laravel Cloud's 60-second request limit) limits listing and calling tools.
 - Every failure throws `App\Exceptions\DownstreamRequestFailed`. Its `failure` (`App\Enums\DownstreamFailure`) says why: `NeedsSignIn` (401, 403 or an invalid-token challenge, whose `challenge` the exception keeps), `Timeout`, `Unreachable` (connection failed, blocked by the outbound guard, 404 or 5xx), `ProtocolError` or `ToolError` (a JSON-RPC error instead of a tool result). Its message is Nexus's own and safe to show; it never contains text from the server, and no exception from the server is chained to it. A tool result with `isError: true` is a result, not a failure.
 
@@ -190,7 +191,9 @@ A Connection's catalog is its stored copy of the server's tools (`App\Models\Con
 $loaded = $refreshCatalog->handle($connection);  // bool
 ```
 
-It matches tools by name, rewrites only the ones whose definition hash changed, removes vanished ones, skips names the MCP specification doesn't allow, stores each definition exactly as received with its four behaviour hints (null when the server didn't state one), and marks the Connection connected. When the server can't be listed, the previous catalog stays and the Connection's status (`needs_auth` or `error`) and last error say why; nothing is logged. Adding a Connection and its "Refresh tools" button run it straight away; changing a Connection's URL clears its stored credentials and its catalog first.
+It matches tools by name, rewrites only the ones whose definition hash changed, removes vanished ones, skips names the MCP specification doesn't allow, stores each definition as the exact JSON received with its four behaviour hints (null when the server didn't state one), and marks the Connection connected. When the server can't be listed, the previous catalog stays and the Connection's status (`needs_auth` or `error`) and last error say why; nothing is logged.
+
+Asking the server takes time, so the outcome is written in one transaction holding the Connection's row, and only if the Connection still exists with the same URL and sign-in; a refresh overtaken by a delete or a change of server is dropped. A database error while storing is reported as `CatalogNotStored`, which names the Connection and the SQLSTATE but none of the values (they came from the server), and recorded on the Connection. Adding a Connection and its "Refresh tools" button run it straight away; changing a Connection's URL clears its stored credentials and its catalog first.
 
 ### Architecture rules and banned functions
 

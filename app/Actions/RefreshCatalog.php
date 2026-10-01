@@ -5,10 +5,14 @@ declare(strict_types=1);
 namespace App\Actions;
 
 use App\Downstream\DownstreamClient;
+use App\Enums\ConnectionAuthType;
 use App\Enums\ConnectionStatus;
 use App\Enums\DownstreamFailure;
+use App\Exceptions\CatalogNotStored;
 use App\Exceptions\DownstreamRequestFailed;
 use App\Models\Connection;
+use Closure;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use stdClass;
@@ -26,39 +30,49 @@ class RefreshCatalog
      * Re-read a Connection's tools from its server and store them as its
      * catalog: tools are matched by name, changed ones are rewritten, vanished
      * ones are removed, and tools with names the MCP specification doesn't
-     * allow are skipped. The Connection is then connected, with no last error.
+     * allow are skipped. Each definition is stored as the exact JSON the
+     * server sent. The Connection is then connected, with no last error.
      *
      * When the server can't be listed, the previous catalog stays, and the
      * Connection's status and last error (a Nexus-authored message) say why.
      *
-     * @return bool Whether the tools loaded.
+     * Asking the server takes time, so the outcome is stored only if the
+     * Connection still exists and still points at the same server and sign-in;
+     * otherwise it no longer applies and is dropped.
+     *
+     * @return bool Whether the tools loaded and were stored.
      */
     public function handle(Connection $connection): bool
     {
+        $url = $connection->url;
+        $authType = $connection->auth_type;
+
         try {
             $tools = $this->downstream->session($connection)->listTools();
         } catch (DownstreamRequestFailed $failed) {
-            $connection->forceFill([
-                'status' => $failed->failure === DownstreamFailure::NeedsSignIn ? ConnectionStatus::NeedsAuth : ConnectionStatus::Error,
-                'last_error' => $failed->getMessage(),
-            ])->save();
+            $this->storeIfCurrent($connection, $url, $authType, function () use ($connection, $failed): void {
+                $connection->forceFill([
+                    'status' => $failed->failure === DownstreamFailure::NeedsSignIn ? ConnectionStatus::NeedsAuth : ConnectionStatus::Error,
+                    'last_error' => $failed->getMessage(),
+                ])->save();
+            });
 
             return false;
         }
 
-        DB::transaction(function () use ($connection, $tools): void {
+        return $this->storeIfCurrent($connection, $url, $authType, function () use ($connection, $tools): void {
             $storedHashes = $connection->tools()->pluck('definition_hash', 'name');
             $names = [];
 
-            foreach ($tools as $tool) {
-                $name = $tool->name;
+            foreach ($tools as $definition) {
+                $tool = json_decode($definition);
+                $name = $tool instanceof stdClass ? $tool->name ?? null : null;
 
-                if (! is_string($name) || preg_match(self::TOOL_NAME_PATTERN, $name) !== 1) {
+                if (! $tool instanceof stdClass || ! is_string($name) || preg_match(self::TOOL_NAME_PATTERN, $name) !== 1) {
                     continue;
                 }
 
                 $names[] = $name;
-                $definition = json_encode($tool, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PRESERVE_ZERO_FRACTION | JSON_THROW_ON_ERROR);
                 $hash = hash('sha256', $definition);
 
                 if ($storedHashes->get($name) === $hash) {
@@ -80,13 +94,50 @@ class RefreshCatalog
                 'catalog_refreshed_at' => now(),
             ])->save();
         });
+    }
 
-        return true;
+    /**
+     * Store a refresh's outcome in one transaction, holding the Connection's
+     * row, unless the Connection was deleted or pointed at another server or
+     * sign-in while its server was being asked.
+     *
+     * A database error is reported as CatalogNotStored, without the values
+     * being written (they came from the server), and recorded on the
+     * Connection.
+     *
+     * @param  Closure(): void  $store
+     * @return bool Whether the outcome was stored.
+     */
+    private function storeIfCurrent(Connection $connection, string $url, ConnectionAuthType $authType, Closure $store): bool
+    {
+        try {
+            return DB::transaction(function () use ($connection, $url, $authType, $store): bool {
+                $current = Connection::query()->whereKey($connection->id)->lockForUpdate()->first(['id', 'url', 'auth_type']);
+
+                if ($current === null || $current->url !== $url || $current->auth_type !== $authType) {
+                    return false;
+                }
+
+                $store();
+
+                return true;
+            });
+        } catch (QueryException $exception) {
+            report(CatalogNotStored::for($connection, $exception));
+
+            $connection->discardChanges()->forceFill([
+                'status' => ConnectionStatus::Error,
+                'last_error' => __('Nexus could not store the server\'s tools.'),
+            ])->save();
+
+            return false;
+        }
     }
 
     /**
      * The columns Nexus shows for a tool: its title and description, and the
      * behaviour hints its annotations declare, null for each one they don't.
+     * NUL characters, which some databases refuse in text, are dropped.
      *
      * @return array{title: string|null, description: string|null, read_only: bool|null, destructive: bool|null, idempotent: bool|null, open_world: bool|null}
      */
@@ -96,13 +147,17 @@ class RefreshCatalog
 
         $hint = fn (string $name): ?bool => is_bool($annotations->{$name} ?? null) ? $annotations->{$name} : null;
 
-        $title = collect([$tool->title ?? null, $annotations->title ?? null])
-            ->first(fn (mixed $title): bool => is_string($title) && $title !== '');
-        $description = $tool->description ?? null;
+        $text = function (mixed $value): ?string {
+            $value = is_string($value) ? str_replace("\0", '', $value) : '';
+
+            return $value === '' ? null : $value;
+        };
+
+        $title = $text($tool->title ?? null) ?? $text($annotations->title ?? null);
 
         return [
-            'title' => is_string($title) ? Str::limit($title, 255, '') : null,
-            'description' => is_string($description) && $description !== '' ? $description : null,
+            'title' => $title === null ? null : Str::limit($title, 255, ''),
+            'description' => $text($tool->description ?? null),
             'read_only' => $hint('readOnlyHint'),
             'destructive' => $hint('destructiveHint'),
             'idempotent' => $hint('idempotentHint'),

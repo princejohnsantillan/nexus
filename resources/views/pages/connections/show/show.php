@@ -5,7 +5,6 @@ declare(strict_types=1);
 use App\Actions\RefreshCatalog;
 use App\Actions\UpdateConnectionServer;
 use App\Enums\ConnectionAuthType;
-use App\Enums\ConnectionStatus;
 use App\Models\Connection;
 use App\Rules\HeaderName;
 use App\Rules\McpServerUrl;
@@ -103,7 +102,7 @@ return new #[Title('Connection')] class extends Component
 
         $authType = ConnectionAuthType::from($this->authType);
 
-        $updateConnectionServer->handle($this->connection, [
+        $loaded = $updateConnectionServer->handle($this->connection, [
             'url' => $this->url,
             'auth_type' => $authType,
             'header_name' => $authType === ConnectionAuthType::Header ? $this->headerName : null,
@@ -111,14 +110,12 @@ return new #[Title('Connection')] class extends Component
 
         unset($this->hasStoredHeaderValue);
         $this->resetServerForm();
-        $this->toastRefresh(__('Saved.'));
+        $this->toastRefresh($loaded, __('Saved.'));
     }
 
     public function refreshTools(RefreshCatalog $refreshCatalog): void
     {
-        $refreshCatalog->handle($this->connection);
-
-        $this->toastRefresh();
+        $this->toastRefresh($refreshCatalog->handle($this->connection));
     }
 
     public function delete(): void
@@ -145,16 +142,16 @@ return new #[Title('Connection')] class extends Component
     /**
      * Say how the catalog refresh that just ran went.
      */
-    private function toastRefresh(?string $prefix = null): void
+    private function toastRefresh(bool $loaded, ?string $prefix = null): void
     {
         unset($this->toolCount);
 
-        $connected = $this->connection->status === ConnectionStatus::Connected;
+        $result = match (true) {
+            $loaded => trans_choice('Nexus loaded :count tool.|Nexus loaded :count tools.', $this->toolCount),
+            filled($this->connection->last_error) => __('Nexus couldn\'t load the tools: :error', ['error' => $this->connection->last_error]),
+            default => __('Nexus couldn\'t load the tools.'),
+        };
 
-        $result = $connected
-            ? trans_choice('Nexus loaded :count tool.|Nexus loaded :count tools.', $this->toolCount)
-            : __('Nexus couldn\'t load the tools: :error', ['error' => $this->connection->last_error]);
-
-        Flux::toast(variant: $connected ? 'success' : 'danger', text: trim($prefix.' '.$result));
+        Flux::toast(variant: $loaded ? 'success' : 'danger', text: trim($prefix.' '.$result));
     }
 };

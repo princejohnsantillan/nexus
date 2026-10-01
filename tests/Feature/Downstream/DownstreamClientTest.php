@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Downstream\DownstreamClient;
 use App\Downstream\DownstreamSession;
+use App\Downstream\RawJson;
 use App\Enums\DownstreamFailure;
 use App\Exceptions\DownstreamRequestFailed;
 use App\Models\Connection;
@@ -27,12 +28,22 @@ function downstreamFailure(Connection $connection, Closure $request): Downstream
     throw new RuntimeException('The request did not fail.');
 }
 
+/**
+ * The arguments of the first tool call the server received, as the exact JSON sent.
+ */
+function sentArguments(FakeMcpServer $server): ?string
+{
+    $call = collect($server->requests())->first(fn (Request $request): bool => (json_decode($request->body())->method ?? null) === 'tools/call');
+
+    return RawJson::member(RawJson::member($call?->body() ?? '', 'params') ?? '', 'arguments');
+}
+
 it('lists tools exactly as a 2025-11-25 server sends them, empty objects included', function (): void {
     $server = FakeMcpServer::at()->withTools('[{"name":"search","inputSchema":{"type":"object","properties":{}},"annotations":{}}]');
 
     $tools = resolve(DownstreamClient::class)->session(Connection::factory()->create())->listTools();
 
-    expect(json_encode($tools))->toBe('[{"name":"search","inputSchema":{"type":"object","properties":{}},"annotations":{}}]')
+    expect($tools)->toBe(['{"name":"search","inputSchema":{"type":"object","properties":{}},"annotations":{}}'])
         ->and(array_map(fn (stdClass $message): ?string => $message->method ?? null, $server->received()))
         ->toBe(['server/discover', 'initialize', 'notifications/initialized', 'tools/list'])
         ->and($server->received('initialize')[0]->params->protocolVersion)->toBe('2025-11-25');
@@ -95,7 +106,7 @@ it('follows tools/list cursors until the last page', function (): void {
 
     $tools = resolve(DownstreamClient::class)->session(Connection::factory()->create())->listTools();
 
-    expect(array_map(fn (stdClass $tool): string => $tool->name, $tools))->toBe(['one', 'two', 'three', 'four', 'five'])
+    expect(array_map(fn (string $tool): string => json_decode($tool)->name, $tools))->toBe(['one', 'two', 'three', 'four', 'five'])
         ->and(array_map(fn (stdClass $message): ?string => $message->params->cursor ?? null, $server->received('tools/list')))
         ->toBe([null, '2', '4']);
 });
@@ -110,12 +121,32 @@ it('stops listing when the server repeats a cursor', function (): void {
     expect($failure->failure)->toBe(DownstreamFailure::ProtocolError);
 });
 
-it('reads answers sent as server-sent events', function (): void {
-    FakeMcpServer::at()->streaming()->withTools('[{"name":"search","inputSchema":{"type":"object","properties":{}}}]');
+it('reads answers sent as server-sent events', function (bool $splitData): void {
+    FakeMcpServer::at()->streaming($splitData)->withTools('[{"name":"search","inputSchema":{"type":"object","properties":{}}}]');
 
     $tools = resolve(DownstreamClient::class)->session(Connection::factory()->create())->listTools();
 
-    expect(json_encode($tools))->toBe('[{"name":"search","inputSchema":{"type":"object","properties":{}}}]');
+    expect($tools)->toBe(['{"name":"search","inputSchema":{"type":"object","properties":{}}}']);
+})->with([
+    'one data line per event' => false,
+    'data over several lines, with CRLF, a comment and an id' => true,
+]);
+
+it('keeps every digit of the numbers in a tool, however long or large', function (): void {
+    $tool = '{"name":"calc","inputSchema":{"type":"object","properties":{"n":{"type":"number","maximum":1e400,"default":12345678901234567890,"multipleOf":0.10000000000000001}}}}';
+    FakeMcpServer::at()->withTools("[{$tool}]");
+
+    $tools = resolve(DownstreamClient::class)->session(Connection::factory()->create())->listTools();
+
+    expect($tools)->toBe([$tool]);
+});
+
+it('keeps the last of two tools listed under the same name', function (): void {
+    FakeMcpServer::at()->withTools('[{"name":"search","description":"first"},{"name":"search","description":"second"},{"description":"no name"},"not a tool"]');
+
+    $tools = resolve(DownstreamClient::class)->session(Connection::factory()->create())->listTools();
+
+    expect($tools)->toBe(['{"name":"search","description":"second"}']);
 });
 
 it('sends a header sign-in with every request', function (): void {
@@ -151,7 +182,7 @@ it('waits the connect timeout for the handshake and the call timeout for other r
 it('gives tool calls 55 seconds by default', function (): void {
     $server = FakeMcpServer::at()->withTools([['name' => 'search']]);
 
-    resolve(DownstreamClient::class)->session(Connection::factory()->create())->callTool('search', new stdClass);
+    resolve(DownstreamClient::class)->session(Connection::factory()->create())->callTool('search', '{}');
 
     $call = collect($server->requests())->search(fn (Request $request): bool => (json_decode($request->body())->method ?? null) === 'tools/call');
 
@@ -266,26 +297,36 @@ it('refuses a server the outbound guard blocks, before anything is sent', functi
         ->and($server->requests())->toBeEmpty();
 });
 
-it('calls a tool with its arguments exactly as given and returns the result unchanged', function (): void {
+it('calls a tool with its arguments exactly as given and returns the result exactly as sent', function (): void {
     $server = FakeMcpServer::at()->withTools([['name' => 'search']])->onCall(
         'search',
-        fn (): string => '{"content":[{"type":"text","text":"Found it"}],"structuredContent":{"hits":[],"filters":{}},"isError":false}',
+        fn (): string => '{"content":[{"type":"text","text":"Found it"}],"structuredContent":{"hits":[],"filters":{},"total":12345678901234567890,"score":1e400},"isError":false}',
     );
-    $arguments = json_decode('{"query":"mcp","filters":{},"tags":[]}');
 
-    $result = resolve(DownstreamClient::class)->session(Connection::factory()->create())->callTool('search', $arguments);
+    $result = resolve(DownstreamClient::class)->session(Connection::factory()->create())
+        ->callTool('search', '{"query":"mcp","filters":{},"tags":[],"limit":12345678901234567890,"weight":0.10000000000000001}');
 
-    expect(json_encode($result))->toBe('{"content":[{"type":"text","text":"Found it"}],"structuredContent":{"hits":[],"filters":{}},"isError":false}')
-        ->and(json_encode($server->received('tools/call')[0]->params))->toBe('{"name":"search","arguments":{"query":"mcp","filters":{},"tags":[]}}');
+    expect($result)->toBe('{"content":[{"type":"text","text":"Found it"}],"structuredContent":{"hits":[],"filters":{},"total":12345678901234567890,"score":1e400},"isError":false}')
+        ->and(sentArguments($server))->toBe('{"query":"mcp","filters":{},"tags":[],"limit":12345678901234567890,"weight":0.10000000000000001}');
 });
 
-it('sends empty arguments as an empty object', function (): void {
-    $server = FakeMcpServer::at()->withTools([['name' => 'whoami']]);
+it('sends empty arguments as an empty object', function (string $version): void {
+    $server = FakeMcpServer::at()->speaking($version)->withTools([['name' => 'whoami']]);
 
-    resolve(DownstreamClient::class)->session(Connection::factory()->create())->callTool('whoami', new stdClass);
+    resolve(DownstreamClient::class)->session(Connection::factory()->create())->callTool('whoami', '{}');
 
-    expect(json_encode($server->received('tools/call')[0]->params->arguments))->toBe('{}');
-});
+    expect(sentArguments($server))->toBe('{}')
+        ->and($server->received('tools/call')[0]->params->name)->toBe('whoami');
+})->with(['2025-11-25', '2026-07-28']);
+
+it('refuses tool arguments that aren\'t a JSON object, before sending anything', function (string $arguments): void {
+    $server = FakeMcpServer::at()->withTools([['name' => 'search']]);
+
+    expect(fn (): string => resolve(DownstreamClient::class)->session(Connection::factory()->create())->callTool('search', $arguments))
+        ->toThrow(InvalidArgumentException::class, 'Tool arguments must be a JSON object.');
+
+    expect($server->requests())->toBeEmpty();
+})->with(['[]', '"query"', '{"query":', '']);
 
 it('returns a tool result that reports an error, rather than failing', function (): void {
     FakeMcpServer::at()->withTools([['name' => 'search']])->onCall('search', fn (): array => [
@@ -293,16 +334,15 @@ it('returns a tool result that reports an error, rather than failing', function 
         'isError' => true,
     ]);
 
-    $result = resolve(DownstreamClient::class)->session(Connection::factory()->create())->callTool('search', new stdClass);
+    $result = resolve(DownstreamClient::class)->session(Connection::factory()->create())->callTool('search', '{}');
 
-    expect($result->isError)->toBeTrue()
-        ->and($result->content[0]->text)->toBe('No such repository');
+    expect($result)->toBe('{"content":[{"type":"text","text":"No such repository"}],"isError":true}');
 });
 
 it('fails a tool call the server answers with a JSON-RPC error, whatever id it carries', function (Closure $responder): void {
     FakeMcpServer::at()->withTools([['name' => 'search']])->respondTo('tools/call', $responder);
 
-    $failed = downstreamFailure(Connection::factory()->create(), fn (DownstreamSession $session): stdClass => $session->callTool('search', new stdClass));
+    $failed = downstreamFailure(Connection::factory()->create(), fn (DownstreamSession $session): string => $session->callTool('search', '{}'));
 
     expect($failed->failure)->toBe(DownstreamFailure::ToolError)
         ->and($failed->getMessage())->toBe('The server refused the tool call with a JSON-RPC error (code -32602).');
@@ -316,7 +356,7 @@ it('fails a tool call the server answers with a JSON-RPC error, whatever id it c
 it('fails a tool call that times out', function (): void {
     FakeMcpServer::at()->withTools([['name' => 'search']])->respondTo('tools/call', FakeMcpServer::timeout());
 
-    $failed = downstreamFailure(Connection::factory()->create(), fn (DownstreamSession $session): stdClass => $session->callTool('search', new stdClass));
+    $failed = downstreamFailure(Connection::factory()->create(), fn (DownstreamSession $session): string => $session->callTool('search', '{}'));
 
     expect($failed->failure)->toBe(DownstreamFailure::Timeout);
 });
@@ -324,7 +364,7 @@ it('fails a tool call that times out', function (): void {
 it('reports a handshake failure during a tool call as a protocol error, not a tool error', function (): void {
     FakeMcpServer::at()->withTools([['name' => 'search']])->respondTo('initialize', FakeMcpServer::error(-32603, 'Downstream secret: sk-live-leak'));
 
-    $failed = downstreamFailure(Connection::factory()->create(), fn (DownstreamSession $session): stdClass => $session->callTool('search', new stdClass));
+    $failed = downstreamFailure(Connection::factory()->create(), fn (DownstreamSession $session): string => $session->callTool('search', '{}'));
 
     expect($failed->failure)->toBe(DownstreamFailure::ProtocolError)
         ->and($failed->getMessage())->toBe('The server answered with a JSON-RPC error (code -32603).');

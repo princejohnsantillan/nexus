@@ -6,6 +6,7 @@ namespace App\Downstream;
 
 use App\Exceptions\DownstreamRequestFailed;
 use Closure;
+use InvalidArgumentException;
 use Laravel\Mcp\Client\Exceptions\TransportException;
 use Laravel\Mcp\Exceptions\ClientException;
 use Laravel\Mcp\Exceptions\JsonRpcException;
@@ -16,8 +17,9 @@ use Throwable;
  * One conversation with a Connection's MCP server. It connects on the first
  * request and reuses that connection for the rest.
  *
- * Tools and results come back exactly as the server sent them, decoded with
- * objects kept as objects, so `{}` stays `{}` when they are encoded again.
+ * Tools and results come back as the exact JSON text the server sent, and
+ * tool arguments go out as the exact JSON text given, so nothing is lost to
+ * decoding and encoding: `{}` stays `{}` and long numbers keep every digit.
  * Every failure throws DownstreamRequestFailed, whose message never contains
  * text from the server.
  */
@@ -34,10 +36,11 @@ final readonly class DownstreamSession
     ) {}
 
     /**
-     * Every tool the server lists, following its cursors page by page. Each
-     * tool appears once, under its name; entries without a name are skipped.
+     * Every tool the server lists, as the JSON object it sent for each,
+     * following its cursors page by page. Each tool appears once, the last
+     * one listed under its name; entries without a name are skipped.
      *
-     * @return list<stdClass>
+     * @return list<string>
      *
      * @throws DownstreamRequestFailed
      */
@@ -53,19 +56,18 @@ final readonly class DownstreamSession
             for ($page = 1; ; $page++) {
                 $this->client->send(new RawRequest('tools/list', $cursor === null ? [] : ['cursor' => $cursor]));
 
-                $result = $this->transport->takeLastResult();
+                $result = $this->transport->takeLastResult() ?? throw DownstreamRequestFailed::protocolError();
+                $listed = RawJson::elements(RawJson::member($result, 'tools') ?? '') ?? throw DownstreamRequestFailed::protocolError();
 
-                if (! $result instanceof stdClass || ! is_array($result->tools ?? null)) {
-                    throw DownstreamRequestFailed::protocolError();
-                }
+                foreach ($listed as $tool) {
+                    $decoded = json_decode($tool);
 
-                foreach ($result->tools as $tool) {
-                    if ($tool instanceof stdClass && is_string($tool->name ?? null)) {
-                        $tools[$tool->name] = $tool;
+                    if ($decoded instanceof stdClass && is_string($decoded->name ?? null)) {
+                        $tools[$decoded->name] = $tool;
                     }
                 }
 
-                $cursor = $result->nextCursor ?? null;
+                $cursor = json_decode(RawJson::member($result, 'nextCursor') ?? 'null');
 
                 if (! is_string($cursor) || $cursor === '') {
                     return array_values($tools);
@@ -81,21 +83,27 @@ final readonly class DownstreamSession
     }
 
     /**
-     * Call a tool with the arguments exactly as given, and return the server's
-     * result unchanged, including results that report a tool error with
-     * `isError`. A JSON-RPC error instead of a result is a tool error.
+     * Call a tool with its arguments, a JSON object sent exactly as given, and
+     * return the server's result exactly as it sent it, including a result
+     * that reports a tool error with `isError`. A JSON-RPC error instead of a
+     * result is a tool error.
      *
+     * @throws InvalidArgumentException when the arguments aren't a JSON object
      * @throws DownstreamRequestFailed
      */
-    public function callTool(string $name, stdClass $arguments): stdClass
+    public function callTool(string $name, string $arguments): string
     {
+        if (! RawJson::isObject($arguments)) {
+            throw new InvalidArgumentException('Tool arguments must be a JSON object.');
+        }
+
         $this->connect();
 
-        return $this->attempt(function () use ($name, $arguments): stdClass {
-            $this->client->send(new RawRequest('tools/call', ['name' => $name, 'arguments' => $arguments]));
+        return $this->attempt(fn (): string => $this->transport->sendingToolArguments($arguments, function () use ($name): string {
+            $this->client->send(new RawRequest('tools/call', ['name' => $name, 'arguments' => new stdClass]));
 
             return $this->transport->takeLastResult() ?? throw DownstreamRequestFailed::protocolError();
-        }, isToolCall: true);
+        }), isToolCall: true);
     }
 
     /**

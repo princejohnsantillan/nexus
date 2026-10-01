@@ -4,12 +4,14 @@ declare(strict_types=1);
 
 namespace Tests\Support;
 
+use App\Downstream\RawJson;
 use Closure;
 use GuzzleHttp\Exception\NetworkTimeoutException;
 use GuzzleHttp\Promise\Create;
 use GuzzleHttp\Promise\PromiseInterface;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
+use InvalidArgumentException;
 use stdClass;
 
 /**
@@ -24,16 +26,21 @@ use stdClass;
  * tools. Script it further with:
  *
  * - withTools() and paginate(): what `tools/list` returns, page by page.
- *   Pass a JSON string to keep `{}` exactly; arrays encode `[]` as `[]`.
+ *   Pass a JSON string to send each tool's text exactly as written (`{}`,
+ *   long numbers and all); arrays are encoded, so `[]` stays `[]`.
  * - onCall(): what `tools/call` returns for a tool. Unknown tools get a
  *   JSON-RPC "invalid params" error; tools without a handler return "ok".
  * - speaking(): the protocol era. '2026-07-28' answers `server/discover`;
  *   2025-11-25, 2025-06-18 and 2025-03-26 answer `initialize` with that version.
  * - requireHeader() and challengingWith(): an auth challenge (401 or 403
  *   with a WWW-Authenticate header) for requests without the right header.
- * - streaming(): answer as server-sent events instead of plain JSON.
+ * - streaming(): answer as server-sent events instead of plain JSON;
+ *   streaming(splitData: true) spreads each message over several `data:`
+ *   lines with CRLF line ends, a comment and an id, as the SSE format allows.
  * - respondTo(): replace the answer to one method with a failure, using
  *   error(), errorWithId(), httpStatus(), timeout(), unreachable() or raw().
+ * - beforeAnswering(): run something while a request is in flight, such as
+ *   deleting the Connection, to play out a race.
  *
  * Every request is recorded: received() returns the JSON-RPC messages,
  * decoded with objects kept as objects, requests() the HTTP requests and
@@ -45,7 +52,9 @@ final class FakeMcpServer
     public const string DEFAULT_URL = 'https://mcp.example.com/mcp';
 
     /**
-     * @var list<stdClass>
+     * Each tool's JSON, as it is sent.
+     *
+     * @var list<string>
      */
     private array $tools = [];
 
@@ -64,6 +73,11 @@ final class FakeMcpServer
     private array $responders = [];
 
     /**
+     * @var array<string, Closure(stdClass): mixed>
+     */
+    private array $beforeAnswering = [];
+
+    /**
      * @var array{name: string, value: string, status: int}|null
      */
     private ?array $requiredHeader = null;
@@ -71,6 +85,8 @@ final class FakeMcpServer
     private string $challenge = 'Bearer resource_metadata="https://mcp.example.com/.well-known/oauth-protected-resource/mcp"';
 
     private bool $streams = false;
+
+    private bool $splitsData = false;
 
     /**
      * @var list<Request>
@@ -108,9 +124,9 @@ final class FakeMcpServer
      */
     public function withTools(array|string $tools): self
     {
-        $decoded = json_decode(is_string($tools) ? $tools : (string) json_encode($tools), flags: JSON_THROW_ON_ERROR);
-
-        $this->tools = is_array($decoded) ? array_values(array_filter($decoded, fn (mixed $tool): bool => $tool instanceof stdClass)) : [];
+        $this->tools = is_string($tools)
+            ? RawJson::elements($tools) ?? throw new InvalidArgumentException('The tools must be a JSON array.')
+            : array_map(fn (array|stdClass $tool): string => (string) json_encode($tool), $tools);
 
         return $this;
     }
@@ -160,6 +176,18 @@ final class FakeMcpServer
     }
 
     /**
+     * Run the callback when a request for the method arrives, before answering it.
+     *
+     * @param  Closure(stdClass $message): mixed  $callback
+     */
+    public function beforeAnswering(string $method, Closure $callback): self
+    {
+        $this->beforeAnswering[$method] = $callback;
+
+        return $this;
+    }
+
+    /**
      * Refuse requests that don't carry this header and value.
      */
     public function requireHeader(string $name, string $value, int $status = 401): self
@@ -182,9 +210,10 @@ final class FakeMcpServer
     /**
      * Answer as server-sent events.
      */
-    public function streaming(): self
+    public function streaming(bool $splitData = false): self
     {
         $this->streams = true;
+        $this->splitsData = $splitData;
 
         return $this;
     }
@@ -314,6 +343,10 @@ final class FakeMcpServer
         $this->received[] = $message;
         $method = is_string($message->method ?? null) ? $message->method : '';
 
+        if (isset($this->beforeAnswering[$method])) {
+            ($this->beforeAnswering[$method])($message);
+        }
+
         if (isset($this->responders[$method])) {
             return ($this->responders[$method])($message, $request);
         }
@@ -349,7 +382,7 @@ final class FakeMcpServer
         $tools = $this->pageSize === null ? $this->tools : array_slice($this->tools, $offset, $this->pageSize);
         $next = $this->pageSize !== null && $offset + $this->pageSize < count($this->tools) ? (string) ($offset + $this->pageSize) : null;
 
-        return $this->result($message, array_filter(['tools' => $tools, 'nextCursor' => $next], fn (mixed $value): bool => $value !== null));
+        return $this->result($message, '{"tools":['.implode(',', $tools).']'.($next === null ? '' : ',"nextCursor":'.json_encode($next)).'}');
     }
 
     private function callTool(stdClass $message, Request $request): PromiseInterface
@@ -369,7 +402,7 @@ final class FakeMcpServer
     private function hasTool(string $name): bool
     {
         foreach ($this->tools as $tool) {
-            if (($tool->name ?? null) === $name) {
+            if ((json_decode($tool)->name ?? null) === $name) {
                 return true;
             }
         }
@@ -384,6 +417,12 @@ final class FakeMcpServer
     private function result(stdClass $message, array|stdClass|string $result, array $headers = []): PromiseInterface
     {
         $body = '{"jsonrpc":"2.0","id":'.json_encode($message->id ?? null).',"result":'.(is_string($result) ? $result : json_encode($result)).'}';
+
+        if ($this->splitsData) {
+            [$first, $rest] = [substr($body, 0, 17), substr($body, 17)];
+
+            return Http::response(": keep-alive\r\nevent: message\r\nid: 1\r\ndata: {$first}\r\ndata:{$rest}\r\n\r\n", 200, ['Content-Type' => 'text/event-stream', ...$headers]);
+        }
 
         if ($this->streams) {
             return Http::response("event: message\ndata: {$body}\n\n", 200, ['Content-Type' => 'text/event-stream', ...$headers]);
