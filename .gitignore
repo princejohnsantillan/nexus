@@ -1,0 +1,50 @@
+# Dependencies and build output
+/node_modules
+/public/build
+/public/fonts-manifest.dev.json
+/public/hot
+/public/storage
+/vendor
+
+# Environment, databases, keys and secrets
+.env
+.env.*
+!.env.example
+/auth.json
+*.sqlite
+*.sqlite-*
+*.key
+*.pem
+
+# Generated IDE helpers (model docblocks live in the models instead)
+/_ide_helper.php
+/_ide_helper_models.php
+/.phpstorm.meta.php
+
+# Tool caches and logs
+/.phpunit.cache
+/storage/pail
+.phpactor.json
+.phpunit.result.cache
+npm-debug.log
+yarn-error.log
+
+# Editors and operating systems
+/.fleet
+/.idea
+/.nova
+/.vscode
+/.zed
+.DS_Store
+Homestead.json
+Homestead.yaml
+
+# AI agents: Boost files for Claude Code, Codex, Cursor and Grok are committed
+/.claude/settings.local.json
+/.amp
+/.factory
+/.junie
+/.kiro
+/.pi
+/opencode.json
+/opencode.jsonc
