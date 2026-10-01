@@ -5,6 +5,9 @@ declare(strict_types=1);
 namespace App\Models;
 
 use App\Casts\AsEncryptedSecrets;
+use App\Connectors\Connector;
+use App\Connectors\ConnectorCatalog;
+use App\Connectors\ConnectorToken;
 use App\Encryption\Secrets;
 use App\Enums\ConnectionAuthType;
 use App\Enums\ConnectionStatus;
@@ -149,6 +152,23 @@ class Connection extends Model
     public function stars(): BelongsToMany
     {
         return $this->belongsToMany(Star::class);
+    }
+
+    /**
+     * The gallery connector this Connection was made from, or null for a
+     * custom server (or a connector no longer in the gallery).
+     */
+    public function connector(): ?Connector
+    {
+        return app(ConnectorCatalog::class)->find($this->connector_key);
+    }
+
+    /**
+     * Whether Nexus signs in with a token the user pasted for its connector.
+     */
+    public function usesConnectorToken(): bool
+    {
+        return $this->auth_type === ConnectionAuthType::Header && $this->connector()?->token instanceof ConnectorToken;
     }
 
     /**

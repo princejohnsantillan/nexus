@@ -55,7 +55,7 @@
                             @else
                                 <div class="flex flex-wrap gap-1">
                                     @foreach ($star->connections as $connection)
-                                        <flux:badge size="sm" wire:key="star-{{ $star->id }}-connection-{{ $connection->id }}">{{ $connection->name }}</flux:badge>
+                                        <flux:badge size="sm" class="gap-1.5" wire:key="star-{{ $star->id }}-connection-{{ $connection->id }}"><x-connector-logo :connector="$connection->connector()" size="xs" />{{ $connection->name }}</flux:badge>
                                     @endforeach
                                 </div>
                             @endif

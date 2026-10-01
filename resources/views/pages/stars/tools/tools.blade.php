@@ -37,14 +37,18 @@
                 @foreach ($this->groups as $group)
                     <div wire:key="connection-{{ $group['connection']->id }}" class="mt-8">
                         <div class="flex flex-wrap items-center justify-between gap-3">
-                            <div class="min-w-0">
-                                <flux:heading size="lg" level="3" class="truncate">
-                                    <flux:link :href="route('connections.show', $group['connection'])" variant="ghost" wire:navigate>{{ $group['connection']->name }}</flux:link>
-                                </flux:heading>
-                                <flux:text size="sm" class="mt-0.5">
-                                    <span class="font-mono">{{ $group['connection']->handle }}</span>
-                                    · {{ __(':enabled of :total on', ['enabled' => $group['enabled'], 'total' => $group['total']]) }}
-                                </flux:text>
+                            <div class="flex min-w-0 items-center gap-3">
+                                <x-connector-logo :connector="$group['connection']->connector()" size="sm" />
+
+                                <div class="min-w-0">
+                                    <flux:heading size="lg" level="3" class="truncate">
+                                        <flux:link :href="route('connections.show', $group['connection'])" variant="ghost" wire:navigate>{{ $group['connection']->name }}</flux:link>
+                                    </flux:heading>
+                                    <flux:text size="sm" class="mt-0.5">
+                                        <span class="font-mono">{{ $group['connection']->handle }}</span>
+                                        · {{ __(':enabled of :total on', ['enabled' => $group['enabled'], 'total' => $group['total']]) }}
+                                    </flux:text>
+                                </div>
                             </div>
 
                             @if ($group['tools'] !== [])

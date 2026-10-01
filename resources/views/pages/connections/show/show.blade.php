@@ -29,7 +29,7 @@
                     <dt><flux:text>{{ __('Sign-in') }}</flux:text></dt>
                     <dd class="min-w-0 sm:col-span-2">
                         <flux:text variant="strong">
-                            {{ $connection->auth_type->label() }}
+                            {{ $connection->usesConnectorToken() ? App\Enums\SignInMethod::Token->label($this->connector->name) : $connection->auth_type->label() }}
                             @if ($connection->auth_type === App\Enums\ConnectionAuthType::Header)
                                 · <span class="font-mono">{{ $connection->headerName() }}</span>
                             @endif
@@ -71,37 +71,60 @@
             </form>
         </section>
 
-        <section aria-labelledby="server-heading">
-            <flux:heading size="lg" level="2" id="server-heading">{{ __('Server and sign-in') }}</flux:heading>
-            <flux:text class="mt-1">{{ __('Nexus reloads the tools when you save. Changing the URL clears every stored credential, so enter the header value again.') }}</flux:text>
+        @if ($connection->usesConnectorToken())
+            <section aria-labelledby="token-heading">
+                <flux:heading size="lg" level="2" id="token-heading">{{ __('Token') }}</flux:heading>
+                <flux:text class="mt-1">{{ __('Replace the token Nexus signs in to :name with, for example when it expires. Nexus reloads the tools when you save.', ['name' => $this->connector->name]) }}</flux:text>
 
-            <form wire:submit="saveServer" class="mt-6 max-w-xl space-y-6">
-                <flux:input wire:model="url" type="url" :label="__('Server URL')" autocomplete="off" />
-
-                <flux:radio.group wire:model.live="authType" :label="__('Sign-in')" variant="cards" class="max-sm:flex-col">
-                    <flux:radio value="none" :label="__('No auth')" :description="__('The server needs no sign-in.')" />
-                    <flux:radio value="header" :label="__('Header')" :description="__('Nexus sends a header, such as an API key, with every request.')" />
-                </flux:radio.group>
-
-                @if ($authType === 'header')
-                    <flux:input wire:model="headerName" :label="__('Header name')" placeholder="Authorization" autocomplete="off" autocapitalize="off" spellcheck="false" />
-
+                <form wire:submit="replaceToken" class="mt-6 max-w-xl space-y-6">
                     <flux:input
-                        wire:model="headerValue"
+                        wire:model="token"
                         type="password"
                         viewable
-                        :label="__('New header value')"
-                        :description="$this->hasStoredHeaderValue
-                            ? __('Stored encrypted. Leave blank to keep the current value.')
-                            : __('Stored encrypted. Include any prefix the server expects, such as Bearer.')"
-                        placeholder="Bearer …"
+                        :label="__('New token')"
+                        :description="__('Stored encrypted. The current token is never shown.')"
                         autocomplete="off"
                     />
-                @endif
 
-                <flux:button type="submit">{{ __('Save and reload tools') }}</flux:button>
-            </form>
-        </section>
+                    <div class="flex flex-wrap items-center gap-4">
+                        <flux:button type="submit">{{ __('Replace token and reload tools') }}</flux:button>
+                        <flux:link :href="$this->connector->token->consoleUrl" external rel="noopener noreferrer" class="text-sm">{{ __('Create a token on :name', ['name' => $this->connector->name]) }} &nearr;</flux:link>
+                    </div>
+                </form>
+            </section>
+        @elseif ($this->connector === null)
+            <section aria-labelledby="server-heading">
+                <flux:heading size="lg" level="2" id="server-heading">{{ __('Server and sign-in') }}</flux:heading>
+                <flux:text class="mt-1">{{ __('Nexus reloads the tools when you save. Changing the URL clears every stored credential, so enter the header value again.') }}</flux:text>
+
+                <form wire:submit="saveServer" class="mt-6 max-w-xl space-y-6">
+                    <flux:input wire:model="url" type="url" :label="__('Server URL')" autocomplete="off" />
+
+                    <flux:radio.group wire:model.live="authType" :label="__('Sign-in')" variant="cards" class="max-sm:flex-col">
+                        <flux:radio value="none" :label="__('No auth')" :description="__('The server needs no sign-in.')" />
+                        <flux:radio value="header" :label="__('Header')" :description="__('Nexus sends a header, such as an API key, with every request.')" />
+                    </flux:radio.group>
+
+                    @if ($authType === 'header')
+                        <flux:input wire:model="headerName" :label="__('Header name')" placeholder="Authorization" autocomplete="off" autocapitalize="off" spellcheck="false" />
+
+                        <flux:input
+                            wire:model="headerValue"
+                            type="password"
+                            viewable
+                            :label="__('New header value')"
+                            :description="$this->hasStoredHeaderValue
+                                ? __('Stored encrypted. Leave blank to keep the current value.')
+                                : __('Stored encrypted. Include any prefix the server expects, such as Bearer.')"
+                            placeholder="Bearer …"
+                            autocomplete="off"
+                        />
+                    @endif
+
+                    <flux:button type="submit">{{ __('Save and reload tools') }}</flux:button>
+                </form>
+            </section>
+        @endif
 
         <section aria-labelledby="delete-heading">
             <flux:heading size="lg" level="2" id="delete-heading">{{ __('Delete connection') }}</flux:heading>

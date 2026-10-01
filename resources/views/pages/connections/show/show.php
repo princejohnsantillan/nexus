@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Actions\RefreshCatalog;
 use App\Actions\UpdateConnectionServer;
+use App\Connectors\Connector;
 use App\Enums\ConnectionAuthType;
 use App\Models\Connection;
 use App\Models\Star;
@@ -38,11 +39,25 @@ return new #[Title('Connection')] class extends Component
      */
     public string $headerValue = '';
 
+    /**
+     * A new token, for a Connection that signs in to its connector with one.
+     */
+    public string $token = '';
+
     public function mount(): void
     {
         $this->name = $this->connection->name;
         $this->description = $this->connection->description ?? '';
         $this->resetServerForm();
+    }
+
+    /**
+     * The gallery connector the Connection was made from, or null for a custom server.
+     */
+    #[Computed]
+    public function connector(): ?Connector
+    {
+        return $this->connection->connector();
     }
 
     #[Computed]
@@ -92,8 +107,13 @@ return new #[Title('Connection')] class extends Component
         Flux::toast(variant: 'success', text: __('Saved.'));
     }
 
+    /**
+     * Change a custom server's URL or sign-in. A connector's server is fixed.
+     */
     public function saveServer(UpdateConnectionServer $updateConnectionServer): void
     {
+        abort_if($this->connector instanceof Connector, 404);
+
         $this->url = trim($this->url);
         $this->headerName = trim($this->headerName);
 
@@ -124,6 +144,33 @@ return new #[Title('Connection')] class extends Component
         unset($this->hasStoredHeaderValue);
         $this->resetServerForm();
         $this->toastRefresh($loaded, __('Saved.'));
+    }
+
+    /**
+     * Replace the token a Connection signs in to its connector with, then
+     * reload its tools.
+     */
+    public function replaceToken(UpdateConnectionServer $updateConnectionServer): void
+    {
+        $tokenSignIn = $this->connector?->token;
+
+        abort_unless($tokenSignIn !== null && $this->connection->usesConnectorToken(), 404);
+
+        $this->token = trim($this->token);
+
+        $this->validate(
+            ['token' => ['required', 'string', 'max:4000', 'not_regex:/[\x00-\x1F\x7F]/']],
+            ['token.not_regex' => __('The token can\'t contain line breaks or other control characters.')],
+        );
+
+        $loaded = $updateConnectionServer->handle($this->connection, [
+            'url' => $this->connection->url,
+            'auth_type' => ConnectionAuthType::Header,
+            'header_name' => $tokenSignIn->headerName,
+        ], $tokenSignIn->headerValue($this->token));
+
+        $this->token = '';
+        $this->toastRefresh($loaded, __('Token replaced.'));
     }
 
     public function refreshTools(RefreshCatalog $refreshCatalog): void

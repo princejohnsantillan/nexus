@@ -14,10 +14,7 @@
     @foreach ($connections as $connection)
         <flux:checkbox :value="(string) $connection->id" wire:key="connection-picker-{{ $connection->id }}">
             <div class="flex min-w-0 flex-1 gap-3">
-                {{-- The Connection's icon. --}}
-                <div class="flex size-8 shrink-0 items-center justify-center rounded-md bg-zinc-100 dark:bg-zinc-700">
-                    <flux:icon.server-stack variant="mini" class="text-zinc-500 dark:text-zinc-300" />
-                </div>
+                <x-connector-logo :connector="$connection->connector()" size="sm" />
 
                 <div class="min-w-0 flex-1">
                     <flux:heading class="truncate">{{ $connection->name }}</flux:heading>
