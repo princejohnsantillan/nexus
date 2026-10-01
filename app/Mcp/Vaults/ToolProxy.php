@@ -36,7 +36,8 @@ class ToolProxy
         ToolCallLog::query()->create([
             'user_id' => $context->vault->user_id,
             'vault_id' => $context->vault->id,
-            'vault_token_id' => $context->token->id,
+            'vault_token_id' => $context->token?->id,
+            'via' => $context->via,
             'connection_id' => $tool->connection->id,
             'tool_name' => $tool->name(),
             'status' => $status,

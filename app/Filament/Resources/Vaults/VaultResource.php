@@ -2,10 +2,12 @@
 
 namespace App\Filament\Resources\Vaults;
 
+use App\Enums\VaultAuthMode;
 use App\Filament\Resources\Vaults\Pages\CreateVault;
 use App\Filament\Resources\Vaults\Pages\EditVault;
 use App\Filament\Resources\Vaults\Pages\ListVaults;
 use App\Filament\Resources\Vaults\Pages\ManageVaultTools;
+use App\Filament\Resources\Vaults\RelationManagers\ConnectedAppsRelationManager;
 use App\Filament\Resources\Vaults\RelationManagers\TokensRelationManager;
 use App\Models\Connection;
 use App\Models\Vault;
@@ -14,6 +16,7 @@ use Closure;
 use Filament\Actions\Action;
 use Filament\Actions\DeleteAction;
 use Filament\Actions\EditAction;
+use Filament\Forms\Components\Radio;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
@@ -68,16 +71,33 @@ class VaultResource extends Resource
                             ->rule(fn (): Closure => static::ownConnectionsRule())
                             ->helperText('Read-only tools are switched on automatically. Turn on write tools under Tools.'),
                     ]),
+                Section::make('How clients sign in')
+                    ->columnSpanFull()
+                    ->schema([
+                        Radio::make('auth_mode')
+                            ->hiddenLabel()
+                            ->options(VaultAuthMode::class)
+                            ->default(VaultAuthMode::Token)
+                            ->required()
+                            ->helperText(fn (string $operation): ?string => $operation === 'edit'
+                                ? 'Changing this stops the current credentials from working: tokens, the signed URL or approved apps, depending on the old mode.'
+                                : null),
+                    ]),
                 Section::make('Endpoint')
                     ->columnSpanFull()
                     ->visibleOn('edit')
                     ->schema([
                         TextEntry::make('endpoint')
-                            ->label('MCP URL')
-                            ->state(fn (Vault $record): string => $record->endpointUrl())
+                            ->label(fn (?Vault $record): string => $record?->auth_mode === VaultAuthMode::SignedUrl ? 'Signed URL' : 'MCP URL')
+                            ->state(fn (?Vault $record): ?string => $record?->clientUrl())
                             ->fontFamily('mono')
                             ->copyable()
-                            ->helperText('Clients connect here with one of this vault\'s tokens. Create a token below to get setup instructions.'),
+                            ->helperText(fn (?Vault $record): ?string => match ($record?->auth_mode) {
+                                VaultAuthMode::Token => 'Clients connect here with one of this vault\'s tokens. Create a token below to get setup instructions.',
+                                VaultAuthMode::SignedUrl => 'Anyone with this URL can use the vault. Treat it like a password; "Rotate URL" revokes it.',
+                                VaultAuthMode::OAuth => 'Clients connecting here are sent to Nexus, where you sign in and approve them. They appear under Connected apps.',
+                                null => null,
+                            }),
                     ]),
             ]);
     }
@@ -86,16 +106,14 @@ class VaultResource extends Resource
     {
         return $table
             ->recordTitleAttribute('name')
-            ->modifyQueryUsing(fn (Builder $query): Builder => $query
-                ->withCount('connections')
-                ->withCount(['tokens as active_tokens_count' => fn (Builder $tokens): Builder => $tokens->whereNull('revoked_at')]))
+            ->modifyQueryUsing(fn (Builder $query): Builder => $query->withCount('connections'))
             ->columns([
                 TextColumn::make('name')
                     ->description(fn (Vault $record): ?string => $record->description)
                     ->searchable()
                     ->sortable(),
                 TextColumn::make('connections_count')->label('Connections')->numeric(),
-                TextColumn::make('active_tokens_count')->label('Tokens')->numeric(),
+                TextColumn::make('auth_mode')->label('Sign-in')->badge()->color('gray'),
                 TextColumn::make('public_id')
                     ->label('MCP URL')
                     ->formatStateUsing(fn (Vault $record): string => $record->endpointUrl())
@@ -114,6 +132,7 @@ class VaultResource extends Resource
     {
         return [
             TokensRelationManager::class,
+            ConnectedAppsRelationManager::class,
         ];
     }
 

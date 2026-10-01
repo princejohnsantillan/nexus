@@ -2,10 +2,12 @@
 
 namespace App\Filament\Resources\Vaults\Pages;
 
+use App\Enums\VaultAuthMode;
 use App\Filament\Resources\Vaults\VaultResource;
 use App\Models\Vault;
 use Filament\Actions\Action;
 use Filament\Actions\DeleteAction;
+use Filament\Notifications\Notification;
 use Filament\Resources\Pages\EditRecord;
 use Filament\Support\Icons\Heroicon;
 
@@ -17,6 +19,19 @@ class EditVault extends EditRecord
     {
         return [
             VaultResource::manageToolsAction(),
+            Action::make('rotateUrl')
+                ->label('Rotate URL')
+                ->icon(Heroicon::OutlinedArrowPath)
+                ->color('gray')
+                ->visible(fn (Vault $record): bool => $record->auth_mode === VaultAuthMode::SignedUrl)
+                ->requiresConfirmation()
+                ->modalDescription('The current URL stops working immediately. Every client using it needs the new one.')
+                ->action(function (Vault $record): void {
+                    $record->rotateSignedUrl();
+                    $this->refreshFormData(['endpoint']);
+
+                    Notification::make()->success()->title('New signed URL created')->body('Copy it from the Endpoint section.')->send();
+                }),
             Action::make('setup')
                 ->label('Setup instructions')
                 ->icon(Heroicon::OutlinedCommandLine)

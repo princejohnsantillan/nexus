@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\Vaults\RelationManagers;
 
+use App\Enums\VaultAuthMode;
 use App\Models\Vault;
 use App\Models\VaultToken;
 use Filament\Actions\Action;
@@ -12,6 +13,7 @@ use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model;
 
 /**
  * @method Vault getOwnerRecord()
@@ -25,6 +27,11 @@ class TokensRelationManager extends RelationManager
     public function isReadOnly(): bool
     {
         return false;
+    }
+
+    public static function canViewForRecord(Model $ownerRecord, string $pageClass): bool
+    {
+        return $ownerRecord instanceof Vault && $ownerRecord->auth_mode === VaultAuthMode::Token;
     }
 
     public function table(Table $table): Table

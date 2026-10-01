@@ -4,12 +4,14 @@ namespace App\Providers;
 
 use App\Http\Client\PinOutboundRequests;
 use App\Mcp\Vaults\VaultContext;
+use App\Models\Vault;
 use App\Security\DataKeys;
 use App\Security\KeyWrapper;
 use App\Security\KmsKeyWrapper;
 use App\Security\LocalKeyWrapper;
 use App\Security\OutboundGuard;
 use Aws\Kms\KmsClient;
+use Carbon\CarbonInterval;
 use Closure;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Contracts\Foundation\Application;
@@ -18,6 +20,8 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 use InvalidArgumentException;
+use Laravel\Mcp\Server\Registrar;
+use Laravel\Passport\Passport;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -58,11 +62,16 @@ class AppServiceProvider extends ServiceProvider
 
         RateLimiter::for('mcp', function (Request $request): Limit {
             $key = app()->bound(VaultContext::class)
-                ? 'token:'.app(VaultContext::class)->token->id
+                ? app(VaultContext::class)->rateLimitKey
                 : 'ip:'.$request->ip();
 
             return Limit::perMinute(config('nexus.limits.calls_per_minute'))->by($key);
         });
+
+        // Dynamic client registration is open by design; keep it from being used to flood the clients table.
+        RateLimiter::for('oauth-registration', fn (Request $request): Limit => Limit::perHour(20)->by($request->ip()));
+
+        $this->configureOAuthServer();
     }
 
     /**
@@ -75,6 +84,23 @@ class AppServiceProvider extends ServiceProvider
         Http::globalOptions(['allow_redirects' => false]);
 
         Http::globalMiddleware(fn (callable $handler): Closure => app(PinOutboundRequests::class)($handler));
+    }
+
+    /**
+     * Nexus as an OAuth authorization server, for OAuth-mode vaults.
+     */
+    protected function configureOAuthServer(): void
+    {
+        Registrar::ensureMcpScope();
+
+        Passport::tokensExpireIn(CarbonInterval::hour());
+        Passport::refreshTokensExpireIn(CarbonInterval::days(30));
+        Passport::authorizationView(fn (array $parameters) => view('oauth.authorize', [
+            ...$parameters,
+            'vault' => Vault::query()
+                ->whereHas('oauthClients', fn ($clients) => $clients->whereKey($parameters['client']->getKey()))
+                ->first(),
+        ]));
     }
 
     protected function makeKeyWrapper(string $driver): KeyWrapper

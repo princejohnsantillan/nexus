@@ -37,14 +37,14 @@ class ToolCallLogResource extends Resource
     public static function table(Table $table): Table
     {
         return $table
-            ->modifyQueryUsing(fn (Builder $query): Builder => $query->with(['vault', 'token']))
+            ->modifyQueryUsing(fn (Builder $query): Builder => $query->with('vault'))
             ->defaultSort('created_at', 'desc')
             ->description('Metadata only: Nexus never stores tool arguments or results. Kept for '.config('nexus.logs.retention_days').' days.')
             ->columns([
                 TextColumn::make('created_at')->label('When')->since()->dateTimeTooltip()->sortable(),
                 TextColumn::make('tool_name')->label('Tool')->fontFamily('mono')->searchable(),
                 TextColumn::make('vault.name')->label('Vault'),
-                TextColumn::make('token.name')->label('Token')->placeholder('Deleted'),
+                TextColumn::make('via')->label('Via')->placeholder('Unknown'),
                 TextColumn::make('status')->badge(),
                 TextColumn::make('duration_ms')->label('Time')->numeric()->suffix(' ms')->sortable(),
                 TextColumn::make('response_bytes')->label('Size')->formatStateUsing(fn (int $state): string => number_format($state / 1024, 1).' KB'),
