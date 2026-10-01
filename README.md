@@ -114,6 +114,12 @@ Tests are written with Pest 5:
 
 `Tests\TestCase` calls `Http::preventStrayRequests()` and `withoutVite()`, so a test never reaches the network and doesn't need a front-end build. Fake the network edge (`Http::fake()`, Socialite fakes); don't mock our own classes.
 
+Faked requests pass through the [outbound guard](#outbound-requests) too, so fake `https://` URLs. `Tests\TestCase` fakes the guard's DNS so that every host resolves to a public address. To make a host resolve somewhere else, call `$this->fakeDns(['internal.example.com' => ['10.0.0.1']])`; an empty list makes the host unresolvable.
+
+### Outbound requests
+
+Every request through Laravel's HTTP client goes through the outbound guard in [`app/Outbound`](app/Outbound). The URL must use HTTPS and its host must resolve only to public addresses. The request is then pinned to those addresses with curl's resolve option, it is never streamed, and redirects are never followed. A refused request throws `App\Exceptions\OutboundRequestBlocked`, whose message is safe to show the user. To validate a URL before saving it, call `OutboundGuard::check()`. `NEXUS_BLOCK_PRIVATE_NETWORKS` and `NEXUS_REQUIRE_HTTPS` can turn the checks off only when `APP_ENV=local`.
+
 ### Architecture rules and banned functions
 
 [`tests/Arch/ArchitectureTest.php`](tests/Arch/ArchitectureTest.php) applies Pest's Laravel and security presets, a "no debug calls" rule and strict types for `App` and `Database`. Architecture rules can't see the anonymous classes in component files, so [`tests/Arch/ComponentScanTest.php`](tests/Arch/ComponentScanTest.php) scans every component PHP file for calls to the same banned functions (debug helpers, `env`, `eval`, `exec` and friends, `unserialize`, `extract` and the rest), including calls through a `use function` import or alias, and proves the scan catches a `dd()`. Like the architecture rules, it can't see dynamic calls such as `$function()` or string callables. The lists live in [`tests/Support/BannedFunctions.php`](tests/Support/BannedFunctions.php).
