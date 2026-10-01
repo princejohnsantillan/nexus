@@ -116,7 +116,8 @@ Set the page title with `#[Title('…')]` on the class. Pages use the app layout
 - `layouts::app` ([`resources/views/layouts/app.blade.php`](resources/views/layouts/app.blade.php)) is the signed-in app: a Flux sidebar with Stars, Connections and Activity that collapses into a menu on small screens, and a profile menu with the appearance switch. It is the default page layout.
 - `layouts::public` is for public pages such as the welcome page. Choose it with `#[Layout('layouts::public')]`.
 - Both include [`partials/head.blade.php`](resources/views/partials/head.blade.php), which loads the Inter font, the Vite assets and `@fluxAppearance`; both end with `@fluxScripts`.
-- Shared pieces live in `resources/views/components`: `<x-empty-state>` (every list needs a helpful empty state), `<x-appearance-switch>`, `<x-app-logo>` and `<x-icons.github>`.
+- Shared pieces live in `resources/views/components`: `<x-empty-state>` (every list needs a helpful empty state), `<x-appearance-switch>`, `<x-app-logo>`, `<x-icons.github>`, `<x-connection-header>` (a Connection's name, status and row of sub-page links), `<x-connection-status>` and `<x-tool-hint>`.
+- Route parameters for records resolve only within the signed-in user's own data (`bindOwnRecords()` in `AppServiceProvider`), so another user's Connection is a 404, never a 403. Bind each new record type there the same way.
 - Every page except the welcome page requires sign-in: add app routes inside the `auth` group in [`routes/web.php`](routes/web.php). Guests are sent to the welcome page, and signed-in visitors to the welcome page go to the app.
 - Toasts: in a Livewire action call `Flux::toast(...)`. To show one after a redirect, flash `toast` with its text and a variant (`success`, `warning` or `danger`): `to_route('home')->with('toast', ['variant' => 'success', 'text' => __('Saved.')])`. Both layouts render it with `<x-flash-toast>`.
 
@@ -136,9 +137,63 @@ Tests are written with Pest 5:
 
 Faked requests pass through the [outbound guard](#outbound-requests) too, so fake `https://` URLs. `Tests\TestCase` fakes the guard's DNS so that every host resolves to a public address. To make a host resolve somewhere else, call `$this->fakeDns(['internal.example.com' => ['10.0.0.1']])`; an empty list makes the host unresolvable.
 
+#### The fake MCP server
+
+[`Tests\Support\FakeMcpServer`](tests/Support/FakeMcpServer.php) stands in for a Connection's remote MCP server. It answers one URL through `Http::fake()`, so the real downstream client, transport and outbound guard all run:
+
+```php
+$server = FakeMcpServer::at('https://mcp.example.com/mcp')              // the default URL
+    ->withTools('[{"name":"search","inputSchema":{"type":"object","properties":{}}}]')
+    ->onCall('search', fn (stdClass $arguments): array => ['content' => [['type' => 'text', 'text' => 'Found it']]]);
+```
+
+Out of the box it is a 2025-11-25 server, like most today: it answers `server/discover` with "method not found", then `initialize`, and lists no tools. Script the rest:
+
+- `withTools()` takes tool definitions as arrays or as a JSON string; the string is sent exactly as written, so use it when `{}` or long numbers must survive. `paginate(2)` serves them two to a page, with cursors.
+- `onCall()` answers `tools/call` for a tool with a result (an array, or its raw JSON). Unknown tools get a JSON-RPC "invalid params" error.
+- `speaking('2026-07-28')` answers `server/discover`; `speaking('2025-06-18')` or `'2025-03-26'` answers `initialize` with that version.
+- `requireHeader('Authorization', 'Bearer …')` refuses other requests with a 401 (or the status you pass) and the `WWW-Authenticate` header set by `challengingWith()`.
+- `streaming()` answers with server-sent events instead of plain JSON; `streaming(splitData: true)` spreads each message over several `data:` lines, with CRLF line ends, a comment and an id.
+- `respondTo($method, $responder)` replaces the answer to one method. The responders are `FakeMcpServer::error()` (a JSON-RPC error), `errorWithId()` (one carrying a placeholder or another request's id), `httpStatus()`, `raw()` (any body, e.g. malformed JSON), `timeout()` and `unreachable()`.
+- `beforeAnswering($method, $callback)` runs the callback while that request is in flight, to play out a race such as the Connection being deleted or moved mid-refresh.
+
+Afterwards, `received('tools/call')` returns the JSON-RPC messages it got, decoded with objects kept as objects, `requests()` the HTTP requests (for headers), and `transferOptions()` the HTTP client's options for each one, such as its timeouts. Anything sent to another URL is a stray request and fails the test.
+
 ### Outbound requests
 
 Every request through Laravel's HTTP client goes through the outbound guard in [`app/Outbound`](app/Outbound). The URL must use HTTPS and its host must resolve only to public addresses. The request is then pinned to those addresses with curl's resolve option and always connects directly, ignoring any proxy from the environment or the request options. It is never streamed, and redirects are never followed. A refused request throws `App\Exceptions\OutboundRequestBlocked`, whose message is safe to show the user. To validate a URL before saving it, call `OutboundGuard::check()`. `NEXUS_BLOCK_PRIVATE_NETWORKS` and `NEXUS_REQUIRE_HTTPS` can turn the checks off only when `APP_ENV=local`.
+
+### Downstream MCP servers
+
+[`App\Downstream\DownstreamClient`](app/Downstream/DownstreamClient.php) is the only way Nexus talks to a Connection's MCP server. It opens a session signed in the way the Connection says (no auth, or its header) and connects on the first request:
+
+```php
+$session = $downstream->session($connection);
+
+$tools = $session->listTools();                                 // list<string>: each tool's JSON, every page
+$result = $session->callTool('search', '{"query":"laravel"}');  // JSON object in, JSON object out
+```
+
+- Tools and results come back as the exact JSON text the server sent, and a tool call's arguments go out as the exact JSON object given. Nothing is decoded and encoded on the way, which would turn `{}` into `[]`, round long numbers and fail on ones like `1e400`. Decode a copy with `json_decode()` to read it; keep the text to store or forward it. `App\Downstream\RawJson` cuts members and elements out of JSON text without decoding them.
+- It speaks 2026-07-28 (`server/discover`) where the server does, and otherwise falls back to `initialize`, accepting servers that settle on 2025-11-25, 2025-06-18 or 2025-03-26. It follows `tools/list` cursors, pairs errors that come back with a placeholder or mismatched id with their request, and reads server-sent events as the SSE format defines them (an event's `data:` lines joined).
+- `NEXUS_DOWNSTREAM_CONNECT_TIMEOUT` (10 s) limits connecting and the handshake; `NEXUS_DOWNSTREAM_CALL_TIMEOUT` (55 s, under Laravel Cloud's 60-second request limit) limits listing and calling tools.
+- Every failure throws `App\Exceptions\DownstreamRequestFailed`. Its `failure` (`App\Enums\DownstreamFailure`) says why: `NeedsSignIn` (401, 403 or an invalid-token challenge, whose `challenge` the exception keeps), `Timeout`, `Unreachable` (connection failed, blocked by the outbound guard, 404 or 5xx), `ProtocolError` or `ToolError` (a JSON-RPC error instead of a tool result). Its message is Nexus's own and safe to show; it never contains text from the server, and no exception from the server is chained to it. A tool result with `isError: true` is a result, not a failure.
+
+The pieces behind it (the transport, the lenient protocol, the raw request) live in `App\Downstream` too; reach them only through the client.
+
+### Connections and their catalogs
+
+A Connection (`App\Models\Connection`) is one of a user's accounts on a remote MCP server. Its handle prefixes its tools' names in Stars, so it never changes once created: the model refuses to save a changed handle. A header sign-in keeps the header's name in `settings` and its value encrypted in `secrets`. `nexus.limits.connections_per_user` (`NEXUS_CONNECTIONS_PER_USER`, 25) caps how many a user may have. Save every new Connection through `App\Actions\SaveNewConnection`: it holds a per-user cache lock while it counts and inserts, so two adds at once can't both slip under the limit, and its `limitMessage()` is what the user is told. Load tools after it returns, outside the lock.
+
+A Connection's catalog is its stored copy of the server's tools (`App\Models\ConnectionTool`). [`App\Actions\RefreshCatalog`](app/Actions/RefreshCatalog.php) re-reads it:
+
+```php
+$loaded = $refreshCatalog->handle($connection);  // bool
+```
+
+It matches tools by name, rewrites only the ones whose definition hash changed, removes vanished ones, skips names the MCP specification doesn't allow, stores each definition as the exact JSON received with its four behaviour hints (null when the server didn't state one), and marks the Connection connected. When the server can't be listed, the previous catalog stays and the Connection's status (`needs_auth` or `error`) and last error say why; nothing is logged.
+
+Asking the server takes time, so the outcome is written in one transaction holding the Connection's row, and only if the Connection still exists with the same URL, sign-in method, settings and credentials (the stored ciphertext, which changes with every new value); a refresh overtaken by a delete, a new server or a replaced header is dropped, whether it succeeded or failed. A database error while storing is reported as `CatalogNotStored`, which names the Connection and the SQLSTATE but none of the values (they came from the server), and recorded on the Connection under the same check. Adding a Connection and its "Refresh tools" button run it straight away; changing a Connection's URL clears its stored credentials and its catalog first.
 
 ### Architecture rules and banned functions
 

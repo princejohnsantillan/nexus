@@ -5,15 +5,19 @@ declare(strict_types=1);
 namespace App\Providers;
 
 use App\Auth\GitHubSignInProvider;
+use App\Models\Connection;
+use App\Models\User;
 use App\Outbound\DnsResolver;
 use App\Outbound\GuardOutboundRequests;
 use App\Outbound\OutboundGuard;
 use App\Outbound\SystemDnsResolver;
 use Carbon\CarbonImmutable;
 use Closure;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Validation\Rules\Password;
 use Laravel\Socialite\Facades\Socialite;
@@ -37,6 +41,7 @@ class AppServiceProvider extends ServiceProvider
         $this->configureDefaults();
         $this->guardOutboundRequests();
         $this->configureGitHubSignIn();
+        $this->bindOwnRecords();
     }
 
     /**
@@ -97,5 +102,22 @@ class AppServiceProvider extends ServiceProvider
             GitHubSignInProvider::class,
             config()->array('services.github'),
         ));
+    }
+
+    /**
+     * Route parameters resolve only to the signed-in user's own records, so
+     * anyone else's are simply not found.
+     */
+    protected function bindOwnRecords(): void
+    {
+        Route::pattern('connection', '[0-9]+');
+
+        Route::bind('connection', function (string $id): Connection {
+            $user = Auth::user();
+
+            abort_unless($user instanceof User, 404);
+
+            return $user->connections()->findOrFail($id);
+        });
     }
 }
