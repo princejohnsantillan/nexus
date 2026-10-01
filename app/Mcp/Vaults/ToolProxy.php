@@ -83,20 +83,32 @@ class ToolProxy
 
         return [
             ($raw->isError ?? false) === true ? ToolCallStatus::ToolError : ToolCallStatus::Ok,
-            $this->passthrough($raw),
+            $this->passthrough($raw, $tool),
         ];
     }
 
     /**
+     * The server's result, unchanged except for one thing: when the vault
+     * has several accounts of this service, a first line says which account
+     * answered. Otherwise an empty search of the wrong mailbox looks exactly
+     * like "nothing found".
+     *
      * @return array<string, mixed>
      */
-    protected function passthrough(stdClass $raw): array
+    protected function passthrough(stdClass $raw, ExposedTool $tool): array
     {
         $result = (array) $raw;
 
         unset($result['resultType']);
 
-        $result['content'] ??= [];
+        $result['content'] = is_array($result['content'] ?? null) ? $result['content'] : [];
+
+        if ($tool->hasSiblings) {
+            array_unshift($result['content'], [
+                'type' => 'text',
+                'text' => "From {$tool->connection->accountSummary()} ({$tool->connection->handle}).",
+            ]);
+        }
 
         if (isset($result['_meta'])) {
             $meta = (array) $result['_meta'];

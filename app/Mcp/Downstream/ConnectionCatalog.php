@@ -31,7 +31,8 @@ class ConnectionCatalog
     public function refresh(Connection $connection): int
     {
         try {
-            $tools = $this->clients->open($connection)->listTools();
+            $session = $this->clients->open($connection);
+            $tools = $session->listTools();
         } catch (ConnectionNeedsAuth $exception) {
             throw $exception;
         } catch (Throwable $exception) {
@@ -79,6 +80,35 @@ class ConnectionCatalog
             ])->save();
         });
 
+        $this->detectIdentity($connection, $session, $tools);
+
         return count($tools);
+    }
+
+    /**
+     * If the server has a profile tool ("whoami", "get_me"…), ask it who
+     * this connection is signed in as. Nexus calls it for the owner's label
+     * even when no vault has it switched on; it takes no arguments and
+     * changes nothing. A failure here never fails the refresh.
+     *
+     * @param  list<stdClass>  $tools
+     */
+    protected function detectIdentity(Connection $connection, DownstreamSession $session, array $tools): void
+    {
+        $profileTool = AccountIdentity::profileTool($tools);
+
+        if ($profileTool === null) {
+            return;
+        }
+
+        try {
+            $identity = AccountIdentity::fromToolResult($session->callTool($profileTool, []));
+        } catch (Throwable) {
+            return;
+        }
+
+        if ($identity !== null && $identity !== $connection->account_identity) {
+            $connection->forceFill(['account_identity' => $identity])->save();
+        }
     }
 }

@@ -5,7 +5,6 @@ namespace App\Http\Controllers;
 use App\Enums\ConnectionAuthType;
 use App\Enums\ConnectionStatus;
 use App\Filament\Resources\Connections\ConnectionResource;
-use App\Mcp\Downstream\ConnectionCatalog;
 use App\Mcp\Downstream\DownstreamClients;
 use App\Mcp\Downstream\OAuthClients;
 use App\Mcp\Downstream\OAuthTokens;
@@ -24,12 +23,16 @@ use Throwable;
  *
  * Nexus is the OAuth client here: it discovers the server's authorization
  * server, registers itself if needed, and stores the tokens encrypted with
- * the owner's key. One callback URL serves every connection, so the pending
- * connection is remembered in the session.
+ * the owner's key. One callback URL serves every connection, so each
+ * pending sign-in is remembered by its `state`, which lets several run at
+ * once, even for two accounts on the same server.
  */
 class ConnectionOAuthController extends Controller
 {
-    protected const PENDING = 'nexus.oauth.pending_connection';
+    protected const PENDING = 'nexus.oauth.pending';
+
+    /** Abandoned sign-ins are forgotten once this many newer ones exist. */
+    protected const MAX_PENDING = 5;
 
     public function connect(Request $request, Connection $connection, DownstreamClients $clients, OAuthClients $oauth): RedirectResponse
     {
@@ -46,7 +49,10 @@ class ConnectionOAuthController extends Controller
                 return $this->fail($connection, ConnectionStatus::Error, "Couldn't start sign-in: {$exception->getMessage()}");
             }
 
-            $request->session()->put(self::PENDING, $connection->id);
+            parse_str((string) parse_url($redirect->getTargetUrl(), PHP_URL_QUERY), $query);
+
+            $pending = [...$request->session()->get(self::PENDING, []), (string) ($query['state'] ?? '') => $connection->id];
+            $request->session()->put(self::PENDING, array_slice($pending, -self::MAX_PENDING, preserve_keys: true));
 
             return $redirect;
         } catch (Throwable $exception) {
@@ -62,20 +68,37 @@ class ConnectionOAuthController extends Controller
         return $this->backTo($connection);
     }
 
-    public function callback(Request $request, OAuthClients $oauth, OAuthTokens $tokens, ConnectionCatalog $catalog): RedirectResponse
+    public function callback(Request $request, OAuthClients $oauth, OAuthTokens $tokens): RedirectResponse
     {
-        $connection = Connection::query()->find($request->session()->pull(self::PENDING));
+        $pending = $request->session()->get(self::PENDING, []);
+        $state = (string) $request->query('state');
+        $connection = isset($pending[$state]) ? Connection::query()->find($pending[$state]) : null;
 
-        abort_if($connection === null, 404);
+        unset($pending[$state]);
+        $request->session()->put(self::PENDING, $pending);
+
+        if ($connection === null) {
+            Notification::make()
+                ->danger()
+                ->title('Sign-in expired')
+                ->body('This sign-in was already used or is too old. Start it again from the connection.')
+                ->send();
+
+            return redirect(ConnectionResource::getUrl('index', panel: 'app'));
+        }
+
         Gate::authorize('update', $connection);
 
+        $client = $oauth->for($connection);
+
         try {
-            $tokenSet = $oauth->for($connection)->exchangeCallback();
+            $tokenSet = $client->exchangeCallback();
         } catch (OAuthException $exception) {
             return $this->fail($connection, ConnectionStatus::NeedsAuth, "Sign-in failed: {$exception->getMessage()}");
         }
 
         $tokens->store($connection, $tokenSet);
+        $connection->forceFill(['account_identity' => $client->accountHint()])->save();
 
         ConnectionResource::refreshTools($connection);
 

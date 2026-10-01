@@ -23,6 +23,7 @@ use App\Models\VaultToken;
 use App\Security\OutboundGuard;
 use Filament\Actions\Testing\TestAction;
 use Filament\Facades\Filament;
+use Filament\Notifications\Notification;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Livewire\Livewire;
@@ -71,6 +72,7 @@ class AdminPanelTest extends TestCase
         Livewire::test(CreateConnection::class)
             ->fillForm([
                 'name' => 'Excalidraw',
+                'description' => 'Team diagrams',
                 'handle' => 'excalidraw',
                 'url' => 'https://svc.example.com/mcp',
                 'auth_type' => ConnectionAuthType::Header->value,
@@ -83,6 +85,7 @@ class AdminPanelTest extends TestCase
         $connection = Connection::query()->sole();
         $this->assertTrue($connection->user->is($this->user));
         $this->assertSame('Bearer sk-live-1', $connection->secret('header_value'));
+        $this->assertSame('Team diagrams', $connection->description);
         $this->assertSame(['list_scenes'], $connection->tools()->pluck('name')->all());
         $this->assertStringNotContainsString('sk-live-1', (string) DB::table('connections')->value('secrets'));
     }
@@ -225,7 +228,9 @@ class AdminPanelTest extends TestCase
 
     public function test_changing_the_server_url_discards_tokens_issued_for_the_old_one(): void
     {
-        $connection = Connection::factory()->for($this->user)->withOAuthTokens('old-access', 'old-refresh')->create();
+        $connection = Connection::factory()->for($this->user)->withOAuthTokens('old-access', 'old-refresh')->create([
+            'account_identity' => 'ada@example.com',
+        ]);
 
         Livewire::test(EditConnection::class, ['record' => $connection->getKey()])
             ->fillForm(['url' => 'https://elsewhere.example.com/mcp'])
@@ -237,6 +242,7 @@ class AdminPanelTest extends TestCase
         $this->assertNull($connection->secret('access_token'));
         $this->assertNull($connection->secret('refresh_token'));
         $this->assertNull($connection->secret('client_id'));
+        $this->assertNull($connection->account_identity);
     }
 
     public function test_renaming_a_connection_keeps_its_credentials(): void
@@ -252,5 +258,19 @@ class AdminPanelTest extends TestCase
         $this->assertSame('Renamed', $connection->name);
         $this->assertSame('Bearer keep-me', $connection->secret('header_value'));
         $this->assertSame(ConnectionStatus::Active, $connection->status);
+    }
+
+    public function test_refreshing_warns_when_two_connections_are_the_same_account(): void
+    {
+        Connection::factory()->for($this->user)->create(['name' => 'Slack (Work)', 'url' => 'https://svc.example.com/mcp', 'account_identity' => 'ada@example.com']);
+        $second = Connection::factory()->for($this->user)->create(['name' => 'Slack (Personal)', 'url' => 'https://svc.example.com/mcp']);
+
+        $server = (new FakeMcpServer)->fake();
+        $server->toolsJson = '[{"name":"whoami","inputSchema":{"type":"object"}}]';
+        $server->onCall = fn (): string => '{"content":[],"structuredContent":{"email":"ada@example.com"}}';
+
+        ConnectionResource::refreshTools($second);
+
+        Notification::assertNotified('Same account as Slack (Work)');
     }
 }

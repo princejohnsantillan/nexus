@@ -5,6 +5,7 @@ namespace App\Mcp\Servers;
 use App\Mcp\Methods\CallVaultTool;
 use App\Mcp\Methods\ListVaultTools;
 use App\Mcp\Vaults\VaultContext;
+use App\Mcp\Vaults\VaultInstructions;
 use Laravel\Mcp\Server;
 
 /**
@@ -34,9 +35,6 @@ class VaultServer extends Server
         $vault = app(VaultContext::class)->vault;
 
         $this->name = "Nexus: {$vault->name}";
-        $this->instructions = trim(
-            "Tools from the \"{$vault->name}\" Nexus vault. Each tool name starts with the connection it belongs to, "
-            .'for example slack__search_messages. '.($vault->description ?? '')
-        );
+        $this->instructions = app(VaultInstructions::class)->for($vault);
     }
 }

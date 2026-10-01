@@ -16,7 +16,7 @@ class OAuthClients
 {
     public function for(Connection $connection, ?string $resourceMetadataUrl = null, ?string $challengeScope = null): NexusOAuthClient
     {
-        return new NexusOAuthClient(
+        return (new NexusOAuthClient(
             new OAuthConfig(
                 clientId: $connection->secret('client_id') ?? $connection->setting('oauth_client_id'),
                 clientSecret: $connection->secret('client_secret') ?? $connection->secret('oauth_client_secret'),
@@ -27,6 +27,6 @@ class OAuthClients
             $resourceMetadataUrl,
             $challengeScope,
             clientIdMetadataUrl: route('oauth.client-metadata'),
-        );
+        ))->scopedTo($connection->id);
     }
 }

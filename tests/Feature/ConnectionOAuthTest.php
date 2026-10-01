@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Enums\ConnectionAuthType;
 use App\Enums\ConnectionStatus;
+use App\Filament\Resources\Connections\ConnectionResource;
 use App\Models\Connection;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -50,13 +51,46 @@ class ConnectionOAuthTest extends TestCase
                 'code_challenge_methods_supported' => ['S256'],
             ]),
             'https://auth.example.com/register' => Http::response(['client_id' => 'registered-client'], 201),
-            'https://auth.example.com/token' => Http::response([
-                'access_token' => 'issued-access',
-                'refresh_token' => 'issued-refresh',
-                'expires_in' => 3600,
-                'token_type' => 'Bearer',
-            ]),
+            'https://auth.example.com/token' => fn (Request $request) => Http::response($this->tokenResponse($request)),
         ]);
+    }
+
+    /** Extra fields the fake authorization server adds to its token responses. */
+    protected array $tokenExtras = [];
+
+    /** Issue a distinct token per authorization code, to tell sign-ins apart. */
+    protected bool $tokenPerCode = false;
+
+    /**
+     * @return array<string, mixed>
+     */
+    protected function tokenResponse(Request $request): array
+    {
+        $suffix = $this->tokenPerCode && isset($request['code']) ? '-'.$request['code'] : '';
+
+        return [
+            'access_token' => "issued-access{$suffix}",
+            'refresh_token' => "issued-refresh{$suffix}",
+            'expires_in' => 3600,
+            'token_type' => 'Bearer',
+            ...$this->tokenExtras,
+        ];
+    }
+
+    /**
+     * Start a sign-in and return the authorize URL's query parameters.
+     *
+     * @return array<string, string>
+     */
+    protected function startSignIn(Connection $connection): array
+    {
+        $location = $this->actingAs($connection->user)
+            ->get(route('connections.oauth.connect', $connection))
+            ->headers->get('Location');
+
+        parse_str((string) parse_url((string) $location, PHP_URL_QUERY), $query);
+
+        return $query;
     }
 
     public function test_connecting_registers_nexus_and_sends_the_user_to_the_authorization_server(): void
@@ -100,17 +134,69 @@ class ConnectionOAuthTest extends TestCase
         $this->assertStringNotContainsString('issued-refresh', $stored);
     }
 
-    public function test_a_callback_with_the_wrong_state_is_refused(): void
+    public function test_a_callback_with_an_unknown_state_touches_nothing(): void
     {
-        $this->actingAs($this->connection->user);
+        $this->startSignIn($this->connection);
 
-        $this->get(route('connections.oauth.connect', $this->connection));
-        $this->get(route('oauth.callback', ['code' => 'auth-code', 'state' => 'forged']))->assertRedirect();
+        $this->get(route('oauth.callback', ['code' => 'auth-code', 'state' => 'forged']))
+            ->assertRedirect(ConnectionResource::getUrl('index', panel: 'app'));
 
         $connection = $this->connection->fresh();
-        $this->assertSame(ConnectionStatus::NeedsAuth, $connection->status);
+        $this->assertSame(ConnectionStatus::Pending, $connection->status);
         $this->assertNull($connection->secret('access_token'));
         Http::assertNotSent(fn (Request $request): bool => $request->url() === 'https://auth.example.com/token');
+    }
+
+    public function test_the_provider_is_asked_to_show_its_account_chooser(): void
+    {
+        $this->assertSame('select_account', $this->startSignIn($this->connection)['prompt']);
+    }
+
+    public function test_two_sign_ins_to_the_same_server_can_run_at_once(): void
+    {
+        $this->tokenPerCode = true;
+        $this->server->requireAuthorization = ['Bearer issued-access-a', 'Bearer issued-access-b'];
+
+        $second = Connection::factory()->for($this->connection->user)->create([
+            'handle' => 'second',
+            'auth_type' => ConnectionAuthType::OAuth,
+            'status' => ConnectionStatus::Pending,
+            'url' => $this->connection->url,
+        ]);
+
+        $first = $this->startSignIn($this->connection);
+        $other = $this->startSignIn($second);
+
+        $this->get(route('oauth.callback', ['code' => 'a', 'state' => $first['state']]))->assertRedirect();
+
+        $this->assertSame('issued-access-a', $this->connection->fresh()->secret('access_token'));
+        $this->assertNull($second->fresh()->secret('access_token'));
+
+        $this->get(route('oauth.callback', ['code' => 'b', 'state' => $other['state']]))->assertRedirect();
+
+        $this->assertSame('issued-access-b', $second->fresh()->secret('access_token'));
+        $this->assertSame('issued-access-a', $this->connection->fresh()->secret('access_token'));
+    }
+
+    public function test_an_id_token_in_the_token_response_labels_the_account(): void
+    {
+        $claims = rtrim(strtr(base64_encode(json_encode(['email' => 'ada@example.com'])), '+/', '-_'), '=');
+        $this->tokenExtras = ['id_token' => "header.{$claims}.signature"];
+
+        $query = $this->startSignIn($this->connection);
+        $this->get(route('oauth.callback', ['code' => 'auth-code', 'state' => $query['state']]));
+
+        $this->assertSame('ada@example.com', $this->connection->fresh()->account_identity);
+    }
+
+    public function test_a_workspace_in_the_token_response_labels_the_account(): void
+    {
+        $this->tokenExtras = ['team' => ['id' => 'T123', 'name' => 'BetterWorld']];
+
+        $query = $this->startSignIn($this->connection);
+        $this->get(route('oauth.callback', ['code' => 'auth-code', 'state' => $query['state']]));
+
+        $this->assertSame('BetterWorld', $this->connection->fresh()->account_identity);
     }
 
     public function test_a_brought_client_id_is_used_instead_of_registering(): void

@@ -57,6 +57,7 @@ class EditConnection extends EditRecord
                 'status' => ConnectionStatus::Pending,
                 'status_message' => null,
                 'protocol_version' => null,
+                'account_identity' => null,
             ]);
         }
 

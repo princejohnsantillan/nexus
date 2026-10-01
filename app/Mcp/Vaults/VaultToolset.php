@@ -34,12 +34,15 @@ class VaultToolset
         $switches = $vault->toolOverrides()->get()
             ->keyBy(fn (VaultTool $switch): string => $switch->connection_id.'|'.$switch->tool_name);
 
+        $accountsPerService = $connections->countBy(fn (Connection $connection): string => $connection->serviceKey());
+
         return $connections
             ->flatMap(fn (Connection $connection): Collection => $connection->tools->map(
                 fn (ConnectionTool $tool): ExposedTool => new ExposedTool(
                     $connection,
                     $tool,
                     $switches->get($connection->id.'|'.$tool->name)?->enabled ?? static::enabledByDefault($tool),
+                    hasSiblings: $accountsPerService[$connection->serviceKey()] > 1,
                 ),
             ))
             ->filter(fn (ExposedTool $tool): bool => strlen($tool->name()) <= self::MAX_NAME_LENGTH)

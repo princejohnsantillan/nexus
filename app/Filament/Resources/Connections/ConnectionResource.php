@@ -8,6 +8,7 @@ use App\Filament\Resources\Connections\Pages\CreateConnection;
 use App\Filament\Resources\Connections\Pages\EditConnection;
 use App\Filament\Resources\Connections\Pages\ListConnections;
 use App\Filament\Resources\Connections\RelationManagers\ToolsRelationManager;
+use App\Mcp\Downstream\AccountIdentity;
 use App\Mcp\Downstream\ConnectionCatalog;
 use App\Mcp\Downstream\ConnectionNeedsAuth;
 use App\Models\Connection;
@@ -19,6 +20,7 @@ use Filament\Actions\Action;
 use Filament\Actions\DeleteAction;
 use Filament\Actions\EditAction;
 use Filament\Forms\Components\Select;
+use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Notifications\Notification;
@@ -68,6 +70,13 @@ class ConnectionResource extends Resource
                             ->disabledOn('edit')
                             ->placeholder('slack')
                             ->helperText('Prefix for this connection\'s tools, e.g. slack__search_messages. Lowercase letters, digits and dashes. Can\'t be changed later, because client permission rules match on tool names.'),
+                        Textarea::make('description')
+                            ->label('Use this account for')
+                            ->rows(2)
+                            ->maxLength(500)
+                            ->placeholder('BetterWorld work workspace. Anything about BetterWorld, bw-api, deploys or teammates.')
+                            ->helperText('Optional. When a vault has more than one account of the same service, agents read this to pick the right one.')
+                            ->columnSpanFull(),
                         TextInput::make('url')
                             ->label('MCP server URL')
                             ->required()
@@ -131,11 +140,12 @@ class ConnectionResource extends Resource
                             ]),
                     ]),
                 Section::make('Status')
-                    ->columns(3)
+                    ->columns(4)
                     ->columnSpanFull()
                     ->visibleOn('edit')
                     ->schema([
                         TextEntry::make('status')->badge(),
+                        TextEntry::make('account_identity')->label('Signed in as')->placeholder('Not reported by the server'),
                         TextEntry::make('tools_refreshed_at')->label('Tools last refreshed')->since()->placeholder('Never'),
                         TextEntry::make('protocol_version')->label('Protocol')->placeholder('Unknown'),
                         TextEntry::make('status_message')->label('Last problem')->columnSpanFull()->visible(fn (?Connection $record): bool => filled($record?->status_message)),
@@ -150,7 +160,7 @@ class ConnectionResource extends Resource
             ->modifyQueryUsing(fn (Builder $query): Builder => $query->withCount('tools'))
             ->columns([
                 TextColumn::make('name')
-                    ->description(fn (Connection $record): string => $record->handle)
+                    ->description(fn (Connection $record): string => collect([$record->handle, $record->account_identity])->filter()->implode(' · '))
                     ->searchable(['name', 'handle'])
                     ->sortable(),
                 TextColumn::make('url')
@@ -212,6 +222,15 @@ class ConnectionResource extends Resource
             $count = app(ConnectionCatalog::class)->refresh($connection);
 
             Notification::make()->success()->title("{$connection->name}: {$count} tools available")->send();
+
+            if (($twin = AccountIdentity::sameAccountAs($connection->refresh())) !== null) {
+                Notification::make()
+                    ->warning()
+                    ->persistent()
+                    ->title("Same account as {$twin->name}")
+                    ->body("Both connections are signed in as {$connection->account_identity}. If you meant a different account, sign out of it at the provider (or use a private window) and reconnect.")
+                    ->send();
+            }
         } catch (ConnectionNeedsAuth $exception) {
             Notification::make()->warning()->title('Sign-in needed')->body($exception->getMessage())->send();
         } catch (Throwable $exception) {

@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Enums\ConnectionStatus;
 use App\Enums\ToolCallStatus;
+use App\Mcp\Vaults\VaultInstructions;
 use App\Mcp\Vaults\VaultToolset;
 use App\Models\Connection;
 use App\Models\ConnectionTool;
@@ -222,6 +223,106 @@ class VaultEndpointTest extends TestCase
         Http::assertSent(fn ($request): bool => $request->url() === 'https://auth.example.com/token'
             && $request['grant_type'] === 'refresh_token'
             && $request['refresh_token'] === 'refresh-1');
+    }
+
+    public function test_a_single_account_keeps_its_description_short(): void
+    {
+        $this->connection->forceFill(['description' => 'Work workspace', 'account_identity' => 'ada@bw.org'])->save();
+        $this->tool('search_messages', readOnly: true);
+
+        $this->rpc('tools/list')->assertJsonPath('result.tools.0.description', '[Slack · ada@bw.org] Searches.');
+    }
+
+    public function test_sibling_accounts_say_what_each_is_for(): void
+    {
+        $this->connection->forceFill(['description' => 'BetterWorld work: deploys and teammates', 'account_identity' => 'ada@bw.org'])->save();
+        $this->tool('search_messages', readOnly: true);
+        $this->personalSlack();
+
+        $descriptions = collect($this->rpc('tools/list')->json('result.tools'))->pluck('description', 'name');
+
+        $this->assertSame('[Slack · ada@bw.org — use for: BetterWorld work: deploys and teammates] Searches.', $descriptions['slack__search_messages']);
+        $this->assertSame('[Slack (Personal) · ada@home.example — use for: Family and side projects] Searches.', $descriptions['slack-me__search_messages']);
+    }
+
+    public function test_the_instructions_explain_how_to_choose_between_accounts(): void
+    {
+        $this->personalSlack();
+
+        $instructions = $this->rpc('initialize', [
+            'protocolVersion' => '2025-11-25',
+            'capabilities' => (object) [],
+            'clientInfo' => ['name' => 'claude-code', 'version' => '2.1'],
+        ])->json('result.instructions');
+
+        $this->assertStringContainsString('- slack-me: Slack (Personal) · ada@home.example. Use for: Family and side projects', $instructions);
+        $this->assertStringContainsString('more than one account here (slack, slack-me)', $instructions);
+        $this->assertStringContainsString('ask the user which account to use', $instructions);
+    }
+
+    public function test_the_instructions_stay_within_what_clients_keep(): void
+    {
+        foreach (range(1, 12) as $index) {
+            $connection = Connection::factory()->for($this->vault->user)->create([
+                'url' => 'https://svc.example.com/mcp',
+                'description' => str_repeat("Account {$index} notes. ", 40),
+            ]);
+            $this->vault->connections()->attach($connection);
+        }
+
+        $instructions = app(VaultInstructions::class)->for($this->vault);
+
+        $this->assertLessThanOrEqual(VaultInstructions::MAX_LENGTH, mb_strlen($instructions));
+        $this->assertStringContainsString('ask the user which account to use', $instructions);
+    }
+
+    public function test_results_from_sibling_accounts_say_which_account_answered(): void
+    {
+        $this->tool('search_messages', readOnly: true);
+        $this->personalSlack();
+
+        $server = (new FakeMcpServer)->fake();
+        $server->onCall = fn (): string => '{"content":[{"type":"text","text":"0 messages"}],"isError":false}';
+
+        $this->rpc('tools/call', ['name' => 'slack-me__search_messages', 'arguments' => ['query' => 'invoice']])
+            ->assertJsonPath('result.content.0.text', 'From Slack (Personal) · ada@home.example (slack-me).')
+            ->assertJsonPath('result.content.1.text', '0 messages');
+    }
+
+    public function test_results_from_a_single_account_are_passed_through_untouched(): void
+    {
+        $this->tool('search_messages', readOnly: true);
+        (new FakeMcpServer)->fake();
+
+        $this->rpc('tools/call', ['name' => 'slack__search_messages', 'arguments' => []])
+            ->assertJsonCount(1, 'result.content')
+            ->assertJsonPath('result.content.0.text', 'ok');
+    }
+
+    /**
+     * A second Slack account on the same server, in the same vault.
+     */
+    protected function personalSlack(): Connection
+    {
+        $connection = Connection::factory()->for($this->vault->user)->create([
+            'name' => 'Slack (Personal)',
+            'handle' => 'slack-me',
+            'url' => 'https://svc.example.com/mcp',
+            'description' => 'Family and side projects',
+            'account_identity' => 'ada@home.example',
+        ]);
+        $this->vault->connections()->attach($connection);
+
+        $definition = '{"name":"search_messages","description":"Searches.","inputSchema":{"type":"object","properties":{}},"annotations":{"readOnlyHint":true}}';
+        ConnectionTool::factory()->for($connection)->create([
+            'name' => 'search_messages',
+            'definition' => $definition,
+            'definition_hash' => hash('sha256', $definition),
+            'read_only' => true,
+            'destructive' => false,
+        ]);
+
+        return $connection;
     }
 
     protected function tool(string $name, bool $readOnly, string $schema = '{"type":"object","properties":{}}'): ConnectionTool

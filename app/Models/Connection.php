@@ -24,7 +24,7 @@ use SensitiveParameter;
  * data key; read it with allSecrets() or secret() and write it with
  * putSecrets().
  */
-#[Fillable(['name', 'handle', 'url', 'auth_type', 'settings', 'status', 'status_message'])]
+#[Fillable(['name', 'description', 'handle', 'url', 'auth_type', 'settings', 'status', 'status_message'])]
 #[Hidden(['secrets'])]
 class Connection extends Model
 {
@@ -123,6 +123,26 @@ class Connection extends Model
         $this->decryptedSecrets = null;
 
         return $this;
+    }
+
+    /**
+     * Connections to the same host count as the same service, e.g. two Slack
+     * workspaces, or two Sentry organisations on mcp.sentry.dev.
+     */
+    public function serviceKey(): string
+    {
+        return strtolower((string) parse_url($this->url, PHP_URL_HOST));
+    }
+
+    /**
+     * How agents see this account: its name, plus who it is signed in as
+     * when the server reported that. E.g. "Slack (BetterWorld) · prince@betterworld.org".
+     */
+    public function accountSummary(): string
+    {
+        return filled($this->account_identity)
+            ? "{$this->name} · {$this->account_identity}"
+            : $this->name;
     }
 
     public function isUsable(): bool

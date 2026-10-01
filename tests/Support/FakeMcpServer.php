@@ -32,8 +32,13 @@ class FakeMcpServer
     /** The protocol version a legacy server answers initialize with. */
     public string $initializeVersion = '2025-11-25';
 
-    /** When set, requests must carry exactly this Authorization header. */
-    public ?string $requireAuthorization = null;
+    /**
+     * When set, requests must carry this Authorization header (or one of
+     * these, when given a list).
+     *
+     * @var string|list<string>|null
+     */
+    public string|array|null $requireAuthorization = null;
 
     /** @var (Closure(stdClass): string)|null Returns the raw JSON of a tools/call result. */
     public ?Closure $onCall = null;
@@ -59,7 +64,7 @@ class FakeMcpServer
     {
         $this->headers[] = $request->headers();
 
-        if ($this->requireAuthorization !== null && $request->header('Authorization') !== [$this->requireAuthorization]) {
+        if ($this->requireAuthorization !== null && ! in_array($request->header('Authorization')[0] ?? null, (array) $this->requireAuthorization, true)) {
             return Http::response('', 401, [
                 'WWW-Authenticate' => 'Bearer resource_metadata="https://svc.example.com/.well-known/oauth-protected-resource/mcp", scope="read write"',
             ]);
