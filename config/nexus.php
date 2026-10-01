@@ -46,9 +46,9 @@ return [
     |--------------------------------------------------------------------------
     |
     | Every Connection's catalog is refreshed in the background once a day,
-    | and when a Star lists tools from a catalog older than this many
-    | minutes. That refresh is queued after the response, so the list
-    | itself is served from the catalog as it is.
+    | and when a Star lists tools or prompts from a catalog older than
+    | this many minutes. That refresh is queued after the response, so
+    | the list itself is served from the catalog as it is.
     |
     */
 

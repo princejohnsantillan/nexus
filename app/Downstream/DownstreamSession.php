@@ -51,6 +51,24 @@ final readonly class DownstreamSession
     }
 
     /**
+     * Whether the server may have tools: it declared the `tools` capability
+     * when the session connected, or declared no capabilities at all, so a
+     * server that leaves them out is still asked. A server that declares
+     * others without `tools`, such as one with only prompts, has none, and
+     * may refuse `tools/list` outright.
+     *
+     * @throws DownstreamRequestFailed
+     */
+    public function offersTools(): bool
+    {
+        $this->connect();
+
+        $capabilities = $this->client->capabilities();
+
+        return $capabilities === [] || array_key_exists('tools', $capabilities);
+    }
+
+    /**
      * Whether the server said it has prompts (the `prompts` capability) when
      * the session connected.
      *

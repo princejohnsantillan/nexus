@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Once;
 use Illuminate\Testing\TestResponse;
 use InvalidArgumentException;
+use Laravel\Mcp\Transport\HeaderValue;
 
 /**
  * An MCP client for tests, talking to a Star's endpoint through the HTTP
@@ -23,7 +24,8 @@ use InvalidArgumentException;
  *   connects with `server/discover`, puts the protocol version and its
  *   capabilities in every request's `_meta`, and mirrors the protocol
  *   version, method and name in the MCP-Protocol-Version, Mcp-Method and
- *   Mcp-Name headers, as laravel/mcp requires.
+ *   Mcp-Name headers, as laravel/mcp requires (a name that isn't plain
+ *   ASCII is sent base64-encoded, as the specification says).
  * - at($star->signedUrl()) sends every request to that URL instead of the
  *   Star's endpoint, as a client given only a signed URL does.
  * - withToken() takes an OAuth access token too (see StarOAuthFlow). Each
@@ -154,7 +156,7 @@ final class StarClient
             $name = json_decode(RawJson::member($params, 'name') ?? 'null');
 
             if (is_string($name)) {
-                $headers['Mcp-Name'] = $name;
+                $headers['Mcp-Name'] = (string) new HeaderValue($name);
             }
         } elseif ($method !== 'initialize') {
             $headers['MCP-Protocol-Version'] = $this->protocolVersion;

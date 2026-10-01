@@ -310,13 +310,40 @@ describe('prompts', function (): void {
             ->and($connection->prompts()->where('name', 'keep')->sole()->updated_at?->equalTo($kept->updated_at))->toBeTrue();
     });
 
-    it('skips prompts whose names are not safe to expose', function (): void {
-        FakeMcpServer::at()->withPrompts([['name' => 'make-this-a-page'], ['name' => 'has space'], ['name' => str_repeat('a', 129)], ['name' => '']]);
+    it('keeps any prompt name the server gives, skipping only empty, overlong and invisible ones', function (): void {
+        FakeMcpServer::at()->withPrompts([
+            ['name' => 'make-this-a-page'], ['name' => 'team:review'], ['name' => 'résumer'], ['name' => 'Ask a question'], ['name' => str_repeat('é', 128)],
+            ['name' => ''], ['name' => str_repeat('a', 129)], ['name' => "bell\u{7}"], ['name' => "zero\u{200B}width"], ['name' => "new\nline"],
+        ]);
         $connection = Connection::factory()->create();
 
         resolve(RefreshCatalog::class)->handle($connection);
 
-        expect($connection->prompts()->pluck('name')->all())->toBe(['make-this-a-page']);
+        expect($connection->prompts()->orderBy('id')->pluck('name')->all())->toBe(['make-this-a-page', 'team:review', 'résumer', 'Ask a question', str_repeat('é', 128)]);
+    });
+
+    it('stores the prompts of a server that has prompts and no tools, without asking for tools', function (string $version): void {
+        $server = FakeMcpServer::at()->speaking($version)->withoutTools()->withPrompts([['name' => 'hello']]);
+        $connection = Connection::factory()->failed()->create();
+
+        $loaded = resolve(RefreshCatalog::class)->handle($connection);
+
+        expect($loaded)->toBeTrue()
+            ->and($connection->prompts()->pluck('name')->all())->toBe(['hello'])
+            ->and($connection->tools()->count())->toBe(0)
+            ->and($connection->refresh()->only(['status', 'last_error']))->toBe(['status' => ConnectionStatus::Connected, 'last_error' => null])
+            ->and($server->received('tools/list'))->toBe([]);
+    })->with(['2026-07-28', '2025-11-25']);
+
+    it('still asks a server that declares no capabilities at all for its tools', function (): void {
+        $server = FakeMcpServer::at()
+            ->withTools([['name' => 'search']])
+            ->respondTo('initialize', FakeMcpServer::jsonRpcResult(['protocolVersion' => '2025-11-25', 'capabilities' => new stdClass, 'serverInfo' => ['name' => 'quiet', 'version' => '1.0.0']]));
+        $connection = Connection::factory()->create();
+
+        expect(resolve(RefreshCatalog::class)->handle($connection))->toBeTrue()
+            ->and($connection->tools()->pluck('name')->all())->toBe(['search'])
+            ->and($server->received('prompts/list'))->toBe([]);
     });
 
     it('keeps the previous prompts, and still stores the tools, when listing prompts fails', function (Closure $responder): void {

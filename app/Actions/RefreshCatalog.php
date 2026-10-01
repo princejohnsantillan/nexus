@@ -21,11 +21,18 @@ use stdClass;
 class RefreshCatalog
 {
     /**
-     * Tool names the MCP specification allows. Prompt names are held to the
-     * same rule, so that every name a Star exposes is as safe to show and
-     * to type, as a slash command, say.
+     * Tool names the MCP specification allows.
      */
-    private const string NAME_PATTERN = '/^[A-Za-z0-9_.-]{1,128}$/';
+    private const string TOOL_NAME_PATTERN = '/^[A-Za-z0-9_.-]{1,128}$/';
+
+    /**
+     * Prompt names Nexus stores. The MCP specification sets no rule for
+     * them, so any name is kept, `team:review` and `résumer` included, up
+     * to 128 characters (the column's length) and without control or
+     * invisible characters, which could make two names look alike or
+     * break the text they are shown in.
+     */
+    private const string PROMPT_NAME_PATTERN = '/^\P{C}{1,128}$/u';
 
     /**
      * The columns that say which server a refresh asks and how it signs in:
@@ -45,7 +52,8 @@ class RefreshCatalog
      * Re-read a Connection's tools from its server and store them as its
      * catalog: tools are matched by name, changed ones are rewritten, vanished
      * ones are removed, and tools with names the MCP specification doesn't
-     * allow are skipped. Each definition is stored as the exact JSON the
+     * allow are skipped. A server that declares capabilities without `tools`,
+     * such as one with only prompts, has no tools and isn't asked for them. Each definition is stored as the exact JSON the
      * server sent. The Connection is then connected, with no last error,
      * and labelled with the account its connector's profile tool names (such
      * as GitHub's login), when it has one that answers.
@@ -71,7 +79,7 @@ class RefreshCatalog
 
         try {
             $session = $this->downstream->session($connection);
-            $tools = $session->listTools();
+            $tools = $session->offersTools() ? $session->listTools() : [];
         } catch (DownstreamRequestFailed $failed) {
             $this->storeIfCurrent($connection, $signIn, function () use ($connection, $failed): void {
                 $connection->forceFill([
@@ -94,7 +102,7 @@ class RefreshCatalog
                 $tool = json_decode($definition);
                 $name = $tool instanceof stdClass ? $tool->name ?? null : null;
 
-                if (! $tool instanceof stdClass || ! is_string($name) || preg_match(self::NAME_PATTERN, $name) !== 1) {
+                if (! $tool instanceof stdClass || ! is_string($name) || preg_match(self::TOOL_NAME_PATTERN, $name) !== 1) {
                     continue;
                 }
 
@@ -145,7 +153,7 @@ class RefreshCatalog
     /**
      * Store the prompts as the Connection's, as the tools are: matched by
      * name, changed ones rewritten, vanished ones removed, and ones with
-     * names outside NAME_PATTERN skipped.
+     * names outside PROMPT_NAME_PATTERN skipped.
      *
      * @param  list<string>  $prompts  Each prompt's JSON, as the server sent it.
      */
@@ -158,7 +166,7 @@ class RefreshCatalog
             $prompt = json_decode($definition);
             $name = $prompt instanceof stdClass ? $prompt->name ?? null : null;
 
-            if (! $prompt instanceof stdClass || ! is_string($name) || preg_match(self::NAME_PATTERN, $name) !== 1) {
+            if (! $prompt instanceof stdClass || ! is_string($name) || preg_match(self::PROMPT_NAME_PATTERN, $name) !== 1) {
                 continue;
             }
 

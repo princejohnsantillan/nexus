@@ -30,6 +30,8 @@ use stdClass;
  *   long numbers and all); arrays are encoded, so `[]` stays `[]`.
  * - onCall(): what `tools/call` returns for a tool. Unknown tools get a
  *   JSON-RPC "invalid params" error; tools without a handler return "ok".
+ * - withoutTools(): the server has no tools: it doesn't declare the `tools`
+ *   capability, and `tools/list` and `tools/call` are "method not found".
  * - withPrompts(): the server has prompts (the `prompts` capability), and
  *   what `prompts/list` returns, paginated like the tools. Without it,
  *   `prompts/list` and `prompts/get` are "method not found".
@@ -68,6 +70,8 @@ final class FakeMcpServer
      * @var list<string>
      */
     private array $tools = [];
+
+    private bool $offersTools = true;
 
     /**
      * Each prompt's JSON, as it is sent, or null when the server has no prompts.
@@ -159,6 +163,16 @@ final class FakeMcpServer
         $this->tools = is_string($tools)
             ? RawJson::elements($tools) ?? throw new InvalidArgumentException('The tools must be a JSON array.')
             : array_map(fn (array|stdClass $tool): string => (string) json_encode($tool), $tools);
+
+        return $this;
+    }
+
+    /**
+     * Have no tools, as a server with only prompts does.
+     */
+    public function withoutTools(): self
+    {
+        $this->offersTools = false;
 
         return $this;
     }
@@ -497,7 +511,8 @@ final class FakeMcpServer
         }
 
         $modern = $this->protocolVersion === '2026-07-28';
-        $capabilities = ['tools' => new stdClass, ...$this->prompts === null ? [] : ['prompts' => new stdClass]];
+        $capabilities = (object) [...$this->offersTools ? ['tools' => new stdClass] : [], ...$this->prompts === null ? [] : ['prompts' => new stdClass]];
+        $methodNotFound = self::error(-32601, 'Method not found');
 
         return match ($method) {
             'server/discover' => $modern
@@ -506,17 +521,17 @@ final class FakeMcpServer
                     'capabilities' => $capabilities,
                     '_meta' => ['io.modelcontextprotocol/serverInfo' => ['name' => 'fake', 'version' => '1.0.0']],
                 ])
-                : self::error(-32601, 'Method not found')($message, $request),
+                : $methodNotFound($message, $request),
             'initialize' => $this->result($message, [
                 'protocolVersion' => $this->protocolVersion,
                 'capabilities' => $capabilities,
                 'serverInfo' => ['name' => 'fake', 'version' => '1.0.0'],
             ], ['Mcp-Session-Id' => 'fake-session']),
-            'tools/list' => $this->listPage($message, 'tools', $this->tools),
-            'tools/call' => $this->callTool($message, $request),
-            'prompts/list' => $this->prompts === null ? self::error(-32601, 'Method not found')($message, $request) : $this->listPage($message, 'prompts', $this->prompts),
-            'prompts/get' => $this->prompts === null ? self::error(-32601, 'Method not found')($message, $request) : $this->getPrompt($message, $request),
-            default => self::error(-32601, 'Method not found')($message, $request),
+            'tools/list' => $this->offersTools ? $this->listPage($message, 'tools', $this->tools) : $methodNotFound($message, $request),
+            'tools/call' => $this->offersTools ? $this->callTool($message, $request) : $methodNotFound($message, $request),
+            'prompts/list' => $this->prompts === null ? $methodNotFound($message, $request) : $this->listPage($message, 'prompts', $this->prompts),
+            'prompts/get' => $this->prompts === null ? $methodNotFound($message, $request) : $this->getPrompt($message, $request),
+            default => $methodNotFound($message, $request),
         };
     }
 

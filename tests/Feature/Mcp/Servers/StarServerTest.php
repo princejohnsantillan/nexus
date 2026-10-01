@@ -488,6 +488,16 @@ describe('prompts/get', function (): void {
             ->and($response->json('result._meta'))->toBe(['io.modelcontextprotocol/serverInfo' => ['name' => 'Nexus: Work', 'version' => '1.0.0']]);
     })->with(['2026-07-28', '2025-11-25']);
 
+    it('gets a prompt whatever characters its name has', function (string $name, string $protocolVersion): void {
+        catalogPrompt($this->wiki, (string) json_encode(['name' => $name]));
+        $server = FakeMcpServer::at()->withPrompts([['name' => $name]]);
+
+        $this->client->speaking($protocolVersion)->listPrompts()->assertJsonPath('result.prompts.*.name', fn (array $names): bool => in_array("wiki__{$name}", $names, true));
+        $this->client->speaking($protocolVersion)->getPrompt("wiki__{$name}")->assertOk()->assertJsonPath('result.messages.0.content.text', 'ok');
+
+        expect($server->received('prompts/get')[0]->params->name)->toBe($name);
+    })->with(['team:review', 'résumer'])->with(['2026-07-28', '2025-11-25']);
+
     it('sends {} when the client sends no arguments', function (): void {
         $server = FakeMcpServer::at()->withPrompts([['name' => 'summarize']]);
 
