@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Connectors\Connector;
 use App\Connectors\ConnectorCatalog;
 use App\Enums\ClientRegistration;
 use App\Enums\SignInMethod;
@@ -50,11 +51,84 @@ function writeConnector(string $directory, string $key, array|string $definition
     }
 }
 
-it('validates every shipped connector and offers GitHub, Linear and Notion by name', function (): void {
+/**
+ * The connectors' names, in the order the catalog lists them.
+ *
+ * @return list<string>
+ */
+function connectorNames(ConnectorCatalog $catalog): array
+{
+    return array_values(array_map(fn (Connector $connector): string => $connector->name, $catalog->all()));
+}
+
+/**
+ * Run a callback with environment variables set, wherever env() reads them,
+ * then put them back.
+ *
+ * @param  array<string, string>  $variables
+ */
+function withEnvironment(array $variables, Closure $callback): mixed
+{
+    $previous = [];
+
+    foreach ($variables as $name => $value) {
+        $previous[$name] = [$_SERVER[$name] ?? null, $_ENV[$name] ?? null, getenv($name)];
+        $_SERVER[$name] = $_ENV[$name] = $value;
+        putenv("{$name}={$value}");
+    }
+
+    try {
+        return $callback();
+    } finally {
+        foreach ($previous as $name => [$server, $env, $putenv]) {
+            if ($server === null) {
+                unset($_SERVER[$name]);
+            } else {
+                $_SERVER[$name] = $server;
+            }
+
+            if ($env === null) {
+                unset($_ENV[$name]);
+            } else {
+                $_ENV[$name] = $env;
+            }
+
+            putenv($putenv === false ? $name : "{$name}={$putenv}");
+        }
+    }
+}
+
+/**
+ * @param  list<string>  $names
+ * @return list<string>
+ */
+function sortedByName(array $names): array
+{
+    usort($names, strcasecmp(...));
+
+    return $names;
+}
+
+it('validates every shipped connector, GitHub, Linear and Notion among them, and lists them by name', function (): void {
     $catalog = new ConnectorCatalog(resource_path('connectors'));
 
-    expect(array_keys($catalog->all()))->toBe(['github', 'linear', 'notion'])
-        ->and(count($catalog->all()))->toBe(count(File::glob(resource_path('connectors/*.json'))));
+    expect(array_keys($catalog->all()))->toContain('github', 'linear', 'notion')
+        ->toHaveCount(count(File::glob(resource_path('connectors/*.json'))))
+        ->and(connectorNames($catalog))->toBe(sortedByName(connectorNames($catalog)));
+});
+
+it('adds a connector from one JSON file and one logo, alongside the shipped ones', function (): void {
+    File::copyDirectory(resource_path('connectors'), $this->directory);
+    writeConnector($this->directory, 'sentry', minimalDefinition());
+
+    $catalog = new ConnectorCatalog($this->directory);
+
+    expect(array_keys($catalog->all()))->toContain('github', 'linear', 'notion', 'sentry')
+        ->toHaveCount(count(File::glob(resource_path('connectors/*.json'))) + 1)
+        ->and(connectorNames($catalog))->toContain('GitHub', 'Linear', 'Notion', 'Sentry')
+        ->toBe(sortedByName(connectorNames($catalog)))
+        ->and($catalog->find('sentry')->logoSvg)->toBe(TEST_CONNECTOR_LOGO)
+        ->and($catalog->find('github'))->toEqual(app(ConnectorCatalog::class)->find('github'));
 });
 
 it('ships GitHub with a token method and its pre-registered OAuth app\'s scopes', function (): void {
@@ -95,8 +169,14 @@ it('inlines each shipped logo with nothing executable or external, GitHub\'s and
 it('reads each shipped connector\'s deployment OAuth app from its own environment variables', function (): void {
     $catalog = new ConnectorCatalog(resource_path('connectors'));
 
-    expect(array_keys(config()->array('nexus.connectors')))->toEqualCanonicalizing(array_keys($catalog->all()))
-        ->and(array_keys(config()->array('nexus.connectors.github')))->toBe(['client_id', 'client_secret'])
+    $connectors = withEnvironment([
+        'NEXUS_GITHUB_CLIENT_ID' => 'Iv1.from-env',
+        'NEXUS_GITHUB_CLIENT_SECRET' => 'shh-from-env',
+    ], fn (): mixed => (require config_path('nexus.php'))['connectors']);
+
+    expect(array_keys($connectors))->toEqualCanonicalizing(array_keys($catalog->all()))
+        ->and($connectors['github'])->toBe(['client_id' => 'Iv1.from-env', 'client_secret' => 'shh-from-env'])
+        ->and(array_keys(config()->array('nexus.connectors')))->toEqualCanonicalizing(array_keys($catalog->all()))
         ->and($catalog->find('github')->environmentVariable('CLIENT_ID'))->toBe('NEXUS_GITHUB_CLIENT_ID')
         ->and(File::get(base_path('.env.example')))->toContain("NEXUS_GITHUB_CLIENT_ID=\nNEXUS_GITHUB_CLIENT_SECRET=");
 });

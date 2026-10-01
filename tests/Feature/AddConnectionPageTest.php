@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Connectors\ConnectorCatalog;
 use App\Enums\ConnectionAuthType;
 use App\Enums\ConnectionStatus;
 use App\Models\Connection;
@@ -9,11 +10,25 @@ use App\Models\User;
 use Illuminate\Log\Events\MessageLogged;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\File;
+use Illuminate\Support\Str;
 use Livewire\Features\SupportLockedProperties\CannotUpdateLockedPropertyException;
 use Livewire\Livewire;
 use Tests\Support\FakeMcpServer;
 
 const GITHUB_MCP_URL = 'https://api.githubcopilot.com/mcp/';
+
+/**
+ * The gallery's trademark notice, as shown under the cards.
+ */
+function trademarkNotice(): string
+{
+    $notice = Livewire::test('pages::connections.add')->instance()->attribution;
+
+    test()->get(route('connections.add'))->assertSeeText($notice);
+
+    return $notice;
+}
 
 beforeEach(function (): void {
     $this->user = User::factory()->create();
@@ -37,11 +52,55 @@ it('shows a card for each connector with its official logo, summary and docs, th
             'Linear', 'Find, create and update issues, projects and comments.',
             'Notion', 'Search, read and edit pages and databases in your workspace.',
             'Custom MCP server',
-            'GitHub, Linear and Notion and their logos are trademarks of their respective owners, shown only to identify each service. Nexus is not affiliated with or endorsed by them.',
+            'and their logos are trademarks of their respective owners, shown only to identify each service. Nexus is not affiliated with or endorsed by them.',
         ])
         ->assertSee('<svg aria-hidden="true" focusable="false" class="size-6" xmlns="http://www.w3.org/2000/svg" viewBox="0 -1 98 98"><path fill="currentColor"', escape: false)
         ->assertSee('https://github.com/github/github-mcp-server/blob/main/docs/remote-server.md')
         ->assertSeeText('Connecting a service you already use adds another account.');
+
+    expect(trademarkNotice())->toContain('GitHub', 'Linear', 'Notion');
+});
+
+it('shows a connector added as one JSON file and one logo, names it in the notice and connects it', function (): void {
+    $directory = sys_get_temp_dir().'/nexus-connectors-'.Str::random(12);
+    File::copyDirectory(resource_path('connectors'), $directory);
+    File::put("{$directory}/sentry.json", json_encode([
+        'name' => 'Sentry',
+        'summary' => 'Issues, events and releases from your organization.',
+        'url' => 'https://mcp.sentry.dev/mcp',
+        'docs_url' => 'https://docs.sentry.io/product/sentry-mcp/',
+        'registration' => 'automatic',
+        'token' => ['console_url' => 'https://sentry.io/settings/account/api/auth-tokens/', 'instructions' => 'Create a user auth token.'],
+    ]));
+    File::put("{$directory}/logos/sentry.svg", '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 72 66"><path fill="currentColor" d="M0 0h72v66H0z"/></svg>');
+    $this->app->instance(ConnectorCatalog::class, new ConnectorCatalog($directory));
+    FakeMcpServer::at('https://mcp.sentry.dev/mcp')->requireHeader('Authorization', 'Bearer sntryu_good')->withTools([['name' => 'find_issues']]);
+
+    try {
+        $this->get(route('connections.add'))
+            ->assertOk()
+            ->assertSeeTextInOrder(['GitHub', 'Linear', 'Notion', 'Sentry', 'Issues, events and releases from your organization.', 'Custom MCP server'])
+            ->assertSee('<svg aria-hidden="true" focusable="false" class="size-6" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 72 66">', escape: false);
+
+        expect(trademarkNotice())->toContain('GitHub', 'Linear', 'Notion', 'Sentry');
+
+        Livewire::test('pages::connections.add')
+            ->assertSeeHtml('wire:click="startConnecting(\'sentry\')"')
+            ->call('startConnecting', 'sentry')
+            ->assertSet('name', 'Sentry')
+            ->assertSet('handle', 'sentry')
+            ->set('token', 'sntryu_good')
+            ->call('connect')
+            ->assertHasNoErrors();
+
+        $connection = $this->user->connections()->sole();
+        expect($connection->connector_key)->toBe('sentry')
+            ->and($connection->status)->toBe(ConnectionStatus::Connected);
+
+        $this->get(route('connections.index'))->assertSee('viewBox="0 0 72 66"', escape: false);
+    } finally {
+        File::deleteDirectory($directory);
+    }
 });
 
 it('explains that Notion and Linear can\'t be connected until Nexus signs in with OAuth', function (): void {
