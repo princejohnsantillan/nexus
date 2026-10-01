@@ -14,4 +14,12 @@ enum ActivityKind: string
 
     /** A `prompts/get`. */
     case Prompt = 'prompt';
+
+    public function label(): string
+    {
+        return match ($this) {
+            self::Tool => __('Tool'),
+            self::Prompt => __('Prompt'),
+        };
+    }
 }

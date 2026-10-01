@@ -10,7 +10,9 @@ use App\Enums\StarAccessMode;
 use Carbon\CarbonImmutable;
 use Database\Factories\ActivityEntryFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\MassPrunable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -20,7 +22,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * authenticated. It is metadata only: never the arguments, the result or
  * any text from the server. It outlives its Star and Connection, whose ids
  * become null when they are deleted. The exposed name is null when the
- * client called without one.
+ * client called without one. Entries older than the retention period
+ * (`nexus.activity.retention_days`) are pruned daily.
  *
  * @property int $id
  * @property int $user_id
@@ -58,10 +61,10 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @mixin \Eloquent
  */
 #[Fillable(['user_id', 'star_id', 'connection_id', 'kind', 'exposed_name', 'downstream_name', 'status', 'via', 'client_name', 'duration_ms'])]
-class ActivityEntry extends Model
+final class ActivityEntry extends Model
 {
     /** @use HasFactory<ActivityEntryFactory> */
-    use HasFactory;
+    use HasFactory, MassPrunable;
 
     /**
      * Entries are written once and never changed.
@@ -81,6 +84,44 @@ class ActivityEntry extends Model
             'via' => StarAccessMode::class,
             'duration_ms' => 'integer',
         ];
+    }
+
+    /**
+     * How many days entries are kept before the daily prune removes them.
+     */
+    public static function retentionDays(): int
+    {
+        return config()->integer('nexus.activity.retention_days');
+    }
+
+    /**
+     * The entries older than the retention period.
+     *
+     * @return Builder<static>
+     */
+    public function prunable(): Builder
+    {
+        return self::query()->where('created_at', '<', now()->subDays(self::retentionDays()));
+    }
+
+    /**
+     * Whether the call's Star has since been deleted. Every call is
+     * recorded with its Star, so a missing one was deleted.
+     */
+    public function starWasDeleted(): bool
+    {
+        return $this->star_id === null;
+    }
+
+    /**
+     * Whether the call's Connection has since been deleted. A call is
+     * recorded with a Connection and its downstream name together, or with
+     * neither when none of the Star's Connections had the name it called, so
+     * a downstream name without a Connection means the Connection was deleted.
+     */
+    public function connectionWasDeleted(): bool
+    {
+        return $this->connection_id === null && $this->downstream_name !== null;
     }
 
     /**
