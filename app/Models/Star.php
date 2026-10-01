@@ -10,6 +10,7 @@ use Carbon\CarbonImmutable;
 use Database\Factories\StarFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\RouteKey;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -44,6 +45,8 @@ use Illuminate\Support\Facades\URL;
  * @property-read int|null $tool_switches_count
  * @property-read Collection<int, StarToken> $tokens
  * @property-read int|null $tokens_count
+ * @property-read Collection<int, StarOAuthClient> $oauthClients
+ * @property-read int|null $oauth_clients_count
  * @property-read User $user
  *
  * @method static \Database\Factories\StarFactory factory($count = null, $state = [])
@@ -161,6 +164,29 @@ class Star extends Model
     }
 
     /**
+     * The OAuth clients that registered with the Star, approved or not.
+     *
+     * @return HasMany<StarOAuthClient, $this>
+     */
+    public function oauthClients(): HasMany
+    {
+        return $this->hasMany(StarOAuthClient::class);
+    }
+
+    /**
+     * The Star's connected apps: the OAuth clients its owner approved and
+     * hasn't revoked.
+     *
+     * @return HasMany<StarOAuthClient, $this>
+     */
+    public function connectedApps(): HasMany
+    {
+        return $this->oauthClients()
+            ->whereNotNull('approved_at')
+            ->whereHas('client', fn (Builder $clients): Builder => $clients->where('revoked', false));
+    }
+
+    /**
      * Whether the Star has as many tokens as `nexus.limits.tokens_per_star` allows.
      */
     public function hasReachedTokenLimit(): bool
@@ -178,14 +204,33 @@ class Star extends Model
 
     /**
      * The URL a client adds: the signed URL in signed-URL mode, otherwise
-     * the endpoint URL.
+     * the endpoint URL (in OAuth mode the client signs in from there).
      */
     public function clientUrl(): string
     {
         return match ($this->access_mode) {
-            StarAccessMode::Token => $this->endpointUrl(),
+            StarAccessMode::Token, StarAccessMode::OAuth => $this->endpointUrl(),
             StarAccessMode::SignedUrl => $this->signedUrl(),
         };
+    }
+
+    /**
+     * The Star's own OAuth issuer in OAuth mode. Each Star is its own
+     * authorization server, so a client registers with, and is approved
+     * for, one Star at a time.
+     */
+    public function oauthIssuer(): string
+    {
+        return url('oauth/stars/'.$this->public_id);
+    }
+
+    /**
+     * Where clients find out how to sign in to the Star in OAuth mode: its
+     * protected resource metadata (RFC 9728).
+     */
+    public function protectedResourceMetadataUrl(): string
+    {
+        return route('mcp.oauth.protected-resource', $this);
     }
 
     /**

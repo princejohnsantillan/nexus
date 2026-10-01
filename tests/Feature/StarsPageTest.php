@@ -83,7 +83,22 @@ it('offers each access mode with a short explanation when creating a Star, token
             'Access mode',
             'Bearer token', 'Clients send a token you create for each of them in a header.',
             'Signed URL', 'One secret URL that works by itself, for clients that only take a URL.',
+            'OAuth', 'Clients send you to Nexus to sign in and approve them, so there is no secret to copy.',
         ]);
+});
+
+it('creates a Star that clients sign in to with OAuth', function (): void {
+    Livewire::test('pages::stars.index')
+        ->set('name', 'Phone')
+        ->set('accessMode', 'oauth')
+        ->call('create')
+        ->assertHasNoErrors();
+
+    $star = $this->user->stars()->sole();
+
+    expect($star->access_mode)->toBe(StarAccessMode::OAuth);
+    $this->get(route('stars.index'))->assertSeeTextInOrder(['Phone', 'OAuth']);
+    $this->getJson(route('mcp.oauth.protected-resource', $star))->assertOk();
 });
 
 it('creates a Star that clients reach with its signed URL', function (): void {

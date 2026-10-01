@@ -9,7 +9,10 @@ use App\Http\Controllers\Auth\SignOutController;
 use App\Http\Controllers\ConnectionOAuth\ClientMetadataDocumentController;
 use App\Http\Controllers\ConnectionOAuth\SignInCallbackController;
 use App\Http\Controllers\ConnectionOAuth\StartSignInController;
+use App\Http\Controllers\StarOAuth\ApproveAuthorizationController;
 use Illuminate\Support\Facades\Route;
+use Laravel\Passport\Http\Controllers\AuthorizationController;
+use Laravel\Passport\Http\Controllers\DenyAuthorizationController;
 
 Route::middleware('guest')->group(function (): void {
     Route::livewire('/', 'pages::welcome')->name('home');
@@ -21,6 +24,9 @@ Route::middleware('guest')->group(function (): void {
 Route::get('/dev/sign-in/{account}', DevSignInController::class)->name('dev.sign-in');
 
 Route::get('/oauth/client-metadata.json', ClientMetadataDocumentController::class)->name('oauth.client-metadata');
+
+// OAuth to Nexus: Passport's consent screen, for Stars in OAuth mode. Guests are signed in first.
+Route::get('/oauth/authorize', [AuthorizationController::class, 'authorize'])->name('passport.authorizations.authorize');
 
 Route::middleware('auth')->group(function (): void {
     Route::livewire('/stars', 'pages::stars.index')->name('stars.index');
@@ -36,6 +42,9 @@ Route::middleware('auth')->group(function (): void {
     Route::get('/oauth/callback', SignInCallbackController::class)->name('oauth.callback');
     Route::livewire('/activity', 'pages::activity.index')->name('activity.index');
     Route::livewire('/settings', 'pages::settings.index')->name('settings.index');
+
+    Route::post('/oauth/authorize', ApproveAuthorizationController::class)->name('passport.authorizations.approve');
+    Route::delete('/oauth/authorize', [DenyAuthorizationController::class, 'deny'])->name('passport.authorizations.deny');
 
     Route::post('/logout', SignOutController::class)->name('logout');
 });

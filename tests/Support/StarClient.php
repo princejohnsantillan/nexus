@@ -6,6 +6,8 @@ namespace Tests\Support;
 
 use App\Downstream\RawJson;
 use App\Models\Star;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Once;
 use Illuminate\Testing\TestResponse;
 use InvalidArgumentException;
 
@@ -23,6 +25,10 @@ use InvalidArgumentException;
  *   Mcp-Name headers, as laravel/mcp requires.
  * - at($star->signedUrl()) sends every request to that URL instead of the
  *   Star's endpoint, as a client given only a signed URL does.
+ * - withToken() takes an OAuth access token too (see StarOAuthFlow). Each
+ *   request is authenticated afresh, as it would be in its own PHP process:
+ *   the OAuth guard forgets the user it found for the request before, and
+ *   values memoized with once() (Passport's clients) are forgotten.
  * - send() makes any request; params given as a string are sent exactly as
  *   written, so `{}` stays `{}`.
  */
@@ -143,6 +149,9 @@ final class StarClient
         }
 
         $body = '{"jsonrpc":"2.0","id":'.$this->nextId++.',"method":'.json_encode($method).',"params":'.$params.'}';
+
+        Auth::guard('api')->forgetUser();
+        Once::flush();
 
         return test()->call('POST', $this->url ?? route('mcp.star', $this->star), server: $this->serverVariables([...$headers, ...$this->extraHeaders]), content: $body);
     }

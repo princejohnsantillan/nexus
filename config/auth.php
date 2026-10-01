@@ -37,11 +37,20 @@ return [
     |
     | Supported: "session"
     |
+    | The "api" guard reads the OAuth access tokens Nexus issues to MCP
+    | clients of Stars in OAuth mode (Passport). Only the Star access
+    | middleware uses it; Passport expects it to be named "api".
+    |
     */
 
     'guards' => [
         'web' => [
             'driver' => 'session',
+            'provider' => 'users',
+        ],
+
+        'api' => [
+            'driver' => 'passport',
             'provider' => 'users',
         ],
     ],

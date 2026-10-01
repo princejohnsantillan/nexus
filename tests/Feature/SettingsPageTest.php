@@ -3,10 +3,16 @@
 declare(strict_types=1);
 
 use App\Encryption\SecretCipher;
+use App\Enums\StarAccessMode;
 use App\Models\DataKey;
+use App\Models\Star;
 use App\Models\User;
 use Illuminate\Contracts\Encryption\DecryptException;
+use Laravel\Passport\Client;
+use Laravel\Passport\RefreshToken;
+use Laravel\Passport\Token;
 use Livewire\Livewire;
+use Tests\Support\StarOAuthFlow;
 
 beforeEach(function (): void {
     $this->user = User::factory()->create([
@@ -74,6 +80,28 @@ it('deletes the user\'s data key with the account, so the live database can no l
     app()->forgetScopedInstances();
     expect(fn (): array => resolve(SecretCipher::class)->decrypt($this->user->id, $ciphertext))
         ->toThrow(DecryptException::class);
+});
+
+it('revokes the user\'s OAuth clients and every token issued to them with the account', function (): void {
+    $star = Star::factory()->for($this->user)->withAccessMode(StarAccessMode::OAuth)->create();
+    $clientId = StarOAuthFlow::register($star);
+    $tokens = StarOAuthFlow::signIn($this->user, $clientId);
+    $otherUser = User::factory()->create();
+    $otherClientId = StarOAuthFlow::register(Star::factory()->for($otherUser)->withAccessMode(StarAccessMode::OAuth)->create());
+    StarOAuthFlow::signIn($otherUser, $otherClientId);
+    $this->actingAs($this->user);
+
+    Livewire::test('pages::settings.index')
+        ->set('confirmation', 'octocat')
+        ->call('deleteAccount')
+        ->assertHasNoErrors();
+
+    expect(Client::query()->findOrFail($clientId)->revoked)->toBeTrue()
+        ->and(Token::query()->where('user_id', $this->user->id)->pluck('revoked')->all())->toBe([true])
+        ->and(RefreshToken::query()->where('revoked', true)->count())->toBe(1)
+        ->and(Client::query()->findOrFail($otherClientId)->revoked)->toBeFalse()
+        ->and(Token::query()->where('user_id', $otherUser->id)->pluck('revoked')->all())->toBe([false]);
+    StarOAuthFlow::refresh($clientId, $tokens['refresh_token'])->assertUnauthorized();
 });
 
 it('keeps the account when the confirmation does not match the GitHub login', function (string $confirmation, string $message): void {

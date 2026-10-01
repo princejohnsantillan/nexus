@@ -10,12 +10,14 @@ use Illuminate\Encryption\Encrypter;
 use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
 use Illuminate\Support\Facades\Http;
 use Tests\Support\FakeDnsResolver;
+use Tests\Support\PassportKeys;
 
 abstract class TestCase extends BaseTestCase
 {
     /**
      * Keep every test off the network and independent of the front-end build,
-     * and give it a fresh master key so it can encrypt credentials.
+     * give it a fresh master key so it can encrypt credentials, and give
+     * Passport a key pair to sign OAuth access tokens with.
      */
     protected function setUp(): void
     {
@@ -28,6 +30,8 @@ abstract class TestCase extends BaseTestCase
         $this->withoutVite();
 
         config(['nexus.encryption.master_key' => 'base64:'.base64_encode(Encrypter::generateKey(SecretCipher::CIPHER))]);
+
+        config(['passport.private_key' => PassportKeys::pair()['private'], 'passport.public_key' => PassportKeys::pair()['public']]);
     }
 
     /**

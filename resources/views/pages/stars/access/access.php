@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 use App\Actions\ChangeStarAccessMode;
 use App\Actions\CreateStarToken;
+use App\Actions\RevokeOAuthClients;
 use App\Enums\StarAccessMode;
 use App\Models\Star;
+use App\Models\StarOAuthClient;
 use App\Models\StarToken;
 use App\Stars\ClientSetup;
 use Flux\Flux;
@@ -62,6 +64,17 @@ return new #[Title('Star access')] class extends Component
     }
 
     /**
+     * The Star's connected apps, the most recently approved first.
+     *
+     * @return Collection<int, StarOAuthClient>
+     */
+    #[Computed]
+    public function connectedApps(): Collection
+    {
+        return $this->star->connectedApps()->with('client')->latest('approved_at')->latest('id')->get();
+    }
+
+    /**
      * What to tell the user when the Star can't have another token, or null when it can.
      */
     #[Computed]
@@ -113,6 +126,21 @@ return new #[Title('Star access')] class extends Component
     }
 
     /**
+     * Revoke one of the Star's connected apps: its client, access and
+     * refresh tokens, so it stops reaching the Star at once.
+     */
+    public function revokeApp(int $appId, RevokeOAuthClients $revokeOAuthClients): void
+    {
+        $app = $this->star->connectedApps()->with('client')->findOrFail($appId);
+        $revokeOAuthClients->handle($this->star->oauthClients()->whereKey($app->id)->getQuery());
+
+        unset($this->connectedApps);
+
+        $this->dispatch('modal-close', name: "revoke-app-{$appId}", scope: $this->getId());
+        Flux::toast(variant: 'success', text: __('Revoked :name. It can no longer reach this Star, and has to be approved again to come back.', ['name' => $app->client->name ?? __('the app')]));
+    }
+
+    /**
      * Switch the Star to the chosen access mode, retiring the credentials
      * of the mode it leaves.
      */
@@ -129,6 +157,7 @@ return new #[Title('Star access')] class extends Component
         Flux::toast(variant: 'success', text: match ($accessMode) {
             StarAccessMode::Token => __('This Star now uses tokens. Create one below for each client.'),
             StarAccessMode::SignedUrl => __('This Star now uses a signed URL. Copy it below and give it to your clients.'),
+            StarAccessMode::OAuth => __('This Star now uses OAuth. Add its URL to a client, which sends you to Nexus to approve it.'),
         });
     }
 
@@ -153,6 +182,6 @@ return new #[Title('Star access')] class extends Component
 
     private function forgetTokens(): void
     {
-        unset($this->tokens, $this->limitMessage);
+        unset($this->tokens, $this->limitMessage, $this->connectedApps);
     }
 };

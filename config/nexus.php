@@ -64,6 +64,8 @@ return [
     | Signup is public, so every user's account has limits. Calls to a Star
     | are limited per minute for each credential a client uses (each of its
     | tokens), so a runaway agent can't exhaust the user's downstream quotas.
+    | Anyone may register an OAuth client with a Star in OAuth mode, so
+    | registrations are limited per hour for each IP address.
     |
     */
 
@@ -72,6 +74,7 @@ return [
         'stars_per_user' => (int) env('NEXUS_STARS_PER_USER', 10),
         'tokens_per_star' => (int) env('NEXUS_TOKENS_PER_STAR', 10),
         'calls_per_minute' => (int) env('NEXUS_CALLS_PER_MINUTE', 120),
+        'oauth_registrations_per_hour' => (int) env('NEXUS_OAUTH_REGISTRATIONS_PER_HOUR', 20),
     ],
 
     /*

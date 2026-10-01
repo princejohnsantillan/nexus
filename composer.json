@@ -13,6 +13,7 @@
         "php": "^8.4",
         "laravel/framework": "^13.34",
         "laravel/mcp": "^1.0",
+        "laravel/passport": "^13.8",
         "laravel/socialite": "^5.31",
         "laravel/tinker": "^3.0",
         "livewire/blaze": "^1.0",
@@ -55,6 +56,7 @@
             "@php artisan key:generate",
             "@php -r \"file_exists('database/database.sqlite') || touch('database/database.sqlite');\"",
             "@php artisan migrate --force",
+            "@php -r \"file_exists('storage/oauth-private.key') || passthru(escapeshellarg(PHP_BINARY).' artisan passport:keys');\"",
             "npm install",
             "npm run build"
         ],
@@ -116,7 +118,7 @@
     "minimum-stability": "stable",
     "prefer-stable": true,
     "scripts-descriptions": {
-        "setup": "Install dependencies, create .env and the SQLite database, migrate and build assets.",
+        "setup": "Install dependencies, create .env and the SQLite database, migrate, create the OAuth signing keys and build assets.",
         "qa": "Check everything without changing files: Rector (dry run), Pint (test), PHPStan, then Pest in parallel.",
         "fix": "Apply Rector, then Pint.",
         "ide-helper": "Regenerate the IDE helper files and write model docblocks into the models."
