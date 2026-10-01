@@ -30,7 +30,10 @@ class RecordActivity
      * A call can outlive what it refers to: the Star or the Connection may be
      * deleted while the server answers. The entry then keeps null in their
      * place, as it would had they been deleted afterwards; when the user is
-     * gone too, their activity went with them, so nothing is recorded.
+     * gone too, their activity went with them, so nothing is recorded. The
+     * first insert runs in its own transaction (a savepoint inside another
+     * one), because on Postgres a refused statement aborts the transaction
+     * around it, and the queries that follow would fail with it.
      *
      * @param  string|null  $exposedName  The name the client called, or null when it sent none.
      * @param  Connection|null  $connection  The Connection the name belongs to, or null when none of the Star's does.
@@ -60,7 +63,7 @@ class RecordActivity
         ]);
 
         try {
-            $entry->save();
+            $entry->getConnection()->transaction(fn (): bool => $entry->save());
         } catch (QueryException $exception) {
             if (! $this->violatesIntegrity($exception)) {
                 throw $exception;
