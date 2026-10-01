@@ -12,12 +12,16 @@ use SensitiveParameter;
 
 class AddCustomConnection
 {
-    public function __construct(private readonly RefreshCatalog $refreshCatalog) {}
+    public function __construct(
+        private readonly SaveNewConnection $saveNewConnection,
+        private readonly RefreshCatalog $refreshCatalog,
+    ) {}
 
     /**
-     * Save a remote MCP server as one of the user's Connections and load its
-     * tools straight away. The Connection is saved even when its tools don't
-     * load; its status and last error then say why.
+     * Save a remote MCP server as one of the user's Connections, within the
+     * account's limit, and load its tools straight away. The Connection is
+     * saved even when its tools don't load; its status and last error then
+     * say why.
      *
      * @param  array{name: string, handle: string, description: string|null, url: string, auth_type: ConnectionAuthType, header_name: string|null}  $attributes
      * @param  string|null  $headerValue  What a header sign-in sends, stored encrypted.
@@ -26,10 +30,6 @@ class AddCustomConnection
      */
     public function handle(User $user, array $attributes, #[SensitiveParameter] ?string $headerValue = null): Connection
     {
-        if ($user->hasReachedConnectionLimit()) {
-            throw ValidationException::withMessages(['limit' => self::limitMessage()]);
-        }
-
         $connection = $user->connections()->make([
             'name' => $attributes['name'],
             'handle' => $attributes['handle'],
@@ -43,20 +43,10 @@ class AddCustomConnection
             $connection->secrets->put(['header_value' => $headerValue]);
         }
 
-        $connection->save();
+        $this->saveNewConnection->handle($user, $connection);
 
         $this->refreshCatalog->handle($connection);
 
         return $connection;
-    }
-
-    /**
-     * What a user who has reached the Connections limit is told.
-     */
-    public static function limitMessage(): string
-    {
-        return __('You have :limit Connections, the most an account can have. Delete one to add another.', [
-            'limit' => config()->integer('nexus.limits.connections_per_user'),
-        ]);
     }
 }

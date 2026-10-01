@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Actions\AddCustomConnection;
+use App\Actions\SaveNewConnection;
 use App\Enums\ConnectionAuthType;
 use App\Enums\ConnectionStatus;
 use App\Models\Connection;
@@ -47,7 +48,7 @@ return new #[Title('Custom MCP server')] class extends Component
     #[Computed]
     public function limitMessage(): ?string
     {
-        return $this->user->hasReachedConnectionLimit() ? AddCustomConnection::limitMessage() : null;
+        return $this->user->hasReachedConnectionLimit() ? SaveNewConnection::limitMessage() : null;
     }
 
     public function save(AddCustomConnection $addCustomConnection): void

@@ -183,7 +183,7 @@ The pieces behind it (the transport, the lenient protocol, the raw request) live
 
 ### Connections and their catalogs
 
-A Connection (`App\Models\Connection`) is one of a user's accounts on a remote MCP server. Its handle prefixes its tools' names in Stars, so it never changes once created: the model refuses to save a changed handle. A header sign-in keeps the header's name in `settings` and its value encrypted in `secrets`. `nexus.limits.connections_per_user` (`NEXUS_CONNECTIONS_PER_USER`, 25) caps how many a user may have.
+A Connection (`App\Models\Connection`) is one of a user's accounts on a remote MCP server. Its handle prefixes its tools' names in Stars, so it never changes once created: the model refuses to save a changed handle. A header sign-in keeps the header's name in `settings` and its value encrypted in `secrets`. `nexus.limits.connections_per_user` (`NEXUS_CONNECTIONS_PER_USER`, 25) caps how many a user may have. Save every new Connection through `App\Actions\SaveNewConnection`: it holds a per-user cache lock while it counts and inserts, so two adds at once can't both slip under the limit, and its `limitMessage()` is what the user is told. Load tools after it returns, outside the lock.
 
 A Connection's catalog is its stored copy of the server's tools (`App\Models\ConnectionTool`). [`App\Actions\RefreshCatalog`](app/Actions/RefreshCatalog.php) re-reads it:
 

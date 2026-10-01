@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-use App\Actions\AddCustomConnection;
+use App\Actions\SaveNewConnection;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Support\Facades\Auth;
 use Livewire\Attributes\Computed;
@@ -19,6 +19,6 @@ return new #[Title('Add connection')] class extends Component
     {
         $user = Auth::user() ?? throw new AuthenticationException;
 
-        return $user->hasReachedConnectionLimit() ? AddCustomConnection::limitMessage() : null;
+        return $user->hasReachedConnectionLimit() ? SaveNewConnection::limitMessage() : null;
     }
 };
