@@ -36,4 +36,21 @@ return [
 
     'dev_sign_in' => (bool) env('NEXUS_DEV_SIGN_IN', false),
 
+    /*
+    |--------------------------------------------------------------------------
+    | Credential encryption
+    |--------------------------------------------------------------------------
+    |
+    | Every user's credentials are encrypted with that user's own data key,
+    | and data keys are stored wrapped by this master key (32 random bytes,
+    | base64-encoded), so the database alone reveals nothing. Generate one
+    | with `php artisan nexus:master-key`. Without a valid master key Nexus
+    | refuses to encrypt or decrypt anything.
+    |
+    */
+
+    'encryption' => [
+        'master_key' => env('NEXUS_MASTER_KEY'),
+    ],
+
 ];

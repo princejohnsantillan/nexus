@@ -2,7 +2,10 @@
 
 declare(strict_types=1);
 
+use App\Encryption\SecretCipher;
+use App\Models\DataKey;
 use App\Models\User;
+use Illuminate\Contracts\Encryption\DecryptException;
 use Livewire\Livewire;
 
 beforeEach(function (): void {
@@ -55,6 +58,22 @@ it('deletes the account and signs the user out after they type their GitHub logi
     $this->assertGuest();
 
     $this->get(route('home'))->assertOk()->assertSeeText('Your account and everything in it were deleted.');
+});
+
+it('deletes the user\'s data key with the account, so the live database can no longer decrypt their secrets', function (): void {
+    $otherUser = User::factory()->create();
+    $ciphertext = resolve(SecretCipher::class)->encrypt($this->user->id, ['token' => 'sk-live-123']);
+    resolve(SecretCipher::class)->encrypt($otherUser->id, ['token' => 'theirs']);
+
+    Livewire::test('pages::settings.index')
+        ->set('confirmation', 'octocat')
+        ->call('deleteAccount');
+
+    expect(DataKey::query()->pluck('user_id')->all())->toBe([$otherUser->id]);
+
+    app()->forgetScopedInstances();
+    expect(fn (): array => resolve(SecretCipher::class)->decrypt($this->user->id, $ciphertext))
+        ->toThrow(DecryptException::class);
 });
 
 it('keeps the account when the confirmation does not match the GitHub login', function (string $confirmation, string $message): void {
