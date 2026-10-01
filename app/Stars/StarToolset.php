@@ -74,6 +74,17 @@ class StarToolset
      */
     public function enabledTool(Star $star, string $name): ?StarTool
     {
+        $tool = $this->tool($star, $name);
+
+        return $tool?->enabled === true ? $tool : null;
+    }
+
+    /**
+     * The tool with this exposed name, on or off, or null when none of the
+     * Star's Connections has it.
+     */
+    public function tool(Star $star, string $name): ?StarTool
+    {
         if (! str_contains($name, self::SEPARATOR)) {
             return null;
         }
@@ -89,9 +100,7 @@ class StarToolset
 
         $switch = $star->toolSwitches()->where('connection_id', $connection->id)->where('tool_name', $toolName)->first();
 
-        $exposed = $this->expose($star, $connection, $tool, $switch?->enabled);
-
-        return $exposed->enabled ? $exposed : null;
+        return $this->expose($star, $connection, $tool, $switch?->enabled);
     }
 
     private function expose(Star $star, Connection $connection, ConnectionTool $tool, ?bool $switch): StarTool

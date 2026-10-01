@@ -25,6 +25,36 @@
             </dl>
         </section>
 
+        <section aria-labelledby="setup-heading">
+            <flux:heading size="lg" level="2" id="setup-heading">{{ __('Set up a client') }}</flux:heading>
+            <flux:text class="mt-1">
+                {{ __('Create a token on the') }}
+                <flux:link :href="route('stars.access', $star)" wire:navigate>{{ __('Access page') }}</flux:link>
+                {{ __('and put it in the :variable environment variable, e.g. in your shell profile. Each snippet below reads it from there, so the token never sits in a config file.', ['variable' => $this->tokenVariable]) }}
+            </flux:text>
+
+            <div class="mt-4 max-w-3xl">
+                <x-copyable-snippet :snippet="'export '.$this->tokenVariable.'=nxs_…'" />
+            </div>
+
+            <div class="mt-6 max-w-3xl space-y-6">
+                @foreach ($this->clientSetup as $setup)
+                    <div wire:key="setup-{{ $loop->index }}">
+                        <flux:heading level="3">{{ $setup['client'] }}</flux:heading>
+                        <flux:text size="sm" class="mt-1">
+                            @if ($setup['file'] !== null)
+                                {{ __('Add to') }} <span class="font-mono">{{ $setup['file'] }}</span>:
+                            @else
+                                {{ __('Run in a terminal:') }}
+                            @endif
+                        </flux:text>
+
+                        <x-copyable-snippet :snippet="$setup['snippet']" class="mt-2" />
+                    </div>
+                @endforeach
+            </div>
+        </section>
+
         <section aria-labelledby="connections-heading">
             <flux:heading size="lg" level="2" id="connections-heading">{{ __('Connections') }}</flux:heading>
             <flux:text class="mt-1">{{ __('The Star includes the tools of the Connections you choose. Taking one out forgets the switches you set for its tools here.') }}</flux:text>

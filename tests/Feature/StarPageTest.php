@@ -42,6 +42,20 @@ it('shows the Star\'s endpoint, access mode, tools and sub-pages', function (): 
         ->assertSeeTextInOrder(['Connections', 'DeepWiki', 'deepwiki', '2 tools']);
 });
 
+it('shows setup for each client that reads the token from the environment', function (): void {
+    $star = Star::factory()->for($this->user)->create(['slug' => 'work-2']);
+    $url = url('/mcp/'.$star->public_id);
+
+    $this->get(route('stars.show', $star))
+        ->assertOk()
+        ->assertSee(route('stars.access', $star))
+        ->assertSeeText('export NEXUS_WORK_2_TOKEN=nxs_…')
+        ->assertSeeTextInOrder(['Claude Code', 'Codex', '~/.codex/config.toml', 'Cursor', '~/.cursor/mcp.json', 'Grok', '~/.grok/config.toml'])
+        ->assertSeeText("claude mcp add-json --scope user nexus-work-2 '{\"type\":\"http\",\"url\":\"{$url}\",\"headers\":{\"Authorization\":\"Bearer \${NEXUS_WORK_2_TOKEN}\"}}'")
+        ->assertSeeText("[mcp_servers.nexus-work-2]\nurl = \"{$url}\"\nbearer_token_env_var = \"NEXUS_WORK_2_TOKEN\"")
+        ->assertSeeText('"Authorization": "Bearer ${env:NEXUS_WORK_2_TOKEN}"');
+});
+
 it('lives at its public id, never its numeric id', function (): void {
     $star = Star::factory()->for($this->user)->create();
 
@@ -54,14 +68,14 @@ it('does not find another user\'s Star', function (string $route): void {
     $star = Star::factory()->create();
 
     $this->get(route($route, $star))->assertNotFound();
-})->with(['stars.show', 'stars.tools']);
+})->with(['stars.show', 'stars.tools', 'stars.access']);
 
 it('sends guests to the welcome page', function (string $route): void {
     $star = Star::factory()->for($this->user)->create();
     auth()->logout();
 
     $this->get(route($route, $star))->assertRedirect(route('home'));
-})->with(['stars.show', 'stars.tools']);
+})->with(['stars.show', 'stars.tools', 'stars.access']);
 
 it('changes which Connections the Star includes', function (): void {
     $wiki = Connection::factory()->for($this->user)->create(['name' => 'DeepWiki']);

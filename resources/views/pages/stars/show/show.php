@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Actions\UpdateStarConnections;
 use App\Models\Connection;
 use App\Models\Star;
+use App\Stars\ClientSetup;
 use App\Stars\StarTool;
 use App\Stars\StarToolset;
 use Flux\Flux;
@@ -61,6 +62,26 @@ return new #[Title('Star')] class extends Component
             'enabled' => count(array_filter($tools, fn (StarTool $tool): bool => $tool->enabled)),
             'total' => count($tools),
         ];
+    }
+
+    /**
+     * Copy-paste setup for each client, for the Star's access mode.
+     *
+     * @return list<array{client: string, file: string|null, snippet: string}>
+     */
+    #[Computed]
+    public function clientSetup(): array
+    {
+        return resolve(ClientSetup::class)->for($this->star);
+    }
+
+    /**
+     * The environment variable the setup reads the Star's token from.
+     */
+    #[Computed]
+    public function tokenVariable(): string
+    {
+        return ClientSetup::tokenVariable($this->star);
     }
 
     public function saveConnections(UpdateStarConnections $updateStarConnections): void

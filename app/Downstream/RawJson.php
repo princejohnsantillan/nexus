@@ -57,6 +57,33 @@ final class RawJson
     }
 
     /**
+     * The JSON object with one member set to the given JSON text: replaced
+     * where the object has it (every duplicate of it), or else added at the
+     * end, with the rest of the document exactly as it was; null when the
+     * document isn't an object.
+     */
+    public static function put(string $json, string $key, string $value): ?string
+    {
+        $members = self::members($json);
+
+        if ($members === null) {
+            return null;
+        }
+
+        if (in_array($key, array_column($members, 0), true)) {
+            return self::withMember($json, $key, $value);
+        }
+
+        $member = json_encode($key, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE).':'.$value;
+
+        if ($members === []) {
+            return substr_replace($json, $member, self::skipWhitespace($json, self::skipWhitespace($json, 0) + 1), 0);
+        }
+
+        return substr_replace($json, ','.$member, $members[array_key_last($members)][2], 0);
+    }
+
+    /**
      * The name of each member of a JSON object, with the offsets where its
      * value starts and ends, or null when the document isn't an object.
      *

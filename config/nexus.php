@@ -45,13 +45,17 @@ return [
     | Limits
     |--------------------------------------------------------------------------
     |
-    | Signup is public, so every user's account has limits.
+    | Signup is public, so every user's account has limits. Calls to a Star
+    | are limited per minute for each credential a client uses (each of its
+    | tokens), so a runaway agent can't exhaust the user's downstream quotas.
     |
     */
 
     'limits' => [
         'connections_per_user' => (int) env('NEXUS_CONNECTIONS_PER_USER', 25),
         'stars_per_user' => (int) env('NEXUS_STARS_PER_USER', 10),
+        'tokens_per_star' => (int) env('NEXUS_TOKENS_PER_STAR', 10),
+        'calls_per_minute' => (int) env('NEXUS_CALLS_PER_MINUTE', 120),
     ],
 
     /*
