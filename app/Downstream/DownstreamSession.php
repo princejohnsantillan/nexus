@@ -56,7 +56,7 @@ final readonly class DownstreamSession
             for ($page = 1; ; $page++) {
                 $this->client->send(new RawRequest('tools/list', $cursor === null ? [] : ['cursor' => $cursor]));
 
-                $result = $this->transport->takeLastResult() ?? throw DownstreamRequestFailed::protocolError();
+                $result = $this->transport->takeResult() ?? throw DownstreamRequestFailed::protocolError();
                 $listed = RawJson::elements(RawJson::member($result, 'tools') ?? '') ?? throw DownstreamRequestFailed::protocolError();
 
                 foreach ($listed as $tool) {
@@ -102,7 +102,7 @@ final readonly class DownstreamSession
         return $this->attempt(fn (): string => $this->transport->sendingToolArguments($arguments, function () use ($name): string {
             $this->client->send(new RawRequest('tools/call', ['name' => $name, 'arguments' => new stdClass]));
 
-            return $this->transport->takeLastResult() ?? throw DownstreamRequestFailed::protocolError();
+            return $this->transport->takeResult() ?? throw DownstreamRequestFailed::protocolError();
         }), isToolCall: true);
     }
 

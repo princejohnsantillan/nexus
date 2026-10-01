@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Actions;
 
 use App\Downstream\DownstreamClient;
-use App\Enums\ConnectionAuthType;
 use App\Enums\ConnectionStatus;
 use App\Enums\DownstreamFailure;
 use App\Exceptions\CatalogNotStored;
@@ -24,6 +23,15 @@ class RefreshCatalog
      */
     private const string TOOL_NAME_PATTERN = '/^[A-Za-z0-9_.-]{1,128}$/';
 
+    /**
+     * The columns that say which server a refresh asks and how it signs in:
+     * the URL, the sign-in method, its settings (such as the header name) and
+     * its encrypted credentials, whose ciphertext changes with every new value.
+     *
+     * @var list<string>
+     */
+    private const array SIGN_IN_COLUMNS = ['url', 'auth_type', 'settings', 'secrets'];
+
     public function __construct(private readonly DownstreamClient $downstream) {}
 
     /**
@@ -37,20 +45,20 @@ class RefreshCatalog
      * Connection's status and last error (a Nexus-authored message) say why.
      *
      * Asking the server takes time, so the outcome is stored only if the
-     * Connection still exists and still points at the same server and sign-in;
-     * otherwise it no longer applies and is dropped.
+     * Connection still exists with the same server and sign-in, credentials
+     * included; otherwise it no longer applies and is dropped. The Connection
+     * must be saved: what is stored is what the refresh signs in with.
      *
      * @return bool Whether the tools loaded and were stored.
      */
     public function handle(Connection $connection): bool
     {
-        $url = $connection->url;
-        $authType = $connection->auth_type;
+        $signIn = $this->signInOf($connection);
 
         try {
             $tools = $this->downstream->session($connection)->listTools();
         } catch (DownstreamRequestFailed $failed) {
-            $this->storeIfCurrent($connection, $url, $authType, function () use ($connection, $failed): void {
+            $this->storeIfCurrent($connection, $signIn, function () use ($connection, $failed): void {
                 $connection->forceFill([
                     'status' => $failed->failure === DownstreamFailure::NeedsSignIn ? ConnectionStatus::NeedsAuth : ConnectionStatus::Error,
                     'last_error' => $failed->getMessage(),
@@ -60,7 +68,7 @@ class RefreshCatalog
             return false;
         }
 
-        return $this->storeIfCurrent($connection, $url, $authType, function () use ($connection, $tools): void {
+        return $this->storeIfCurrent($connection, $signIn, function () use ($connection, $tools): void {
             $storedHashes = $connection->tools()->pluck('definition_hash', 'name');
             $names = [];
 
@@ -98,40 +106,68 @@ class RefreshCatalog
 
     /**
      * Store a refresh's outcome in one transaction, holding the Connection's
-     * row, unless the Connection was deleted or pointed at another server or
-     * sign-in while its server was being asked.
+     * row, unless the Connection was deleted, or its server or sign-in
+     * (credentials included) changed, while its server was being asked.
      *
      * A database error is reported as CatalogNotStored, without the values
      * being written (they came from the server), and recorded on the
-     * Connection.
+     * Connection under the same condition.
      *
+     * @param  list<mixed>  $signIn  What the refresh signed in with, from signInOf().
      * @param  Closure(): void  $store
      * @return bool Whether the outcome was stored.
      */
-    private function storeIfCurrent(Connection $connection, string $url, ConnectionAuthType $authType, Closure $store): bool
+    private function storeIfCurrent(Connection $connection, array $signIn, Closure $store): bool
     {
         try {
-            return DB::transaction(function () use ($connection, $url, $authType, $store): bool {
-                $current = Connection::query()->whereKey($connection->id)->lockForUpdate()->first(['id', 'url', 'auth_type']);
-
-                if ($current === null || $current->url !== $url || $current->auth_type !== $authType) {
-                    return false;
-                }
-
-                $store();
-
-                return true;
-            });
+            return $this->whileCurrent($connection, $signIn, $store);
         } catch (QueryException $exception) {
             report(CatalogNotStored::for($connection, $exception));
 
-            $connection->discardChanges()->forceFill([
-                'status' => ConnectionStatus::Error,
-                'last_error' => __('Nexus could not store the server\'s tools.'),
-            ])->save();
+            $connection->discardChanges();
+
+            $this->whileCurrent($connection, $signIn, function () use ($connection): void {
+                $connection->forceFill([
+                    'status' => ConnectionStatus::Error,
+                    'last_error' => __('Nexus could not store the server\'s tools.'),
+                ])->save();
+            });
 
             return false;
         }
+    }
+
+    /**
+     * Run a write in one transaction holding the Connection's row, if the
+     * Connection still exists with the sign-in the refresh used.
+     *
+     * @param  list<mixed>  $signIn
+     * @param  Closure(): void  $write
+     * @return bool Whether the write ran.
+     */
+    private function whileCurrent(Connection $connection, array $signIn, Closure $write): bool
+    {
+        return DB::transaction(function () use ($connection, $signIn, $write): bool {
+            $current = Connection::query()->whereKey($connection->id)->lockForUpdate()->first(['id', ...self::SIGN_IN_COLUMNS]);
+
+            if ($current === null || $this->signInOf($current) !== $signIn) {
+                return false;
+            }
+
+            $write();
+
+            return true;
+        });
+    }
+
+    /**
+     * The Connection's sign-in columns as stored, ciphertext and all.
+     *
+     * @return list<mixed>
+     */
+    private function signInOf(Connection $connection): array
+    {
+        return array_map(fn (string $column): mixed => $connection->getRawOriginal($column), self::SIGN_IN_COLUMNS);
     }
 
     /**

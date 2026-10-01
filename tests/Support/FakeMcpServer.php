@@ -37,8 +37,9 @@ use stdClass;
  * - streaming(): answer as server-sent events instead of plain JSON;
  *   streaming(splitData: true) spreads each message over several `data:`
  *   lines with CRLF line ends, a comment and an id, as the SSE format allows.
- * - respondTo(): replace the answer to one method with a failure, using
- *   error(), errorWithId(), httpStatus(), timeout(), unreachable() or raw().
+ * - respondTo(): replace the answer to one method, using jsonRpcResult(),
+ *   or a failure: error(), errorWithId(), httpStatus(), timeout(),
+ *   unreachable() or raw().
  * - beforeAnswering(): run something while a request is in flight, such as
  *   deleting the Connection, to play out a race.
  *
@@ -259,6 +260,21 @@ final class FakeMcpServer
     public static function error(int $code, string $message = 'Something went wrong.', int $status = 200): Closure
     {
         return fn (stdClass $request): PromiseInterface => self::json(['jsonrpc' => '2.0', 'id' => $request->id ?? null, 'error' => ['code' => $code, 'message' => $message]], $status);
+    }
+
+    /**
+     * A successful answer with this result: an array or object to encode, or its JSON.
+     *
+     * @param  array<array-key, mixed>|stdClass|string  $result
+     * @return Closure(stdClass, Request): PromiseInterface
+     */
+    public static function jsonRpcResult(array|stdClass|string $result): Closure
+    {
+        return fn (stdClass $message): PromiseInterface => Http::response(
+            '{"jsonrpc":"2.0","id":'.json_encode($message->id ?? null).',"result":'.(is_string($result) ? $result : json_encode($result)).'}',
+            200,
+            ['Content-Type' => 'application/json'],
+        );
     }
 
     /**

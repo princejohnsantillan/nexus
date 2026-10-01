@@ -353,6 +353,23 @@ it('fails a tool call the server answers with a JSON-RPC error, whatever id it c
     'another request\'s id' => [FakeMcpServer::errorWithId(999, -32602, 'Unknown tool: search')],
 ]);
 
+it('fails a first tool call whose result isn\'t an object, rather than returning the handshake\'s', function (string $result): void {
+    FakeMcpServer::at()->withTools([['name' => 'lookup']])->onCall('lookup', fn (): string => $result);
+
+    $failed = downstreamFailure(Connection::factory()->create(), fn (DownstreamSession $session): string => $session->callTool('lookup', '{}'));
+
+    expect($failed->failure)->toBe(DownstreamFailure::ProtocolError)
+        ->and($failed->getMessage())->toBe('The server did not answer like an MCP server.');
+})->with(['null', '[]', '"done"']);
+
+it('fails a first listing whose result isn\'t an object', function (): void {
+    FakeMcpServer::at()->respondTo('tools/list', FakeMcpServer::jsonRpcResult('null'));
+
+    $failed = downstreamFailure(Connection::factory()->create(), fn (DownstreamSession $session): array => $session->listTools());
+
+    expect($failed->failure)->toBe(DownstreamFailure::ProtocolError);
+});
+
 it('fails a tool call that times out', function (): void {
     FakeMcpServer::at()->withTools([['name' => 'search']])->respondTo('tools/call', FakeMcpServer::timeout());
 

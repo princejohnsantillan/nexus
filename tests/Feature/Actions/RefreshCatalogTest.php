@@ -9,6 +9,9 @@ use App\Enums\ConnectionStatus;
 use App\Exceptions\CatalogNotStored;
 use App\Models\Connection;
 use App\Models\ConnectionTool;
+use GuzzleHttp\Promise\PromiseInterface;
+use Illuminate\Contracts\Debug\ExceptionHandler;
+use Illuminate\Http\Client\Request;
 use Illuminate\Log\Events\MessageLogged;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
@@ -192,6 +195,56 @@ it('drops the outcome when the Connection changes how it signs in while its serv
 
     expect($loaded)->toBeFalse()
         ->and($connection->tools()->pluck('name')->all())->toBe(['kept']);
+});
+
+it('drops the outcome when the Connection\'s header value is replaced while the old one is used', function (Closure $answerOldToken): void {
+    $connection = Connection::factory()->connected()->withHeader('Bearer sk-live-old')->create();
+    $rotated = false;
+    FakeMcpServer::at()
+        ->respondTo('tools/list', fn (stdClass $message, Request $request): PromiseInterface => $request->header('Authorization') === ['Bearer sk-live-old']
+            ? $answerOldToken($message, $request)
+            : FakeMcpServer::jsonRpcResult(['tools' => [['name' => 'new_account_tool']]])($message, $request))
+        ->beforeAnswering('tools/list', function () use ($connection, &$rotated): void {
+            if ($rotated) {
+                return;
+            }
+
+            $rotated = true;
+
+            resolve(UpdateConnectionServer::class)->handle(Connection::query()->findOrFail($connection->id), [
+                'url' => $connection->url,
+                'auth_type' => ConnectionAuthType::Header,
+                'header_name' => 'Authorization',
+            ], 'Bearer sk-live-new');
+        });
+
+    $loaded = resolve(RefreshCatalog::class)->handle($connection);
+
+    $current = Connection::query()->findOrFail($connection->id);
+    expect($loaded)->toBeFalse()
+        ->and($current->only(['status', 'last_error']))->toBe(['status' => ConnectionStatus::Connected, 'last_error' => null])
+        ->and($current->headerValue())->toBe('Bearer sk-live-new')
+        ->and($current->tools()->pluck('name')->all())->toBe(['new_account_tool']);
+})->with([
+    'the old token still works' => [FakeMcpServer::jsonRpcResult(['tools' => [['name' => 'old_account_tool']]])],
+    'the old token is refused' => [FakeMcpServer::httpStatus(401)],
+]);
+
+it('does not record a storage failure over a Connection that changed meanwhile', function (): void {
+    DB::statement("CREATE TRIGGER refuse_tools BEFORE INSERT ON connection_tools BEGIN SELECT RAISE(ABORT, 'refused'); END");
+    $connection = Connection::factory()->connected()->create(['url' => 'https://old.example.com/mcp']);
+    FakeMcpServer::at('https://old.example.com/mcp')->withTools([['name' => 'old_tool']]);
+    resolve(ExceptionHandler::class)->reportable(function (CatalogNotStored $exception) use ($connection): bool {
+        Connection::query()->whereKey($connection->id)->update(['url' => 'https://new.example.com/mcp']);
+
+        return false;
+    });
+
+    $loaded = resolve(RefreshCatalog::class)->handle($connection);
+
+    expect($loaded)->toBeFalse()
+        ->and(Connection::query()->findOrFail($connection->id)->only(['url', 'status', 'last_error']))
+        ->toBe(['url' => 'https://new.example.com/mcp', 'status' => ConnectionStatus::Connected, 'last_error' => null]);
 });
 
 it('reports a database error without the server\'s text, and records that the tools weren\'t stored', function (): void {

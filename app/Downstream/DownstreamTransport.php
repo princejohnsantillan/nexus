@@ -71,6 +71,11 @@ final class DownstreamTransport extends HttpTransport
      */
     private ?string $toolArguments = null;
 
+    /**
+     * The id of the last request sent, whose response takeResult() returns.
+     */
+    private int|string|null $lastRequestId = null;
+
     public function __construct(
         string $url,
         private readonly float $connectTimeout,
@@ -95,6 +100,10 @@ final class DownstreamTransport extends HttpTransport
 
         if ($method === 'tools/call' && $this->toolArguments !== null) {
             $message = $this->withToolArguments($message, $this->toolArguments);
+        }
+
+        if (is_string($method) && (is_int($requestId) || is_string($requestId))) {
+            $this->lastRequestId = $requestId;
         }
 
         try {
@@ -161,19 +170,23 @@ final class DownstreamTransport extends HttpTransport
     }
 
     /**
-     * The result of the last response received, as the exact JSON object the
-     * server sent. Forgets every message received so far.
+     * The result of the response to the last request sent, as the exact JSON
+     * object the server sent; null when that response carries no object
+     * result. Forgets every message received so far, including the
+     * handshake's and notifications, which never count as the result.
      */
-    public function takeLastResult(): ?string
+    public function takeResult(): ?string
     {
         [$received, $this->received] = [$this->received, []];
 
-        foreach (array_reverse($received) as $message) {
+        foreach ($received as $message) {
+            if ($this->lastRequestId === null || json_decode(RawJson::member($message, 'id') ?? 'null') !== $this->lastRequestId) {
+                continue;
+            }
+
             $result = RawJson::member($message, 'result');
 
-            if ($result !== null && RawJson::isObject($result)) {
-                return $result;
-            }
+            return $result !== null && RawJson::isObject($result) ? $result : null;
         }
 
         return null;
