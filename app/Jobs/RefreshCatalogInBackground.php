@@ -20,6 +20,7 @@ use Illuminate\Queue\MaxAttemptsExceededException;
 use Illuminate\Queue\TimeoutExceededException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Throwable;
 
 /**
@@ -30,9 +31,11 @@ use Throwable;
  * It is unique per Connection: while one is queued or running, no other is
  * queued. Its lock goes when it has run or failed, including when a worker
  * dies during it, since the queue then hands it out again and it fails as
- * attempted too many times. The lock lasts at most 30 days, longer than any
- * job waits in the queue (SQS keeps a message 14 days at most), so only a
- * lock whose job was lost from the queue ever expires. It carries the
+ * attempted too many times. The lock lasts at most 30 days, so a lock whose
+ * job was lost from the queue clears itself. On Laravel Cloud's SQS-based
+ * queue no job waits that long (SQS keeps a message 14 days at most); the
+ * database queue keeps jobs however old, so only a backlog of more than 30
+ * days could queue a second refresh there. It carries the
  * Connection's id rather than the model, so a Connection deleted meanwhile
  * is simply skipped. It is tried once: the next daily or stale refresh
  * tries again.
@@ -83,7 +86,18 @@ final class RefreshCatalogInBackground implements ShouldBeUnique, ShouldQueue
      */
     private const array STATE_COLUMNS = ['url', 'auth_type', 'settings', 'secrets', 'status', 'last_error', 'catalog_refreshed_at'];
 
-    public function __construct(public readonly int $connectionId) {}
+    /**
+     * This refresh's own id, the same in handle() and failed(), which run on
+     * separate instances: it names the snapshot handle() keeps, so another
+     * refresh of the Connection, queued once this one's lock is gone, never
+     * reads or replaces it.
+     */
+    public readonly string $refreshId;
+
+    public function __construct(public readonly int $connectionId)
+    {
+        $this->refreshId = (string) Str::uuid();
+    }
 
     public function uniqueId(): string
     {
@@ -178,6 +192,6 @@ final class RefreshCatalogInBackground implements ShouldBeUnique, ShouldQueue
 
     private function startedFromKey(): string
     {
-        return "connections.{$this->connectionId}.background-refresh";
+        return "background-refreshes.{$this->refreshId}.started-from";
     }
 }

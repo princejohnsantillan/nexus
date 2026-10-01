@@ -261,6 +261,41 @@ it('leaves the Connection as a newer sign-in or refresh left it', function (Clos
     ],
 ]);
 
+it('leaves a newer refresh\'s Connection and outcome alone when an older stopped refresh fails while it runs', function (Closure $newerRefresh, array $expected): void {
+    $connection = Connection::factory()->connected()->create(['url' => 'https://old.example.com/mcp']);
+    FakeMcpServer::at('https://old.example.com/mcp')->beforeAnswering('tools/list', function (): never {
+        throw new RuntimeException('The worker stopped the refresh.');
+    });
+    $stopped = new RefreshCatalogInBackground($connection->id);
+    expect(fn (): mixed => app()->call($stopped->handle(...)))->toThrow(RuntimeException::class);
+    Connection::query()->findOrFail($connection->id)->forceFill(['url' => 'https://new.example.com/mcp', 'status' => ConnectionStatus::Pending])->save();
+    $whileNewerRuns = null;
+    $newerRefresh(FakeMcpServer::at('https://new.example.com/mcp')->withTools([['name' => 'search']]))
+        ->beforeAnswering('tools/list', function () use ($stopped, $connection, &$whileNewerRuns): void {
+            $stopped->failed(new TimeoutExceededException('App\Jobs\RefreshCatalogInBackground has timed out.'));
+            $whileNewerRuns = Connection::query()->findOrFail($connection->id)->only(['status', 'last_error']);
+        });
+
+    try {
+        RefreshCatalogInBackground::dispatch($connection->id);
+    } catch (RuntimeException) {
+    }
+
+    expect($whileNewerRuns)->toBe(['status' => ConnectionStatus::Pending, 'last_error' => null])
+        ->and($connection->refresh()->only(['status', 'last_error']))->toBe($expected);
+})->with([
+    'the newer refresh loads the tools' => [
+        fn (FakeMcpServer $server): FakeMcpServer => $server,
+        ['status' => ConnectionStatus::Connected, 'last_error' => null],
+    ],
+    'the newer refresh is stopped too' => [
+        fn (FakeMcpServer $server): FakeMcpServer => $server->respondTo('tools/list', function (): never {
+            throw new RuntimeException('The worker stopped the newer refresh.');
+        }),
+        ['status' => ConnectionStatus::Error, 'last_error' => 'Nexus could not refresh the tools in the background.'],
+    ],
+]);
+
 it('leaves the Connection as a refresh since it was queued left it, when it never started', function (): void {
     config(['queue.default' => 'database']);
     $connection = Connection::factory()->failed()->create();
