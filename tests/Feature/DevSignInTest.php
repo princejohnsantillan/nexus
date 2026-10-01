@@ -1,0 +1,74 @@
+<?php
+
+declare(strict_types=1);
+
+use App\Enums\DevAccount;
+use App\Models\User;
+use Database\Seeders\DatabaseSeeder;
+
+function enableDevSignIn(string $environment = 'local', bool $flag = true): void
+{
+    app()['env'] = $environment;
+
+    config(['nexus.dev_sign_in' => $flag]);
+}
+
+it('seeds Dev User and Second User', function (): void {
+    $this->seed(DatabaseSeeder::class);
+    $this->seed(DatabaseSeeder::class);
+
+    expect(User::query()->orderBy('id')->pluck('name')->all())->toBe(['Dev User', 'Second User']);
+});
+
+it('signs in as a seeded user', function (DevAccount $account, string $name): void {
+    $this->seed(DatabaseSeeder::class);
+    enableDevSignIn();
+
+    $this->get(route('dev.sign-in', $account))->assertRedirect(route('stars.index'));
+
+    $this->assertAuthenticatedAs(User::query()->where('name', $name)->sole());
+})->with([
+    'Dev User' => [DevAccount::Dev, 'Dev User'],
+    'Second User' => [DevAccount::Second, 'Second User'],
+]);
+
+it('is not found outside the local environment or with its flag off', function (string $environment, bool $flag): void {
+    $this->seed(DatabaseSeeder::class);
+    enableDevSignIn($environment, $flag);
+
+    $this->get(route('dev.sign-in', DevAccount::Dev))->assertNotFound();
+
+    $this->assertGuest();
+})->with([
+    'production with the flag on' => ['production', true],
+    'testing with the flag on' => ['testing', true],
+    'local with the flag off' => ['local', false],
+]);
+
+it('is not found for an account that is not seeded by Nexus', function (): void {
+    enableDevSignIn();
+
+    $this->get('/dev/sign-in/admin')->assertNotFound();
+});
+
+it('asks for the seeder when the dev users do not exist yet', function (): void {
+    enableDevSignIn();
+
+    $this->get(route('dev.sign-in', DevAccount::Second))->assertRedirect(route('home'));
+
+    $this->assertGuest();
+
+    $this->get(route('home'))->assertSeeText('Run php artisan db:seed to create the dev users, then sign in again.');
+});
+
+it('offers the dev sign-in on the welcome page only when it is enabled', function (): void {
+    $this->get(route('home'))->assertOk()->assertDontSeeText('Sign in as Dev User');
+
+    enableDevSignIn();
+
+    $this->get(route('home'))
+        ->assertOk()
+        ->assertSeeText(['Dev sign-in', 'Sign in as Dev User', 'Sign in as Second User'])
+        ->assertSee(route('dev.sign-in', DevAccount::Dev))
+        ->assertSee(route('dev.sign-in', DevAccount::Second));
+});

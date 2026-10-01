@@ -2,6 +2,14 @@
 
 declare(strict_types=1);
 
+use App\Models\User;
+
+beforeEach(function (): void {
+    $this->user = User::factory()->create(['name' => 'Mona Lisa Octocat', 'github_login' => 'octocat']);
+
+    $this->actingAs($this->user);
+});
+
 dataset('app pages', [
     'stars' => ['stars.index', 'Stars'],
     'connections' => ['connections.index', 'Connections'],
@@ -29,4 +37,13 @@ it('offers the appearance switch in the profile menu', function (): void {
         ->assertOk()
         ->assertSee('x-model="$flux.appearance"', escape: false)
         ->assertSeeTextInOrder(['Appearance', 'Light', 'Dark', 'System']);
+});
+
+it('shows the signed-in user with settings and sign out in the profile menu', function (): void {
+    $this->get(route('stars.index'))
+        ->assertOk()
+        ->assertSee($this->user->avatar_url)
+        ->assertSeeText(['Mona Lisa Octocat', '@octocat', 'Settings', 'Sign out'])
+        ->assertSee(route('settings.index'))
+        ->assertSee('action="'.route('logout').'"', escape: false);
 });

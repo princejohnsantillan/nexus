@@ -31,11 +31,22 @@
             </flux:text>
 
             <div class="mt-8 flex flex-wrap items-center gap-3">
-                <flux:button variant="primary">
+                <flux:button variant="primary" :href="route('auth.github')">
                     <x-icons.github class="size-4" />
                     {{ __('Sign in with GitHub') }}
                 </flux:button>
             </div>
+
+            @if ($this->devSignInIsEnabled)
+                <flux:callout icon="wrench-screwdriver" class="mt-8" :heading="__('Dev sign-in')">
+                    <flux:callout.text>{{ __('Local only. Sign in as a seeded user without a GitHub OAuth app.') }}</flux:callout.text>
+
+                    <x-slot name="actions">
+                        <flux:button size="sm" :href="route('dev.sign-in', 'dev')">{{ __('Sign in as Dev User') }}</flux:button>
+                        <flux:button size="sm" :href="route('dev.sign-in', 'second')">{{ __('Sign in as Second User') }}</flux:button>
+                    </x-slot>
+                </flux:callout>
+            @endif
         </div>
 
         <div class="mt-16 grid gap-4 sm:grid-cols-2">

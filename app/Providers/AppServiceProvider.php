@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Providers;
 
+use App\Auth\GitHubSignInProvider;
 use App\Outbound\DnsResolver;
 use App\Outbound\GuardOutboundRequests;
 use App\Outbound\OutboundGuard;
@@ -15,6 +16,8 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Validation\Rules\Password;
+use Laravel\Socialite\Facades\Socialite;
+use Laravel\Socialite\Two\AbstractProvider;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -33,6 +36,7 @@ class AppServiceProvider extends ServiceProvider
     {
         $this->configureDefaults();
         $this->guardOutboundRequests();
+        $this->configureGitHubSignIn();
     }
 
     /**
@@ -82,5 +86,16 @@ class AppServiceProvider extends ServiceProvider
         Http::globalOptions(['allow_redirects' => false]);
 
         Http::globalMiddleware(fn (callable $handler): Closure => $this->app->make(GuardOutboundRequests::class)($handler));
+    }
+
+    /**
+     * Sign in with GitHub using the scopes Nexus needs.
+     */
+    protected function configureGitHubSignIn(): void
+    {
+        Socialite::extend('github', fn (): AbstractProvider => Socialite::buildProvider(
+            GitHubSignInProvider::class,
+            config()->array('services.github'),
+        ));
     }
 }

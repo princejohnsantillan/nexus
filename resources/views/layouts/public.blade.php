@@ -6,6 +6,8 @@
     <body class="min-h-screen bg-white antialiased dark:bg-zinc-800">
         {{ $slot }}
 
+        <x-flash-toast />
+
         @fluxScripts
     </body>
 </html>
