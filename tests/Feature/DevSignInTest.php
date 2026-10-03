@@ -54,19 +54,19 @@ it('is not found for an account that is not seeded by Nexus', function (): void 
 it('asks for the seeder when the dev users do not exist yet', function (): void {
     enableDevSignIn();
 
-    $this->get(route('dev.sign-in', DevAccount::Second))->assertRedirect(route('home'));
+    $this->get(route('dev.sign-in', DevAccount::Second))->assertRedirect(route('auth.sign-in'));
 
     $this->assertGuest();
 
-    $this->get(route('home'))->assertSeeText('Run php artisan db:seed to create the dev users, then sign in again.');
+    $this->get(route('auth.sign-in'))->assertSeeText('Run php artisan db:seed to create the dev users, then sign in again.');
 });
 
-it('offers the dev sign-in on the welcome page only when it is enabled', function (): void {
-    $this->get(route('home'))->assertOk()->assertDontSeeText('Sign in as Dev User');
+it('offers the dev sign-in on the sign-in page only when it is enabled', function (): void {
+    $this->get(route('auth.sign-in'))->assertOk()->assertDontSeeText('Sign in as Dev User');
 
     enableDevSignIn();
 
-    $this->get(route('home'))
+    $this->get(route('auth.sign-in'))
         ->assertOk()
         ->assertSeeText(['Dev sign-in', 'Sign in as Dev User', 'Sign in as Second User'])
         ->assertSee(route('dev.sign-in', DevAccount::Dev))

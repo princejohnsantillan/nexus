@@ -43,9 +43,9 @@ it('sends the visitor to GitHub asking for their profile and email addresses', f
 it('explains that GitHub sign-in is not set up when there is no GitHub OAuth app', function (): void {
     config(['services.github.client_id' => null]);
 
-    $this->get(route('auth.github'))->assertRedirect(route('home'));
+    $this->get(route('auth.github'))->assertRedirect(route('auth.sign-in'));
 
-    $this->get(route('home'))->assertSeeText("GitHub sign-in isn't set up on this Nexus yet.");
+    $this->get(route('auth.sign-in'))->assertSeeText("GitHub sign-in isn't set up on this Nexus yet.");
 });
 
 it('creates the account on the first sign-in', function (): void {
@@ -128,34 +128,34 @@ it('uses the GitHub login as the name when the profile has none', function (): v
 });
 
 it('returns to the page the guest asked for after signing in', function (): void {
-    $this->get(route('settings.index'))->assertRedirect(route('home'));
+    $this->get(route('settings.index'))->assertRedirect(route('auth.sign-in'));
 
     fakeGitHubUser();
 
     $this->get(route('auth.github.callback'))->assertRedirect(route('settings.index'));
 });
 
-it('returns to the welcome page when the user cancels on GitHub', function (): void {
+it('returns to the sign-in page when the user cancels on GitHub', function (): void {
     fakeGitHubUser();
 
     $this->get(route('auth.github.callback', ['error' => 'access_denied', 'state' => 'abc']))
-        ->assertRedirect(route('home'));
+        ->assertRedirect(route('auth.sign-in'));
 
     $this->assertGuest();
     expect(User::query()->count())->toBe(0);
 
-    $this->get(route('home'))->assertSeeText('GitHub sign-in was cancelled. Sign in again whenever you like.');
+    $this->get(route('auth.sign-in'))->assertSeeText('GitHub sign-in was cancelled. Sign in again whenever you like.');
 });
 
-it('returns to the welcome page when the sign-in fails', function (Throwable $failure): void {
+it('returns to the sign-in page when the sign-in fails', function (Throwable $failure): void {
     Socialite::fake('github', fn () => throw $failure);
 
-    $this->get(route('auth.github.callback'))->assertRedirect(route('home'));
+    $this->get(route('auth.github.callback'))->assertRedirect(route('auth.sign-in'));
 
     $this->assertGuest();
     expect(User::query()->count())->toBe(0);
 
-    $this->get(route('home'))->assertSeeText("GitHub sign-in didn't complete. Please try again.");
+    $this->get(route('auth.sign-in'))->assertSeeText("GitHub sign-in didn't complete. Please try again.");
 })->with([
     'state mismatch' => fn (): Throwable => new InvalidStateException,
     'GitHub unreachable' => fn (): Throwable => new ConnectException(

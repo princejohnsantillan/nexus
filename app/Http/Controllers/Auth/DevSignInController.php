@@ -25,7 +25,7 @@ class DevSignInController extends Controller
         $user = $account->user();
 
         if (! $user instanceof User) {
-            return to_route('home')->with('toast', [
+            return to_route('auth.sign-in')->with('toast', [
                 'variant' => 'warning',
                 'text' => __('Run php artisan db:seed to create the dev users, then sign in again.'),
             ]);

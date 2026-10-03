@@ -572,7 +572,7 @@ it('warns when the sign-in worked but the tools didn\'t load', function (): void
 it('needs the user signed in to Nexus for the callback', function (): void {
     auth()->logout();
 
-    $this->get(route('oauth.callback', ['code' => 'code', 'state' => 'state']))->assertRedirect(route('home'));
+    $this->get(route('oauth.callback', ['code' => 'code', 'state' => 'state']))->assertRedirect(route('auth.sign-in'));
 });
 
 /**

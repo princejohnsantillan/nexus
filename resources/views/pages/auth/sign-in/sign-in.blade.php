@@ -1,0 +1,57 @@
+<div class="flex min-h-screen">
+    <div class="flex w-full flex-col px-6 py-8 sm:px-14 sm:py-10 lg:w-[44%] lg:max-w-160 lg:shrink-0">
+        <header>
+            <x-app-logo :href="route('home')" />
+        </header>
+
+        <main class="flex flex-1 flex-col justify-center py-12">
+            <div class="mx-auto w-full max-w-95">
+                <flux:heading level="1" class="text-[2rem]! leading-[2.375rem]! font-bold! tracking-tight text-zinc-950 dark:text-white">{{ __('Sign in to Nexus') }}</flux:heading>
+
+                <flux:text class="mt-2.5 leading-[1.375rem] text-zinc-600 dark:text-zinc-400">
+                    {{ __('Connect your MCP servers once, then use them in every AI client. New here? Signing in creates your account.') }}
+                </flux:text>
+
+                {{-- Each way to sign in stacks here, GitHub first. --}}
+                <div class="mt-7 flex flex-col gap-2.5">
+                    <flux:button
+                        variant="primary"
+                        :href="route('auth.github')"
+                        class="w-full [--color-accent-foreground:var(--color-white)] [--color-accent:var(--color-zinc-950)] dark:[--color-accent-foreground:var(--color-zinc-950)] dark:[--color-accent:var(--color-white)]"
+                    >
+                        <x-icons.github class="size-4" />
+                        {{ __('Continue with GitHub') }}
+                    </flux:button>
+                </div>
+
+                @if ($this->devSignInIsEnabled)
+                    <div class="mt-7 rounded-xl border border-dashed border-zinc-300 p-4 dark:border-zinc-600">
+                        <div class="flex items-center gap-2">
+                            <flux:icon.wrench-screwdriver variant="micro" class="text-zinc-500 dark:text-zinc-400" />
+                            <flux:heading level="2">{{ __('Dev sign-in') }}</flux:heading>
+                        </div>
+
+                        <flux:text class="mt-1">{{ __('Local only. Sign in as a seeded user without a GitHub OAuth app.') }}</flux:text>
+
+                        <div class="mt-3 grid gap-2 sm:grid-cols-2">
+                            <flux:button size="sm" :href="route('dev.sign-in', 'dev')">{{ __('Sign in as Dev User') }}</flux:button>
+                            <flux:button size="sm" :href="route('dev.sign-in', 'second')">{{ __('Sign in as Second User') }}</flux:button>
+                        </div>
+                    </div>
+                @endif
+            </div>
+        </main>
+
+        <footer>
+            <flux:text class="text-zinc-600 dark:text-zinc-400">
+                {{ __('Nexus is open source.') }}
+                <flux:link href="https://github.com/princejohnsantillan/nexus" external>{{ __('View it on GitHub') }}</flux:link>
+            </flux:text>
+        </footer>
+    </div>
+
+    <x-star-chart class="hidden flex-1 border-s border-zinc-950 lg:flex dark:border-white/10">
+        <p class="max-w-130 text-[2rem] leading-[2.375rem] font-bold tracking-tight">{{ __('One endpoint. Every AI client.') }}</p>
+        <p class="mt-3 max-w-130 text-sm leading-[1.375rem] text-zinc-400">{{ __('Your servers sign in once. Each Star decides which of their tools Claude Code, Cursor or Codex can call.') }}</p>
+    </x-star-chart>
+</div>

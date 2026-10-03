@@ -299,7 +299,7 @@ it('keeps the reconnect link to the Connection\'s owner', function (): void {
 
     auth()->logout();
 
-    $this->get(route('connections.connect', $connection))->assertRedirect(route('home'));
+    $this->get(route('connections.connect', $connection))->assertRedirect(route('auth.sign-in'));
 });
 
 it('publishes Nexus\'s Client ID Metadata Document to anyone', function (): void {

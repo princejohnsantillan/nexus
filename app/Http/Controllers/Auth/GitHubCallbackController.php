@@ -22,7 +22,7 @@ class GitHubCallbackController extends Controller
     public function __invoke(Request $request, SyncGitHubUser $syncGitHubUser): RedirectResponse
     {
         if ($request->filled('error')) {
-            return $this->backToWelcome(__('GitHub sign-in was cancelled. Sign in again whenever you like.'));
+            return $this->backToSignIn(__('GitHub sign-in was cancelled. Sign in again whenever you like.'));
         }
 
         try {
@@ -30,7 +30,7 @@ class GitHubCallbackController extends Controller
         } catch (InvalidStateException|GuzzleException $exception) {
             Log::warning('GitHub sign-in did not complete.', ['reason' => $exception::class]);
 
-            return $this->backToWelcome(__("GitHub sign-in didn't complete. Please try again."));
+            return $this->backToSignIn(__("GitHub sign-in didn't complete. Please try again."));
         }
 
         Auth::login($syncGitHubUser->handle($githubUser), remember: true);
@@ -40,8 +40,8 @@ class GitHubCallbackController extends Controller
         return redirect()->intended(route('stars.index'));
     }
 
-    private function backToWelcome(string $message): RedirectResponse
+    private function backToSignIn(string $message): RedirectResponse
     {
-        return to_route('home')->with('toast', ['variant' => 'danger', 'text' => $message]);
+        return to_route('auth.sign-in')->with('toast', ['variant' => 'danger', 'text' => $message]);
     }
 }
