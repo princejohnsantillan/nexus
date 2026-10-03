@@ -370,7 +370,7 @@ it('asks before leaving the page with unsaved changes', function (): void {
     $star = Star::factory()->for($this->user)->create();
 
     Livewire::test('pages::stars.show', ['star' => $star])
-        ->assertSeeHtml('x-data="unsavedChangesGuard(\'leave-star\')"')
+        ->assertSeeHtml('x-data="unsavedChangesGuard(\'leave-star\', [\'connectionIds\', \'name\', \'description\'])"')
         ->assertSeeText(['Leave without saving?', 'Stay', 'Leave without saving']);
 });
 

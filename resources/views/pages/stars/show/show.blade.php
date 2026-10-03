@@ -1,4 +1,4 @@
-<div class="mx-auto w-full max-w-5xl" x-data="unsavedChangesGuard('leave-star')" x-bind="guard">
+<div class="mx-auto w-full max-w-5xl" x-data="unsavedChangesGuard('leave-star', ['connectionIds', 'name', 'description'])" x-bind="guard">
     <x-star-header :star="$star" current="overview" />
 
     <x-stat-strip class="mt-8">

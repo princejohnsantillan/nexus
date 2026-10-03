@@ -26,20 +26,21 @@ window.addEventListener('hashchange', historyPosition)
 
 /**
  * Asks before leaving a page that has unsaved changes. Put it on a Livewire
- * page's root with the name of the Flux modal that asks, and give the
- * component a `hasUnsavedChanges` property that is true while something is
- * unsaved:
+ * page's root with the name of the Flux modal that asks and the properties
+ * it guards, and give the component a `hasUnsavedChanges` property that is
+ * true while something is unsaved:
  *
- *     <div x-data="unsavedChangesGuard('leave-star')" x-bind="guard">
+ *     <div x-data="unsavedChangesGuard('leave-star', ['name', 'description'])" x-bind="guard">
  *
  * Leaving through wire:navigate (links, redirects, and the browser's back
  * and forward buttons between such pages) opens the modal, whose leave()
  * goes on to where the person was going. Closing or reloading the tab, or a
- * link that loads a whole page, gets the browser's own prompt. Changes not
- * yet sent to the server count too.
+ * link that loads a whole page, gets the browser's own prompt. Changes to
+ * the guarded properties not yet sent to the server count too; the page's
+ * other properties, such as a picker's choice, never do.
  */
 document.addEventListener('alpine:init', () => {
-    window.Alpine.data('unsavedChangesGuard', (modal) => ({
+    window.Alpine.data('unsavedChangesGuard', (modal, properties) => ({
         // Where the person was going when the modal opened: the URL, and how many history entries away it is (0 for a link).
         destination: null,
 
@@ -72,7 +73,7 @@ document.addEventListener('alpine:init', () => {
         },
 
         unsaved() {
-            return this.$wire.hasUnsavedChanges || this.$wire.$dirty()
+            return this.$wire.hasUnsavedChanges || this.$wire.$dirty(properties)
         },
 
         ask(event) {
