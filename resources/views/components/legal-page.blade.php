@@ -13,9 +13,10 @@
     <main class="w-full flex-1 px-6 py-12 sm:py-16">
         <article class="mx-auto max-w-170">
             @unless (config()->boolean('nexus.legal.reviewed'))
-                <flux:callout icon="pencil-square" color="amber" class="mb-8" data-legal-draft>
-                    <flux:callout.text>{{ __('This draft is reviewed before Nexus takes payments.') }}</flux:callout.text>
-                </flux:callout>
+                <p class="mb-8 flex items-start gap-2.5 rounded-lg border border-warning-rule bg-warning-wash px-3.5 py-3 text-sm text-warning" data-legal-draft>
+                    <flux:icon.pencil-square variant="micro" class="mt-0.5 size-4 shrink-0" />
+                    <span>{{ __('This draft is reviewed before Nexus takes payments.') }}</span>
+                </p>
             @endunless
 
             <flux:heading level="1" class="text-[2rem]! leading-[2.375rem]! font-bold! tracking-tight text-zinc-950 dark:text-white">{{ $title }}</flux:heading>
