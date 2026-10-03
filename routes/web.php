@@ -28,6 +28,9 @@ Route::middleware('guest')->group(function (): void {
     Route::get('/auth/google', GoogleRedirectController::class)->name('auth.google');
 });
 
+// The Pricing page, for guests and signed-in users alike.
+Route::livewire('/pricing', 'pages::pricing')->name('pricing');
+
 // The legal pages, for guests and signed-in users alike.
 Route::livewire('/terms', 'pages::legal.terms')->name('legal.terms');
 Route::livewire('/privacy', 'pages::legal.privacy')->name('legal.privacy');

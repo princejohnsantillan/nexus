@@ -64,6 +64,12 @@ it('links each legal page to the others from the footer', function (string $rout
         ->assertSee('aria-current="page"', escape: false);
 })->with('legal pages');
 
+it('links the Pricing page from the header', function (string $route): void {
+    $this->get(route($route))
+        ->assertSee('href="'.route('pricing').'"', escape: false)
+        ->assertSeeText('Pricing');
+})->with('legal pages');
+
 it('renders the legal components by name', function (string $route, string $title): void {
     Livewire::test('pages::'.$route)
         ->assertOk()
