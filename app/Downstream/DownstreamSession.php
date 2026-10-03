@@ -31,10 +31,29 @@ final readonly class DownstreamSession
      */
     private const int MAX_PAGES = 100;
 
+    /**
+     * @param  (Closure(): string)|null  $accessToken  An OAuth Connection's access token for the server, renewed first when it has expired; null when the session signs in some other way, or not at all.
+     */
     public function __construct(
         private DownstreamMcpClient $client,
         private DownstreamTransport $transport,
+        private ?Closure $accessToken = null,
     ) {}
+
+    /**
+     * Make sure the session can sign in to its server, without sending the
+     * server anything: an OAuth Connection's access token is read, and renewed
+     * first when it has expired or is about to, as before any request. A
+     * session that signs in some other way, or not at all, has nothing to check.
+     *
+     * @throws DownstreamRequestFailed as needing sign-in when the Connection isn't signed in or its sign-in can't be renewed, or as the renewal failed
+     */
+    public function signIn(): void
+    {
+        if ($this->accessToken instanceof Closure) {
+            ($this->accessToken)();
+        }
+    }
 
     /**
      * Every tool the server lists, as the JSON object it sent for each,

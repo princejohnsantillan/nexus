@@ -13,10 +13,15 @@ use App\Models\Star;
 use App\Models\ToolCallCount;
 use App\Models\User;
 use Carbon\CarbonImmutable;
+use GuzzleHttp\Promise\PromiseInterface;
 use Illuminate\Console\Scheduling\Event as ScheduledEvent;
 use Illuminate\Console\Scheduling\Schedule;
+use Illuminate\Support\Facades\Http;
+use Tests\Support\ConnectionOAuthFlow;
+use Tests\Support\FakeAuthorizationServer;
 use Tests\Support\FakeMcpServer;
 use Tests\Support\StarClient;
+use Tests\TestCase;
 
 beforeEach(function (): void {
     config(['nexus.plans.free.tool_calls_per_week' => 3000]);
@@ -66,11 +71,58 @@ it('counts no call it refuses before forwarding, and no prompt fetch', function 
     $this->assertDatabaseEmpty('tool_call_counts');
 });
 
+it('counts no call it can\'t send because the Connection can\'t sign in', function (Closure $arrange): void {
+    $server = FakeMcpServer::at()->requireOAuth()->withTools([['name' => 'search', 'annotations' => ['readOnlyHint' => true]]])->onCall('search', fn (): array => ['content' => [['type' => 'text', 'text' => 'Found it']]]);
+    $notion = Connection::factory()->for($this->user)->oauth()->create(['name' => 'Notion', 'handle' => 'notion']);
+    ConnectionTool::factory()->for($notion)->create(['name' => 'search', 'read_only' => true]);
+    $star = Star::factory()->for($this->user)->including($notion)->create(['name' => 'Notes']);
+    $client = StarClient::for($star)->withToken(resolve(CreateStarToken::class)->handle($star, 'Laptop')->plainTextToken);
+    $this->actingAs($this->user);
+    $arrange($this, $notion, $server->authorizationServer());
+    $requestsBefore = count($server->requests());
+
+    $response = $client->callTool('notion__search')->assertOk()->assertJsonPath('result.isError', true);
+
+    expect($response->json('result.content.0.text'))->toContain('The Notion Connection needs signing in again')
+        ->and(count($server->requests()))->toBe($requestsBefore)
+        ->and(ActivityEntry::query()->sole()->status)->toBe(ActivityStatus::NeedsAuth);
+    $this->assertDatabaseEmpty('tool_call_counts');
+})->with([
+    'it never signed in' => [function (TestCase $test, Connection $notion, FakeAuthorizationServer $auth): void {}],
+    'its token expired and there is no refresh token' => [function (TestCase $test, Connection $notion, FakeAuthorizationServer $auth): void {
+        $auth->withoutRefreshTokens();
+        ConnectionOAuthFlow::signIn($test, $notion, $auth);
+        $test->travel(2)->hours();
+    }],
+    'its server won\'t renew the token' => [function (TestCase $test, Connection $notion, FakeAuthorizationServer $auth): void {
+        ConnectionOAuthFlow::signIn($test, $notion, $auth);
+        $auth->respondTo('token', fn (): PromiseInterface => Http::response(['error' => 'invalid_grant'], 400));
+        $test->travel(2)->hours();
+    }],
+]);
+
+it('counts a call whose expired sign-in it renews first', function (): void {
+    $server = FakeMcpServer::at()->requireOAuth()->withTools([['name' => 'search', 'annotations' => ['readOnlyHint' => true]]])->onCall('search', fn (): array => ['content' => [['type' => 'text', 'text' => 'Found it']]]);
+    $notion = Connection::factory()->for($this->user)->oauth()->create(['name' => 'Notion', 'handle' => 'notion']);
+    ConnectionTool::factory()->for($notion)->create(['name' => 'search', 'read_only' => true]);
+    $star = Star::factory()->for($this->user)->including($notion)->create(['name' => 'Notes']);
+    $client = StarClient::for($star)->withToken(resolve(CreateStarToken::class)->handle($star, 'Laptop')->plainTextToken);
+    $this->actingAs($this->user);
+    ConnectionOAuthFlow::signIn($this, $notion, $server->authorizationServer());
+    $this->travel(2)->hours();
+
+    $client->callTool('notion__search')->assertOk()->assertJsonPath('result.content.0.text', 'Found it');
+
+    expect($server->authorizationServer()->tokenRequests('refresh_token'))->toHaveCount(1);
+    $this->assertDatabaseHas('tool_call_counts', ['user_id' => $this->user->id, 'calls' => 1]);
+});
+
 it('refuses a Free user\'s 3,001st call of the week without forwarding it, and records it as the weekly limit', function (): void {
     $server = FakeMcpServer::at()->onCall('search', fn (): array => ['content' => [['type' => 'text', 'text' => 'Found it']]]);
     ToolCallCount::factory()->for($this->user)->create(['calls' => 2999]);
 
     $this->client->callTool('wiki__search')->assertOk()->assertJsonPath('result.content.0.text', 'Found it');
+    $requestsBefore = count($server->requests());
     $refused = $this->client->callTool('wiki__search')->assertOk();
 
     expect($refused->json('result'))->toMatchArray([
@@ -80,7 +132,8 @@ it('refuses a Free user\'s 3,001st call of the week without forwarding it, and r
         ]],
         'isError' => true,
     ]);
-    expect($server->received('tools/call'))->toHaveCount(1);
+    expect($server->received('tools/call'))->toHaveCount(1)
+        ->and(count($server->requests()))->toBe($requestsBefore);
     expect(ActivityEntry::query()->orderBy('id')->get()->map->only(['exposed_name', 'connection_id', 'downstream_name', 'status'])->all())->toBe([
         ['exposed_name' => 'wiki__search', 'connection_id' => $this->wiki->id, 'downstream_name' => 'search', 'status' => ActivityStatus::Ok],
         ['exposed_name' => 'wiki__search', 'connection_id' => $this->wiki->id, 'downstream_name' => 'search', 'status' => ActivityStatus::Limited],
