@@ -9,6 +9,7 @@ use App\Models\ConnectionTool;
 use App\Models\Star;
 use App\Models\StarToolSwitch;
 use App\Models\User;
+use Dom\HTMLDocument;
 use Laravel\Passport\Client;
 use Livewire\Livewire;
 use Tests\Support\StarClient;
@@ -105,6 +106,74 @@ it('shows setup for each client with the URL alone and its login step in OAuth m
         ->assertDontSeeText('NEXUS_WORK_TOKEN')
         ->assertDontSeeText('signature=')
         ->assertDontSeeText('Authorization');
+});
+
+/**
+ * Each code panel on the page: the title in its header, the text its Copy
+ * button copies, and whether that button copies the panel's own code.
+ *
+ * @return list<array{title: string, code: string, copiesItsCode: bool}>
+ */
+function starCodePanels(string $html): array
+{
+    $document = HTMLDocument::createFromString($html, LIBXML_NOERROR);
+    $panels = [];
+
+    foreach ($document->querySelectorAll('[data-code-panel]') as $panel) {
+        $panels[] = [
+            'title' => trim((string) $panel->querySelector('[data-code-panel-title]')?->textContent),
+            'code' => (string) $panel->querySelector('pre[x-ref="code"]')?->textContent,
+            'copiesItsCode' => str_contains((string) $panel->querySelector('[data-code-panel-copy]')?->getAttribute('x-on:click'), 'navigator.clipboard.writeText($refs.code.textContent)'),
+        ];
+    }
+
+    return $panels;
+}
+
+it('shows each setup snippet in a code panel that names its file or the terminal and copies exactly the snippet', function (): void {
+    $star = Star::factory()->for($this->user)->create(['slug' => 'work']);
+    $url = url('/mcp/'.$star->public_id);
+    $toml = "[mcp_servers.nexus-work]\nurl = \"{$url}\"\nbearer_token_env_var = \"NEXUS_WORK_TOKEN\"";
+    $cursor = <<<JSON
+        {
+            "mcpServers": {
+                "nexus-work": {
+                    "url": "{$url}",
+                    "headers": {
+                        "Authorization": "Bearer \${env:NEXUS_WORK_TOKEN}"
+                    }
+                }
+            }
+        }
+        JSON;
+
+    $html = $this->get(route('stars.show', $star))->assertOk()->getContent();
+
+    expect(starCodePanels($html))->toBe([
+        ['title' => 'terminal', 'code' => 'export NEXUS_WORK_TOKEN=nxs_…', 'copiesItsCode' => true],
+        ['title' => 'terminal', 'code' => "claude mcp add-json --scope user nexus-work '{\"type\":\"http\",\"url\":\"{$url}\",\"headers\":{\"Authorization\":\"Bearer \${NEXUS_WORK_TOKEN}\"}}'", 'copiesItsCode' => true],
+        ['title' => '~/.codex/config.toml', 'code' => $toml, 'copiesItsCode' => true],
+        ['title' => '~/.cursor/mcp.json', 'code' => $cursor, 'copiesItsCode' => true],
+        ['title' => '~/.grok/config.toml', 'code' => $toml, 'copiesItsCode' => true],
+    ]);
+});
+
+it('heads the URL claude.ai takes as a URL and each login command as the terminal', function (): void {
+    $star = Star::factory()->for($this->user)->withAccessMode(StarAccessMode::OAuth)->create(['slug' => 'work']);
+    $url = url('/mcp/'.$star->public_id);
+
+    $html = $this->get(route('stars.show', $star))->assertOk()->getContent();
+
+    expect(array_map(fn (array $panel): array => [$panel['title'], $panel['code']], starCodePanels($html)))->toBe([
+        ['URL', $url],
+        ['terminal', "claude mcp add --transport http --scope user nexus-work '{$url}'"],
+        ['terminal', 'claude mcp login nexus-work'],
+        ['~/.codex/config.toml', "[mcp_servers.nexus-work]\nurl = \"{$url}\""],
+        ['terminal', 'codex mcp login nexus-work'],
+        ['~/.cursor/mcp.json', "{\n    \"mcpServers\": {\n        \"nexus-work\": {\n            \"url\": \"{$url}\"\n        }\n    }\n}"],
+        ['terminal', 'cursor-agent mcp login nexus-work'],
+        ['~/.grok/config.toml', "[mcp_servers.nexus-work]\nurl = \"{$url}\""],
+    ]);
 });
 
 it('lives at its public id, never its numeric id', function (): void {

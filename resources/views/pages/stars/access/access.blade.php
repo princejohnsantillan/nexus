@@ -71,7 +71,7 @@
                                         @if ($app->last_used_at !== null)
                                             <time datetime="{{ $app->last_used_at->toIso8601String() }}" title="{{ $app->last_used_at->toDayDateTimeString() }}">{{ $app->last_used_at->diffForHumans() }}</time>
                                         @else
-                                            <flux:text size="sm" class="text-zinc-400 dark:text-zinc-500">{{ __('Never') }}</flux:text>
+                                            <flux:text size="sm" class="text-zinc-500 dark:text-zinc-400">{{ __('Never') }}</flux:text>
                                         @endif
                                     </flux:table.cell>
                                     <flux:table.cell align="end">
@@ -155,7 +155,7 @@
                                         @if ($token->last_used_at !== null)
                                             <time datetime="{{ $token->last_used_at->toIso8601String() }}" title="{{ $token->last_used_at->toDayDateTimeString() }}">{{ $token->last_used_at->diffForHumans() }}</time>
                                         @else
-                                            <flux:text size="sm" class="text-zinc-400 dark:text-zinc-500">{{ __('Never') }}</flux:text>
+                                            <flux:text size="sm" class="text-zinc-500 dark:text-zinc-400">{{ __('Never') }}</flux:text>
                                         @endif
                                     </flux:table.cell>
                                     <flux:table.cell align="end">

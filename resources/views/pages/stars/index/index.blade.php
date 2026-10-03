@@ -51,7 +51,7 @@
                         </flux:table.cell>
                         <flux:table.cell class="max-w-xs whitespace-normal!">
                             @if ($star->connections->isEmpty())
-                                <flux:text size="sm" class="text-zinc-400 dark:text-zinc-500">{{ __('None yet') }}</flux:text>
+                                <flux:text size="sm" class="text-zinc-500 dark:text-zinc-400">{{ __('None yet') }}</flux:text>
                             @else
                                 <div class="flex flex-wrap gap-1">
                                     @foreach ($star->connections as $connection)

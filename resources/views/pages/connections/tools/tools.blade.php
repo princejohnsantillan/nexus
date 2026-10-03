@@ -38,10 +38,10 @@
                                     <flux:text size="sm" class="mt-1 line-clamp-3">{{ $tool->description }}</flux:text>
                                 @endif
                             </flux:table.cell>
-                            <flux:table.cell><x-tool-hint :value="$tool->read_only" /></flux:table.cell>
-                            <flux:table.cell><x-tool-hint :value="$tool->destructive" /></flux:table.cell>
+                            <flux:table.cell><x-tool-hint :value="$tool->read_only" tone="success" /></flux:table.cell>
+                            <flux:table.cell><x-tool-hint :value="$tool->destructive" tone="danger" /></flux:table.cell>
                             <flux:table.cell><x-tool-hint :value="$tool->idempotent" /></flux:table.cell>
-                            <flux:table.cell><x-tool-hint :value="$tool->open_world" /></flux:table.cell>
+                            <flux:table.cell><x-tool-hint :value="$tool->open_world" tone="warning" /></flux:table.cell>
                         </flux:table.row>
                     @endforeach
                 </flux:table.rows>
