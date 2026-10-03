@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Models\Connection;
 use App\Models\Payment;
 use App\Models\Star;
+use App\Models\ToolCallCount;
 use App\Models\User;
 use Carbon\CarbonImmutable;
 use Dom\Element;
@@ -12,7 +13,7 @@ use Dom\HTMLDocument;
 use Livewire\Livewire;
 
 beforeEach(function (): void {
-    config(['nexus.plans.free.stars' => 2, 'nexus.plans.free.connections' => 10]);
+    config(['nexus.plans.free.stars' => 2, 'nexus.plans.free.connections' => 10, 'nexus.plans.free.tool_calls_per_week' => 3000]);
     $this->travelTo(CarbonImmutable::parse('2026-10-03 06:00:00', 'UTC'));
 });
 
@@ -31,10 +32,11 @@ function usageMeters(string $html): array
     ], iterator_to_array($meters)));
 }
 
-it('shows Free with what it costs, the Stars and Connections against its limits, and a way to upgrade', function (): void {
+it('shows Free with what it costs, its usage against its limits, and a way to upgrade', function (): void {
     $user = User::factory()->create();
     Star::factory()->for($user)->count(2)->create();
     Connection::factory()->for($user)->count(7)->create();
+    ToolCallCount::factory()->for($user)->create(['calls' => 1240]);
 
     $page = Livewire::actingAs($user)->test('pages::billing.index')
         ->assertSeeTextInOrder(['Billing', 'Current plan', 'Free', '₱0 / month', 'Upgrade to Pro'])
@@ -45,6 +47,7 @@ it('shows Free with what it costs, the Stars and Connections against its limits,
     expect(usageMeters($page->html()))->toBe([
         ['text' => 'Stars 2 of 2 · limit reached', 'atLimit' => true],
         ['text' => 'Connections 7 of 10', 'atLimit' => false],
+        ['text' => 'Tool calls this week 1,240 of 3,000', 'atLimit' => false],
     ]);
 });
 
@@ -52,26 +55,30 @@ it('shows a Free account over its limits as at them, without hiding anything', f
     $user = User::factory()->create();
     Star::factory()->for($user)->count(3)->create();
     Connection::factory()->for($user)->count(12)->create();
+    ToolCallCount::factory()->for($user)->create(['calls' => 4860]);
 
     $page = Livewire::actingAs($user)->test('pages::billing.index');
 
     expect(usageMeters($page->html()))->toBe([
         ['text' => 'Stars 3 of 2 · limit reached', 'atLimit' => true],
         ['text' => 'Connections 12 of 10 · limit reached', 'atLimit' => true],
+        ['text' => 'Tool calls this week 4,860 of 3,000 · limit reached', 'atLimit' => true],
     ]);
 });
 
-it('counts only the user\'s own Stars and Connections', function (): void {
+it('counts only the user\'s own Stars, Connections and tool calls', function (): void {
     $user = User::factory()->create();
     Star::factory()->for($user)->create();
     Star::factory()->count(4)->create();
     Connection::factory()->count(9)->create();
+    ToolCallCount::factory()->create(['calls' => 3000]);
 
     $page = Livewire::actingAs($user)->test('pages::billing.index');
 
     expect(usageMeters($page->html()))->toBe([
         ['text' => 'Stars 1 of 2', 'atLimit' => false],
         ['text' => 'Connections 0 of 10', 'atLimit' => false],
+        ['text' => 'Tool calls this week 0 of 3,000', 'atLimit' => false],
     ]);
 });
 
@@ -79,6 +86,7 @@ it('shows Pro as active until its end date in Philippine time, with the days lef
     $user = User::factory()->pro()->create();
     Star::factory()->for($user)->count(5)->create();
     Connection::factory()->for($user)->count(14)->create();
+    ToolCallCount::factory()->for($user)->create(['calls' => 4860]);
 
     $page = Livewire::actingAs($user)->test('pages::billing.index')
         ->assertSeeTextInOrder(['Current plan', 'Pro', 'Active', 'Pro until Oct 3, 2027 · 365 days left', 'Extend Pro'])
@@ -90,6 +98,7 @@ it('shows Pro as active until its end date in Philippine time, with the days lef
     expect(usageMeters($page->html()))->toBe([
         ['text' => 'Stars 5 of unlimited No limit on Pro', 'atLimit' => false],
         ['text' => 'Connections 14 of unlimited No limit on Pro', 'atLimit' => false],
+        ['text' => 'Tool calls this week 4,860 of unlimited No limit on Pro', 'atLimit' => false],
     ]);
 });
 
@@ -114,6 +123,20 @@ it('starts warning 7 days before Pro ends, not 8', function (int $days, bool $wa
     '7 days left' => [7, true],
     '8 days left' => [8, false],
 ]);
+
+it('counts this week\'s tool calls, starting afresh on Monday at midnight in Philippine time', function (): void {
+    $user = User::factory()->create();
+    ToolCallCount::factory()->for($user)->create(['week_starts_on' => '2026-09-21', 'calls' => 2999]);
+    ToolCallCount::factory()->for($user)->create(['week_starts_on' => '2026-09-28', 'calls' => 12]);
+
+    $this->travelTo(CarbonImmutable::parse('2026-10-04 15:59:59', 'UTC'));
+    $sunday = usageMeters(Livewire::actingAs($user)->test('pages::billing.index')->html())[2]['text'];
+
+    $this->travelTo(CarbonImmutable::parse('2026-10-04 16:00:00', 'UTC'));
+    $monday = usageMeters(Livewire::actingAs($user)->test('pages::billing.index')->html())[2]['text'];
+
+    expect([$sunday, $monday])->toBe(['Tool calls this week 12 of 3,000', 'Tool calls this week 0 of 3,000']);
+});
 
 it('shows the date Pro ends on the Philippine calendar', function (): void {
     $user = User::factory()->create(['pro_until' => CarbonImmutable::parse('2026-10-20 18:00:00', 'UTC')]);

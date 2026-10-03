@@ -20,7 +20,7 @@ $percent = $limit === null || $limit < 1 ? 100 : min(100, round($used / $limit *
 
     <p class="flex flex-wrap items-baseline gap-x-1.5">
         <span @class([
-            'text-2xl leading-8 font-semibold tracking-tight tabular-nums',
+            'text-2xl leading-8 font-semibold tracking-tight',
             'text-zinc-950 dark:text-white' => ! $isAtLimit,
             'text-warning' => $isAtLimit,
         ])>{{ number_format($used) }}</span>

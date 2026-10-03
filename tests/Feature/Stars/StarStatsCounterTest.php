@@ -93,8 +93,8 @@ it('counts every call that didn\'t end OK as an error', function (): void {
 
     $stats = $this->counter->for($this->star);
 
-    expect($stats->calls)->toBe(5)
-        ->and($stats->errors)->toBe(4);
+    expect($stats->calls)->toBe(6)
+        ->and($stats->errors)->toBe(5);
 });
 
 it('finds the Star\'s latest call however long ago it was', function (): void {

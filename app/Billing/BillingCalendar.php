@@ -10,7 +10,8 @@ use Carbon\CarbonInterface;
 /**
  * Billing's own clock: Nexus bills in pesos, so billing dates (when Pro
  * ends, when a payment was made) show in Philippine time, from
- * `nexus.billing.timezone`, whatever the app's timezone is.
+ * `nexus.billing.timezone`, whatever the app's timezone is. The weekly
+ * tool-call limit counts weeks on the same clock, from Monday 00:00.
  */
 final class BillingCalendar
 {
@@ -41,5 +42,31 @@ final class BillingCalendar
     public static function shortDate(CarbonInterface $moment): string
     {
         return self::local($moment)->format('M j');
+    }
+
+    /**
+     * The moment's day and time in the billing timezone, e.g. "Monday, Oct 5 at 12:00 AM".
+     */
+    public static function dayAndTime(CarbonInterface $moment): string
+    {
+        return self::local($moment)->format('l, M j \a\t g:i A');
+    }
+
+    /**
+     * When the billing week the moment falls in started: Monday 00:00 in the
+     * billing timezone.
+     */
+    public static function weekStart(CarbonInterface $moment): CarbonImmutable
+    {
+        return self::local($moment)->startOfWeek(CarbonInterface::MONDAY);
+    }
+
+    /**
+     * When the billing week after the moment's starts, which is when the
+     * week's tool calls reset.
+     */
+    public static function nextWeekStart(CarbonInterface $moment): CarbonImmutable
+    {
+        return self::weekStart($moment)->addWeek();
     }
 }

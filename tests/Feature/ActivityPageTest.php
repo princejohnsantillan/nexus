@@ -158,7 +158,19 @@ it('labels each kind of failure', function (ActivityStatus $status, string $labe
     'needs sign-in' => [ActivityStatus::NeedsAuth, 'Needs sign-in'],
     'timed out' => [ActivityStatus::Timeout, 'Timed out'],
     'error' => [ActivityStatus::Error, 'Error'],
+    'weekly limit' => [ActivityStatus::Limited, 'Weekly limit'],
 ]);
+
+it('filters by the weekly limit, from the address bar', function (): void {
+    $wiki = Connection::factory()->for($this->user)->create(['handle' => 'wiki']);
+    $star = Star::factory()->for($this->user)->create();
+    ActivityEntry::factory()->through($star, $wiki, 'search')->withStatus(ActivityStatus::Limited)->create();
+    ActivityEntry::factory()->through($star, $wiki, 'fetch')->create();
+
+    $this->get(route('activity.index', ['status' => 'limited']))
+        ->assertSeeTextInOrder(['Status', 'Weekly limit', 'Clear', 'wiki__search'])
+        ->assertDontSeeText('wiki__fetch');
+});
 
 it('escapes the names clients send', function (): void {
     $star = Star::factory()->for($this->user)->create();
@@ -571,6 +583,32 @@ describe('details', function (): void {
         Livewire::withQueryParams(['entry' => $entry->id])->test('pages::activity.index')
             ->assertSeeTextInOrder(['Needs sign-in', 'Sign in to Notion again', 'Its server refused Nexus\'s sign-in', 'Reconnect Notion'])
             ->assertSeeHtmlInOrder(['data-activity-detail', 'href="'.route('connections.connect', $notion).'"']);
+    });
+
+    it('offers Pro for a call refused by the weekly limit', function (): void {
+        $wiki = Connection::factory()->for($this->user)->create(['handle' => 'wiki']);
+        $star = Star::factory()->for($this->user)->including($wiki)->create();
+        $entry = ActivityEntry::factory()->through($star, $wiki, 'search')->withStatus(ActivityStatus::Limited)->create();
+
+        Livewire::withQueryParams(['entry' => $entry->id])->test('pages::activity.index')
+            ->assertSeeTextInOrder([
+                'Weekly limit',
+                'The weekly tool-call limit was reached',
+                'This account had used its free tool calls for the week, so Nexus didn\'t forward the call. They reset every Monday at 12:00 AM Philippine time; Pro lifts the limit now.',
+                'Upgrade to Pro',
+            ])
+            ->assertSeeHtmlInOrder(['data-activity-detail', 'data-fix', 'href="'.route('billing.upgrade').'"']);
+    });
+
+    it('says Pro has no weekly limit once the user is on Pro', function (): void {
+        $this->user->forceFill(['pro_until' => now()->addMonth()])->save();
+        $wiki = Connection::factory()->for($this->user)->create(['handle' => 'wiki']);
+        $star = Star::factory()->for($this->user)->including($wiki)->create();
+        $entry = ActivityEntry::factory()->through($star, $wiki, 'search')->withStatus(ActivityStatus::Limited)->create();
+
+        Livewire::withQueryParams(['entry' => $entry->id])->test('pages::activity.index')
+            ->assertSeeText('You\'re on Pro now, so your Stars have no weekly limit.')
+            ->assertDontSeeText('Upgrade to Pro');
     });
 
     it('offers to open the Connection and refresh its tools after a call timed out or failed', function (ActivityStatus $status, string $explanation): void {

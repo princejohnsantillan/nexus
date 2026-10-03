@@ -10,6 +10,7 @@
     - `denialReason`: why the call was refused (App\Enums\DenialReason), or null.
     - `switchedOff`: the StarTool or StarPrompt the call was refused for while it is still off, or null.
     - `switchedOn`: whether it was just switched on from this panel.
+    - `plan`: the user's plan now (App\Enums\Plan), for the weekly limit's fix.
 --}}
 @props([
     'entry',
@@ -17,6 +18,7 @@
     'denialReason' => null,
     'switchedOff' => null,
     'switchedOn' => false,
+    'plan' => App\Enums\Plan::Free,
 ])
 
 @php
@@ -35,7 +37,7 @@
                 'inline-flex h-5.5 shrink-0 items-center rounded-full px-2 text-xs font-medium whitespace-nowrap',
                 'bg-success-wash text-success' => $entry->status === App\Enums\ActivityStatus::Ok,
                 'bg-zinc-50 text-zinc-950 ring-1 ring-zinc-300 ring-inset dark:bg-white/5 dark:text-white dark:ring-white/20' => $entry->status === App\Enums\ActivityStatus::Denied,
-                'bg-warning-wash text-warning' => in_array($entry->status, [App\Enums\ActivityStatus::NeedsAuth, App\Enums\ActivityStatus::Timeout], true),
+                'bg-warning-wash text-warning' => in_array($entry->status, [App\Enums\ActivityStatus::NeedsAuth, App\Enums\ActivityStatus::Timeout, App\Enums\ActivityStatus::Limited], true),
                 'bg-danger-wash text-danger' => $entry->status === App\Enums\ActivityStatus::Error,
             ])>{{ $entry->status->label() }}</span>
 
@@ -103,6 +105,13 @@
                                 : __('The tool is on in :star now, or :star no longer has it. Nexus also refuses a call whose arguments aren\'t an object.', ['star' => $star->name]) }}
                         </p>
                     @endif
+                @elseif ($entry->status === App\Enums\ActivityStatus::Limited)
+                    <h3 class="text-sm/5 font-semibold text-zinc-950 dark:text-white">{{ __('The weekly tool-call limit was reached') }}</h3>
+                    <p class="text-sm text-zinc-600 dark:text-zinc-300">
+                        {{ $plan === App\Enums\Plan::Pro
+                            ? __('This account had used its free tool calls for the week, so Nexus didn\'t forward the call. You\'re on Pro now, so your Stars have no weekly limit.')
+                            : __('This account had used its free tool calls for the week, so Nexus didn\'t forward the call. They reset every Monday at 12:00 AM Philippine time; Pro lifts the limit now.') }}
+                    </p>
                 @elseif ($connection === null)
                     <h3 class="text-sm/5 font-semibold text-zinc-950 dark:text-white">{{ $entry->status === App\Enums\ActivityStatus::NeedsAuth ? __('The server refused the sign-in') : $entry->status->label() }}</h3>
                     <p class="text-sm text-zinc-600 dark:text-zinc-300">{{ __('Its Connection has since been deleted, so there is nothing to fix.') }}</p>
@@ -123,9 +132,10 @@
                 $offersList = $entry->status === App\Enums\ActivityStatus::Denied && $star !== null && $denialReason !== App\Enums\DenialReason::NoName;
                 $offersReconnect = $entry->status === App\Enums\ActivityStatus::NeedsAuth && $connection !== null;
                 $offersConnection = in_array($entry->status, [App\Enums\ActivityStatus::Timeout, App\Enums\ActivityStatus::Error], true) && $connection !== null;
+                $offersUpgrade = $entry->status === App\Enums\ActivityStatus::Limited && $plan !== App\Enums\Plan::Pro;
             @endphp
 
-            @if ($offersSwitch || $offersList || $offersReconnect || $offersConnection)
+            @if ($offersSwitch || $offersList || $offersReconnect || $offersConnection || $offersUpgrade)
                 <div class="flex flex-wrap items-center gap-2">
                     @if ($offersSwitch)
                         <flux:button variant="primary" size="sm" wire:click="switchOn">{{ __('Switch on in :star', ['star' => $star->name]) }}</flux:button>
@@ -137,6 +147,10 @@
 
                     @if ($offersReconnect)
                         <flux:button variant="primary" size="sm" :href="route('connections.connect', $connection)">{{ __('Reconnect :connection', ['connection' => $connection->name]) }}</flux:button>
+                    @endif
+
+                    @if ($offersUpgrade)
+                        <flux:button variant="primary" size="sm" :href="route('billing.upgrade')" wire:navigate>{{ __('Upgrade to Pro') }}</flux:button>
                     @endif
 
                     @if ($offersConnection)

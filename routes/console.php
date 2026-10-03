@@ -6,6 +6,7 @@ use App\Console\Commands\RefreshCatalogsCommand;
 use App\Console\Commands\SendProRemindersCommand;
 use App\Models\ActivityEntry;
 use App\Models\EmailCode;
+use App\Models\ToolCallCount;
 use Illuminate\Database\Console\PruneCommand;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
@@ -16,7 +17,7 @@ Artisan::command('inspire', function (): void {
     $this->comment(Inspiring::quote());
 })->purpose('Display an inspiring quote');
 
-Schedule::command(PruneCommand::class, ['--model' => [ActivityEntry::class, EmailCode::class]])->daily();
+Schedule::command(PruneCommand::class, ['--model' => [ActivityEntry::class, EmailCode::class, ToolCallCount::class]])->daily();
 
 Schedule::command(RefreshCatalogsCommand::class)->daily()->onOneServer();
 
