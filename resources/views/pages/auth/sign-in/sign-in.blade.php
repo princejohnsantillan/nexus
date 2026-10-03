@@ -37,7 +37,7 @@
                 <flux:error name="email" />
             </flux:field>
 
-            <flux:button type="submit" icon="envelope" icon:variant="outline" class="mt-3 h-10.5! w-full border-zinc-300! text-zinc-950! dark:border-zinc-600! dark:text-white!">{{ __('Email me a sign-in code') }}</flux:button>
+            <flux:button type="submit" icon="envelope" icon:variant="outline" class="mt-3 h-10.5! w-full border-zinc-300! ps-4! text-zinc-950! dark:border-zinc-600! dark:text-white!">{{ __('Email me a sign-in code') }}</flux:button>
 
             <flux:text class="mt-3 text-[0.8125rem] leading-5 text-zinc-600 dark:text-zinc-400">{{ __('We\'ll send a 6-digit code. No password to remember.') }}</flux:text>
         </form>
