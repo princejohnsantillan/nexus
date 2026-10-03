@@ -9,7 +9,9 @@ use App\Downstream\DownstreamClient;
 use App\Exceptions\ConnectionSignInFailed;
 use App\Exceptions\DownstreamRequestFailed;
 use App\Models\Connection;
+use App\Models\Star;
 use App\Models\User;
+use App\Stars\ReturnToStar;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Str;
 use Illuminate\Support\Uri;
@@ -45,13 +47,15 @@ final readonly class ConnectionSignIn
     ) {}
 
     /**
-     * Start signing an OAuth Connection in.
+     * Start signing an OAuth Connection in, remembering the Star to go back
+     * to, if any, with the sign-in.
      *
+     * @param  Star|null  $returnTo  The Star the user is adding the Connection to (ReturnToStar).
      * @return string The server's sign-in page, with the request for Nexus's access in its query.
      *
      * @throws ConnectionSignInFailed
      */
-    public function start(Connection $connection): string
+    public function start(Connection $connection, ?Star $returnTo = null): string
     {
         $challenge = $this->challenge($connection);
         $server = $this->discovery->discover($connection->url, $challenge);
@@ -74,6 +78,7 @@ final readonly class ConnectionSignIn
             resource: $server->resource,
             scopes: $scope,
             redirectUri: $this->nexus->callbackUrl(),
+            returnTo: $returnTo?->public_id,
         ));
 
         return (string) Uri::of($server->authorizationEndpoint)->withQuery(array_filter([
@@ -135,6 +140,21 @@ final readonly class ConnectionSignIn
         $this->refreshCatalog->handle($connection);
 
         return $connection;
+    }
+
+    /**
+     * The Star to go back to once the sign-in the user came back from is
+     * finished, or failed: the one it started with, while it is still the
+     * user's own. Ask before finishing it, which uses the sign-in up.
+     *
+     * @param  array<array-key, mixed>  $query  The callback's query.
+     */
+    public function returnTarget(User $user, #[SensitiveParameter] array $query): ?Star
+    {
+        $state = $query['state'] ?? null;
+        $pending = is_string($state) && $state !== '' ? $this->pending->find($state) : null;
+
+        return ReturnToStar::find($user, $pending?->returnTo);
     }
 
     /**

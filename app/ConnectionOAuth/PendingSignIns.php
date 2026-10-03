@@ -30,6 +30,14 @@ final readonly class PendingSignIns
     }
 
     /**
+     * The sign-in the state belongs to, leaving it pending.
+     */
+    public function find(string $state): ?PendingSignIn
+    {
+        return PendingSignIn::fromArray($this->all()[$state] ?? null);
+    }
+
+    /**
      * Take the sign-in the state belongs to, so it can only be finished once.
      */
     public function pull(string $state): ?PendingSignIn

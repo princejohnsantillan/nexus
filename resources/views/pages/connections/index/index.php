@@ -13,7 +13,10 @@ use App\Connectors\ConnectorCatalog;
 use App\Enums\ConnectionStatus;
 use App\Enums\SignInMethod;
 use App\Models\Connection;
+use App\Models\ConnectionTool;
+use App\Models\Star;
 use App\Models\User;
+use App\Stars\ReturnToStar;
 use Flux\Flux;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Database\Eloquent\Collection;
@@ -64,10 +67,31 @@ return new #[Title('Connections')] class extends Component
 
     public string $clientSecret = '';
 
+    /**
+     * The public id of the Star the user is adding a Connection to, from its
+     * overview: once it's connected, they go back to it (ReturnToStar).
+     */
+    #[Locked]
+    public ?string $returnTo = null;
+
+    public function mount(): void
+    {
+        $this->returnTo = ReturnToStar::find($this->user, request()->query(ReturnToStar::QUERY))?->public_id;
+    }
+
     #[Computed]
     public function user(): User
     {
         return Auth::user() ?? throw new AuthenticationException;
+    }
+
+    /**
+     * The Star the user is adding a Connection to, while it is still theirs.
+     */
+    #[Computed]
+    public function returnStar(): ?Star
+    {
+        return ReturnToStar::find($this->user, $this->returnTo);
     }
 
     /**
@@ -174,6 +198,27 @@ return new #[Title('Connections')] class extends Component
     }
 
     /**
+     * A tool the connect modal's service has, to preview the names agents
+     * will see: the first of the user's other accounts of it has, or null
+     * when they have none.
+     */
+    #[Computed]
+    public function exampleTool(): ?string
+    {
+        if ($this->connectorKey === null) {
+            return null;
+        }
+
+        $name = ConnectionTool::query()
+            ->whereIn('connection_id', $this->user->connections()->where('connector_key', $this->connectorKey)->select('id'))
+            ->orderBy('connection_id')
+            ->orderBy('id')
+            ->value('name');
+
+        return is_string($name) ? $name : null;
+    }
+
+    /**
      * The callback URL to register on a user's own OAuth app.
      */
     #[Computed]
@@ -193,7 +238,7 @@ return new #[Title('Connections')] class extends Component
         abort_unless($connector instanceof Connector && $connector->isAvailable(), 404);
 
         $this->connectorKey = $connector->key;
-        unset($this->connector);
+        unset($this->connector, $this->exampleTool);
 
         ['name' => $this->name, 'handle' => $this->handle] = $suggestConnectionDetails->handle($this->user, $connector);
         $this->description = '';
@@ -209,9 +254,10 @@ return new #[Title('Connections')] class extends Component
     /**
      * Connect the chosen connector: with a token, its tools load straight
      * away; with OAuth, the Connection is saved and the user is sent on to
-     * sign in on the service's own page.
+     * sign in on the service's own page. Adding to a Star, the user goes
+     * back to it with the Connection added, once it's connected.
      */
-    public function connect(ConnectWithToken $connectWithToken, ConnectWithOAuth $connectWithOAuth): void
+    public function connect(ConnectWithToken $connectWithToken, ConnectWithOAuth $connectWithOAuth, ReturnToStar $returnToStar): void
     {
         $connector = $this->connector;
 
@@ -266,12 +312,21 @@ return new #[Title('Connections')] class extends Component
                 ? ['client_id' => $this->clientId, 'client_secret' => $this->clientSecret]
                 : null);
 
-            $this->redirectRoute('connections.connect', ['connection' => $connection]);
+            $this->redirectRoute('connections.connect', ['connection' => $connection, ...ReturnToStar::query($this->returnStar)]);
 
             return;
         }
 
         $connection = $connectWithToken->handle($this->user, $connector, $details, $this->token);
+
+        if ($this->returnStar instanceof Star) {
+            ['url' => $url, 'toast' => $toast] = $returnToStar->finish($this->returnStar, $connection);
+
+            session()->flash('toast', $toast);
+            $this->redirect($url, navigate: true);
+
+            return;
+        }
 
         session()->flash('toast', $connection->status === ConnectionStatus::Connected
             ? ['variant' => 'success', 'text' => trans_choice('Connected. Nexus loaded :count tool.|Connected. Nexus loaded :count tools.', $connection->tools()->count())]

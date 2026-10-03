@@ -173,10 +173,10 @@
                 @if ($this->connections->isEmpty())
                     <x-section-card :heading="__('Connections')" :description="__('The Star offers the tools of the Connections you tick.')">
                         <x-empty-state icon="link" :heading="__('No Connections yet')">
-                            {{ __('Connect a remote MCP server, then come back to add it to this Star.') }}
+                            {{ __('Connect a remote MCP server, and you\'ll come back here with it added to this Star.') }}
 
                             <x-slot:actions>
-                                <flux:button variant="primary" icon="plus" :href="route('connections.add')" wire:navigate>{{ __('Add connection') }}</flux:button>
+                                <flux:button variant="primary" icon="plus" :href="App\Stars\ReturnToStar::addMoreUrl($star)" wire:navigate data-add-connection>{{ __('Add a connection') }}</flux:button>
                             </x-slot:actions>
                         </x-empty-state>
                     </x-section-card>
@@ -184,7 +184,15 @@
                     <x-section-card :heading="__('Connections')" :description="__('The Star offers the tools of the Connections you tick.')">
                         <x-connection-picker :connections="$this->connections" :unsaved="$this->changes->connectionIds" wire:model.live="connectionIds" :aria-label="__('Connections')" />
 
-                        <x-slot:hint>{{ __('Taking one out forgets the switches you set for its tools here.') }}</x-slot:hint>
+                        <x-slot:hint>
+                            <span class="flex flex-wrap items-center gap-x-1.5">
+                                <a href="{{ App\Stars\ReturnToStar::addMoreUrl($star) }}" class="inline-flex items-center gap-1.5 font-medium text-accent-content hover:underline" wire:navigate data-add-connection>
+                                    <flux:icon.plus variant="micro" class="size-4" />
+                                    {{ __('Add a connection') }}
+                                </a>
+                                <span class="text-zinc-500 dark:text-zinc-400"><span aria-hidden="true">·</span> {{ __('you\'ll come back here') }}</span>
+                            </span>
+                        </x-slot:hint>
                     </x-section-card>
                 @endif
 
