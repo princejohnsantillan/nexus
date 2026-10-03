@@ -10,6 +10,7 @@ use App\Models\Star;
 use App\Models\User;
 use App\Stars\StarTool;
 use App\Stars\StarToolset;
+use Dom\HTMLDocument;
 use Livewire\Livewire;
 use Tests\Support\ConnectionOAuthFlow;
 use Tests\Support\FakeAuthorizationServer;
@@ -225,18 +226,65 @@ it('adds a custom server signed in with a header and goes back to the Star', fun
         ->and($server->requests())->not->toBe([]);
 });
 
-it('adds a custom server whose tools didn\'t load to the Star, and says so', function (): void {
-    FakeMcpServer::at()->respondTo('tools/list', FakeMcpServer::error(-32603, 'Broken'));
+it('keeps a custom server whose tools didn\'t load out of the Star, leaving the user on Connections with the error and the banner', function (Closure $server, string $authType, string $headerValue): void {
+    $server();
 
     Livewire::withQueryParams(['star' => $this->star->public_id])->test('pages::connections.add-custom')
-        ->set('name', 'Broken')
-        ->set('handle', 'broken')
+        ->set('name', 'Acme')
+        ->set('handle', 'acme')
         ->set('url', FakeMcpServer::DEFAULT_URL)
+        ->set('authType', $authType)
+        ->set('headerName', 'X-Api-Key')
+        ->set('headerValue', $headerValue)
         ->call('save')
-        ->assertRedirect(route('stars.show', $this->star));
+        ->assertHasNoErrors()
+        ->assertRedirect(addingTo($this->star));
 
-    expect($this->star->connections()->pluck('handle')->all())->toBe(['broken'])
-        ->and(session('toast'))->toBe(['variant' => 'warning', 'text' => 'Broken added to Work, but Nexus couldn\'t load its tools. Its page says why.']);
+    $connection = $this->user->connections()->sole();
+
+    expect($connection->status)->not->toBe(ConnectionStatus::Connected)
+        ->and($this->star->connections()->count())->toBe(0)
+        ->and(session('toast.variant'))->toBe('danger')
+        ->and(session('toast.text'))->toBe('Saved Acme, but Nexus couldn\'t load its tools, so it isn\'t in Work yet. '.$connection->last_error);
+
+    $this->get(addingTo($this->star))
+        ->assertSeeText('Saved Acme, but Nexus couldn\'t load its tools, so it isn\'t in Work yet.')
+        ->assertSeeText('Adding to Work. You\'ll go back to Work when it\'s connected.');
+})->with([
+    'a header the server refuses' => [fn (): FakeMcpServer => FakeMcpServer::at()->requireHeader('X-Api-Key', 'sk-live-123'), 'header', 'sk-wrong'],
+    'a server that fails to list its tools' => [fn (): FakeMcpServer => FakeMcpServer::at()->respondTo('tools/list', FakeMcpServer::error(-32603, 'Broken')), 'none', ''],
+]);
+
+it('keeps a token Connection whose tools didn\'t load out of the Star, leaving the user on Connections with the error', function (): void {
+    FakeMcpServer::at('https://api.githubcopilot.com/mcp/')
+        ->requireHeader('Authorization', 'Bearer github_pat_good')
+        ->respondTo('tools/list', FakeMcpServer::httpStatus(503));
+
+    Livewire::withQueryParams(['star' => $this->star->public_id])->test('pages::connections.index')
+        ->call('startConnecting', 'github')
+        ->set('method', 'token')
+        ->set('token', 'github_pat_good')
+        ->call('connect')
+        ->assertHasNoErrors()
+        ->assertRedirect(addingTo($this->star));
+
+    expect($this->user->connections()->sole()->status)->toBe(ConnectionStatus::Error)
+        ->and($this->star->connections()->count())->toBe(0)
+        ->and(session('toast.variant'))->toBe('danger');
+});
+
+it('keeps an OAuth Connection whose tools didn\'t load after signing in out of the Star, leaving the user on Connections with the error', function (): void {
+    $server = FakeMcpServer::at()->requireOAuth()->respondTo('tools/list', FakeMcpServer::httpStatus(503));
+    $connection = Connection::factory()->for($this->user)->oauth()->create(['name' => 'Acme']);
+
+    $consent = (string) $this->get(route('connections.connect', ['connection' => $connection, 'star' => $this->star->public_id]))->headers->get('Location');
+
+    $this->get($server->authorizationServer()->approve($consent))
+        ->assertRedirect(addingTo($this->star))
+        ->assertSessionHas('toast.variant', 'danger');
+
+    expect(session('toast.text'))->toStartWith('Saved Acme, but Nexus couldn\'t load its tools, so it isn\'t in Work yet.')
+        ->and($this->star->connections()->count())->toBe(0);
 });
 
 it('signs a custom OAuth server in and goes back to the Star with it added', function (): void {
@@ -262,6 +310,17 @@ it('signs a custom OAuth server in and goes back to the Star with it added', fun
 
     expect($connection->refresh()->status)->toBe(ConnectionStatus::Connected)
         ->and($this->star->connections()->pluck('connections.id')->all())->toBe([$connection->id]);
+});
+
+it('goes back to the Star from Cancel in the connect dialog, adding nothing, and only closes it otherwise', function (): void {
+    $cancel = fn (string $html): ?string => HTMLDocument::createFromString($html, LIBXML_NOERROR)->querySelector('[data-connect-cancel]')?->getAttribute('href');
+
+    $notAdding = Livewire::test('pages::connections.index')->call('startConnecting', 'notion');
+    $adding = Livewire::withQueryParams(['star' => $this->star->public_id])->test('pages::connections.index')->call('startConnecting', 'notion');
+
+    expect($cancel($adding->html()))->toBe(route('stars.show', $this->star))
+        ->and($cancel($notAdding->html()))->toBeNull()
+        ->and(Connection::query()->count())->toBe(0);
 });
 
 it('goes back to the Star from Cancel on the custom server page, adding nothing', function (): void {

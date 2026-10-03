@@ -20,9 +20,10 @@ use Illuminate\Database\Eloquent\ModelNotFoundException;
  * pages carry it while the user picks and connects a server, and a sign-in
  * on the server's own page keeps it in the session with that sign-in
  * (`PendingSignIn::$returnTo`), so it survives the round trip. Once the
- * Connection is made, and signed in if it signs in with OAuth, add() puts
- * it in the Star and the user goes back there. Only the signed-in user's
- * own Star counts: anything else is ignored, as if they came another way.
+ * Connection is made (signed in, for OAuth) and its tools loaded, finish()
+ * puts it in the Star and sends the user back there. Only the signed-in
+ * user's own Star counts: anything else is ignored, as if they came
+ * another way.
  */
 final readonly class ReturnToStar
 {
@@ -66,26 +67,35 @@ final readonly class ReturnToStar
     }
 
     /**
-     * Add the Connection the user just made to the Star, through
-     * UpdateStarConnections, so its tools start from the Star's new-tool
-     * policy, and say so in the toast the Star's overview shows when the
-     * user is back: "GitHub (Acme) added to Work.", with a warning when its
-     * tools didn't load.
+     * Finish adding the Connection the user just made to the Star: where
+     * to send them next, and the toast to show there.
      *
-     * @return array{variant: string, text: string}
+     * Once its tools loaded, it goes in the Star through
+     * UpdateStarConnections, so its tools start from the Star's new-tool
+     * policy, and the user goes back to the Star: "GitHub added to Work.".
+     * When they didn't (the server refused its header, say), the Connection
+     * stays out of the Star and the user stays on the Connections page,
+     * still adding to the Star, with the reason.
+     *
+     * @return array{url: string, toast: array{variant: string, text: string}}
      *
      * @throws ModelNotFoundException<Star> when the Star no longer exists
      */
-    public function add(Star $star, Connection $connection): array
+    public function finish(Star $star, Connection $connection): array
     {
         $names = ['connection' => $connection->name, 'star' => $star->name];
 
-        if (! $this->updateStarConnections->add($star, $connection)) {
-            return ['variant' => 'success', 'text' => __(':connection is in :star.', $names)];
+        if ($connection->status !== ConnectionStatus::Connected) {
+            return ['url' => self::addMoreUrl($star), 'toast' => ['variant' => 'danger', 'text' => trim(
+                __('Saved :connection, but Nexus couldn\'t load its tools, so it isn\'t in :star yet.', $names).' '.$connection->last_error,
+            )]];
         }
 
-        return $connection->status === ConnectionStatus::Connected
-            ? ['variant' => 'success', 'text' => __(':connection added to :star.', $names)]
-            : ['variant' => 'warning', 'text' => __(':connection added to :star, but Nexus couldn\'t load its tools. Its page says why.', $names)];
+        $added = $this->updateStarConnections->add($star, $connection);
+
+        return ['url' => route('stars.show', $star), 'toast' => [
+            'variant' => 'success',
+            'text' => $added ? __(':connection added to :star.', $names) : __(':connection is in :star.', $names),
+        ]];
     }
 }

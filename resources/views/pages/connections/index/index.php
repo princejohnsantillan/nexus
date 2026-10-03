@@ -320,9 +320,10 @@ return new #[Title('Connections')] class extends Component
         $connection = $connectWithToken->handle($this->user, $connector, $details, $this->token);
 
         if ($this->returnStar instanceof Star) {
-            session()->flash('toast', $returnToStar->add($this->returnStar, $connection));
+            ['url' => $url, 'toast' => $toast] = $returnToStar->finish($this->returnStar, $connection);
 
-            $this->redirectRoute('stars.show', ['star' => $this->returnStar], navigate: true);
+            session()->flash('toast', $toast);
+            $this->redirect($url, navigate: true);
 
             return;
         }

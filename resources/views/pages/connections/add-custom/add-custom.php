@@ -166,9 +166,10 @@ return new #[Title('Custom MCP server')] class extends Component
         }
 
         if ($this->returnStar instanceof Star) {
-            session()->flash('toast', $returnToStar->add($this->returnStar, $connection));
+            ['url' => $url, 'toast' => $toast] = $returnToStar->finish($this->returnStar, $connection);
 
-            $this->redirectRoute('stars.show', ['star' => $this->returnStar], navigate: true);
+            session()->flash('toast', $toast);
+            $this->redirect($url, navigate: true);
 
             return;
         }

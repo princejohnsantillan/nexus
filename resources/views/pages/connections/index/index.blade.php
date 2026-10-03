@@ -393,9 +393,13 @@
                     @endif
 
                     <div class="flex gap-2">
-                        <flux:modal.close>
-                            <flux:button variant="ghost">{{ __('Cancel') }}</flux:button>
-                        </flux:modal.close>
+                        @if ($this->returnStar !== null)
+                            <flux:button variant="ghost" :href="route('stars.show', $this->returnStar)" wire:navigate data-connect-cancel>{{ __('Cancel') }}</flux:button>
+                        @else
+                            <flux:modal.close>
+                                <flux:button variant="ghost" data-connect-cancel>{{ __('Cancel') }}</flux:button>
+                            </flux:modal.close>
+                        @endif
 
                         @if ($method === App\Enums\SignInMethod::OAuth->value)
                             <flux:button type="submit" variant="primary" icon:trailing="arrow-up-right">{{ __('Continue to :name', ['name' => $this->connector->name]) }}</flux:button>

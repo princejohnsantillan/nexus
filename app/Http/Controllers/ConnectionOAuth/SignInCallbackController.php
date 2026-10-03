@@ -20,8 +20,8 @@ use Illuminate\Http\Request;
  * (or refuse) Nexus: finishes the sign-in and shows the Connection.
  *
  * A sign-in started from a Star's overview goes back to the Star instead,
- * with the Connection added to it, or, when it failed, to the Connections
- * page, still adding to the Star (ReturnToStar).
+ * with the Connection added to it, or, when it failed or the tools didn't
+ * load, to the Connections page, still adding to the Star (ReturnToStar).
  */
 class SignInCallbackController extends Controller
 {
@@ -46,7 +46,9 @@ class SignInCallbackController extends Controller
         }
 
         if ($returnTo instanceof Star) {
-            return to_route('stars.show', $returnTo)->with('toast', $returnToStar->add($returnTo, $connection));
+            ['url' => $url, 'toast' => $toast] = $returnToStar->finish($returnTo, $connection);
+
+            return redirect($url)->with('toast', $toast);
         }
 
         return to_route('connections.show', $connection)->with('toast', $connection->status === ConnectionStatus::Connected
