@@ -38,6 +38,8 @@
     --color-accent-content: #2f45d8;
     --color-accent-foreground: #ffffff;
     --color-accent-wash: #eef0fd;
+    /* Atlas blue, deeper: text on Accent wash where a board asks for Accent strong, such as the Pricing page's pill. */
+    --color-accent-strong: #2333b0;
 
     /* Flux's danger red (destructive buttons, invalid fields), re-assigned to signal red. */
     --color-red-500: #c8322b;
@@ -60,6 +62,7 @@
         --color-accent-content: #97a4ff;
         --color-accent-foreground: #ffffff;
         --color-accent-wash: color-mix(in oklab, #5468f0 18%, transparent);
+        --color-accent-strong: #b4bdff;
 
         --color-success: #4ade80;
         --color-success-wash: color-mix(in oklab, #4ade80 12%, transparent);

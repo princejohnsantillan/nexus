@@ -3,7 +3,7 @@
 
     <main class="flex w-full flex-1 flex-col items-center px-6">
         <div class="flex max-w-5xl flex-col items-center gap-3.5 pt-12 pb-10 text-center sm:pt-18">
-            <span class="inline-flex h-6 items-center rounded-full bg-accent-wash px-2.5 text-xs leading-4 font-medium text-accent-content">{{ __('Pricing in pesos') }}</span>
+            <span class="inline-flex h-6 items-center rounded-full bg-accent-wash px-2.5 text-xs leading-4 font-medium text-accent-strong">{{ __('Pricing in pesos') }}</span>
 
             {{-- "Two Stars" is the Free plan's Star limit (nexus.plans.free.stars), in words: change the headline with it. --}}
             <flux:heading level="1" class="text-[2.5rem]! leading-[2.75rem]! font-bold! tracking-[-0.035em]! text-zinc-950! sm:text-[3.5rem]! sm:leading-[3.75rem]! dark:text-white!">
