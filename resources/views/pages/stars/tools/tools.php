@@ -10,6 +10,8 @@ use App\Models\ConnectionTool;
 use App\Models\Star;
 use App\Stars\StarTool;
 use App\Stars\StarToolset;
+use App\Stars\ToolDetails;
+use App\Stars\ToolDetailsReader;
 use Flux\Flux;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
@@ -28,9 +30,25 @@ return new #[Title('Star tools')] class extends Component
 
     public string $policy = '';
 
+    /**
+     * The catalog id of the tool whose details flyout is open, or null.
+     */
+    public ?int $detailsToolId = null;
+
     public function mount(): void
     {
         $this->policy = $this->star->new_tool_policy->value;
+    }
+
+    /**
+     * Every tool of the Star's Connections, on or off.
+     *
+     * @return list<StarTool>
+     */
+    #[Computed]
+    public function starTools(): array
+    {
+        return resolve(StarToolset::class)->tools($this->star);
     }
 
     /**
@@ -46,7 +64,7 @@ return new #[Title('Star tools')] class extends Component
     {
         $tools = [];
 
-        foreach (resolve(StarToolset::class)->tools($this->star) as $tool) {
+        foreach ($this->starTools as $tool) {
             $tools[$tool->connection->id][] = $tool;
         }
 
@@ -63,6 +81,41 @@ return new #[Title('Star tools')] class extends Component
                 'total' => count($tools[$connection->id] ?? []),
             ];
         })->all());
+    }
+
+    /**
+     * The tool whose details flyout is open, or null when none is or the
+     * Star no longer has it.
+     */
+    #[Computed]
+    public function detailsTool(): ?StarTool
+    {
+        return $this->detailsToolId === null ? null : $this->starTool($this->detailsToolId);
+    }
+
+    /**
+     * What the details flyout shows for its tool.
+     */
+    #[Computed]
+    public function toolDetails(): ?ToolDetails
+    {
+        $tool = $this->detailsTool;
+
+        return $tool === null ? null : resolve(ToolDetailsReader::class)->read($tool->tool->setRelation('connection', $tool->connection));
+    }
+
+    /**
+     * Open the details flyout for one of the Star's tools.
+     */
+    public function showToolDetails(int $toolId): void
+    {
+        $this->starTool($toolId) ?? abort(404);
+
+        $this->detailsToolId = $toolId;
+
+        unset($this->detailsTool, $this->toolDetails);
+
+        $this->dispatch('modal-show', name: 'tool-details', scope: $this->getId());
     }
 
     public function updatedPolicy(): void
@@ -217,6 +270,14 @@ return new #[Title('Star tools')] class extends Component
     }
 
     /**
+     * One of the Star's tools as it exposes it, by its catalog id.
+     */
+    private function starTool(int $toolId): ?StarTool
+    {
+        return array_find($this->starTools, fn (StarTool $tool): bool => $tool->tool->id === $toolId);
+    }
+
+    /**
      * One of the Star's tools, by its catalog id.
      */
     private function findTool(int $toolId): ConnectionTool
@@ -242,6 +303,6 @@ return new #[Title('Star tools')] class extends Component
 
     private function forgetTools(): void
     {
-        unset($this->groups);
+        unset($this->starTools, $this->groups, $this->detailsTool, $this->toolDetails);
     }
 };

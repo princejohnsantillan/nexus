@@ -86,6 +86,32 @@ it('draws a switch afresh when its state changes, since Flux\'s switch keeps its
         ->assertDontSeeHtml('wire:key="switch-'.$this->writePage->id.'-off"');
 });
 
+it('opens a tool\'s details from its name, with a switch that switches the tool like its row', function (): void {
+    Livewire::test('pages::stars.tools', ['star' => $this->star])
+        ->assertSeeHtml('wire:click="showToolDetails('.$this->writePage->id.')"')
+        ->call('showToolDetails', $this->writePage->id)
+        ->assertDispatched('modal-show', name: 'tool-details')
+        ->assertSeeTextInOrder(['deepwiki__write_page', 'Off in Work', 'Follows the new-tool policy: Read-only tools on.', 'Writes a page.'])
+        ->assertSeeHtml('wire:key="details-switch-'.$this->writePage->id.'-off"')
+        ->call('switchTool', $this->writePage->id, true)
+        ->assertSeeTextInOrder(['deepwiki__write_page', 'On in Work', 'Your choice', 'Reset to the policy', 'In your Stars', 'Work', 'Your choice', 'On'])
+        ->assertSeeHtml('wire:key="details-switch-'.$this->writePage->id.'-on"')
+        ->assertDontSeeHtml('wire:key="details-switch-'.$this->writePage->id.'-off"');
+
+    expect(starToolStates($this->star))->toBe(['deepwiki__read_page' => [true, null], 'deepwiki__write_page' => [true, true]]);
+});
+
+it('refuses details of a tool outside the Star', function (): void {
+    $outside = ConnectionTool::factory()->for(Connection::factory()->for($this->user))->create();
+    $someoneElses = ConnectionTool::factory()->create();
+
+    foreach ([$outside, $someoneElses] as $tool) {
+        Livewire::test('pages::stars.tools', ['star' => $this->star])
+            ->call('showToolDetails', $tool->id)
+            ->assertNotFound();
+    }
+});
+
 it('resets a tool to the policy', function (): void {
     resolve(SwitchStarTools::class)->handle($this->star, $this->wiki, false, ['read_page']);
 
