@@ -4,10 +4,12 @@ declare(strict_types=1);
 
 use App\Enums\BillingPeriod;
 use App\Enums\PaymentStatus;
+use App\Jobs\ExpireStaleCheckout;
 use App\Models\Payment;
 use App\Models\User;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Queue;
 use Livewire\Livewire;
 use Tests\Support\FakePayMongo;
 
@@ -83,7 +85,27 @@ it('prices the checkout from the plan, whatever the page sends', function (): vo
     expect($payMongo->created()[0]['line_items'][0]['amount'])->toBe(499900);
 });
 
-it('expires the user\'s older pending checkouts when they start another', function (): void {
+it('sends the browser to the new checkout without waiting on PayMongo for the user\'s older ones', function (): void {
+    Queue::fake([ExpireStaleCheckout::class]);
+    $payMongo = FakePayMongo::fake();
+    $user = User::factory()->create();
+    $older = Payment::factory()->for($user)->count(2)->create();
+    Payment::factory()->for($user)->paid()->create();
+    Payment::factory()->for($user)->expired()->create();
+    Payment::factory()->create();
+
+    Livewire::actingAs($user)->test('pages::billing.upgrade')
+        ->call('continueToPayment')
+        ->assertRedirect('https://checkout.paymongo.com/'.Str::after($payMongo->lastSessionId(), 'cs_'));
+
+    expect($payMongo->requests())->toHaveCount(1);
+    Queue::assertPushedTimes(ExpireStaleCheckout::class, 2);
+    foreach ($older as $payment) {
+        Queue::assertPushed(ExpireStaleCheckout::class, fn (ExpireStaleCheckout $job): bool => $job->paymentId === $payment->id);
+    }
+});
+
+it('expires the user\'s older pending checkouts on the queue when they start another', function (): void {
     $payMongo = FakePayMongo::fake();
     $user = User::factory()->create();
     $older = Payment::factory()->for($user)->create();

@@ -35,9 +35,11 @@ final readonly class PayMongo
     private const float CONNECT_TIMEOUT = 5;
 
     /**
-     * Seconds to wait for PayMongo's answer, well inside a web request's limit.
+     * Seconds to wait for PayMongo's answer. A cancelled checkout's expiry
+     * makes three requests at most while the user waits, so they stay well
+     * inside a web request's 60 seconds.
      */
-    private const float TIMEOUT = 15;
+    private const float TIMEOUT = 10;
 
     /**
      * Whether this Nexus takes payments: it has a PayMongo secret key.
