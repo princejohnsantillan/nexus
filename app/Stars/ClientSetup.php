@@ -8,6 +8,7 @@ use App\Enums\McpClient;
 use App\Enums\StarAccessMode;
 use App\Models\Star;
 use InvalidArgumentException;
+use SensitiveParameter;
 
 /**
  * Copy-paste setup for adding a Star to an MCP client, for the Star's
@@ -158,12 +159,13 @@ final readonly class ClientSetup
     }
 
     /**
-     * The line that puts a token in the environment variable, with the
-     * token left out: `export NEXUS_WORK_TOKEN=nxs_…`.
+     * The line that puts a token in the environment variable: with the
+     * token left out (`export NEXUS_WORK_TOKEN=nxs_…`), or with the one
+     * just created, the only time Nexus has it.
      */
-    public static function tokenExport(Star $star): string
+    public static function tokenExport(Star $star, #[SensitiveParameter] string $token = 'nxs_…'): string
     {
-        return 'export '.self::tokenVariable($star).'=nxs_…';
+        return 'export '.self::tokenVariable($star).'='.$token;
     }
 
     /**

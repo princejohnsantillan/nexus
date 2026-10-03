@@ -8,6 +8,7 @@ use App\Models\Star;
 use App\Models\StarOAuthClient;
 use App\Models\StarToken;
 use App\Models\User;
+use Dom\HTMLDocument;
 use Laravel\Passport\Client;
 use Laravel\Passport\RefreshToken;
 use Laravel\Passport\Token;
@@ -30,6 +31,14 @@ beforeEach(function (): void {
 function accessToast(string $text, string $variant = 'success'): Closure
 {
     return fn (string $event, array $params): bool => $params['slots']['text'] === $text && $params['dataset']['variant'] === $variant;
+}
+
+/**
+ * Text with its runs of whitespace squished to single spaces.
+ */
+function squishedAccessText(?string $text): string
+{
+    return trim((string) preg_replace('/\s+/', ' ', (string) $text));
 }
 
 it('lists the Star\'s tokens by name and prefix, with when each was last used', function (): void {
@@ -56,8 +65,7 @@ it('creates a token, shows it once and keeps only its hash', function (): void {
         ->set('name', ' Claude Code ')
         ->call('create')
         ->assertHasNoErrors()
-        ->assertSet('name', '')
-        ->assertDispatched('modal-show', name: 'new-token');
+        ->assertSet('name', '');
 
     $plainToken = $page->get('newToken');
     $token = $this->star->tokens()->sole();
@@ -71,10 +79,72 @@ it('creates a token, shows it once and keeps only its hash', function (): void {
     $page->assertSee($plainToken)
         ->call('forgetNewToken')
         ->assertSet('newToken', null)
-        ->assertDontSee($plainToken);
+        ->assertDontSee($plainToken)
+        ->assertSeeText('Create a token');
 
     StarClient::for($this->star)->withToken($plainToken)->connect()->assertOk();
 });
+
+it('shows the new token as the line that puts it in the shell, with the way on to setting up a client', function (): void {
+    $page = Livewire::test('pages::stars.access', ['star' => $this->star])
+        ->set('name', 'Cursor')
+        ->call('create');
+
+    $plainToken = $page->get('newToken');
+    $reveal = HTMLDocument::createFromString($page->html(), LIBXML_NOERROR)->querySelector('[data-new-token]');
+
+    expect([
+        $reveal?->querySelector('[data-code-panel-title]')?->textContent,
+        $reveal?->querySelector('[data-code-panel] pre')?->textContent,
+        squishedAccessText($reveal?->querySelector('[data-new-token-once]')?->textContent),
+        squishedAccessText($reveal?->querySelector('[data-new-token-next]')?->textContent),
+        $reveal?->querySelector('[data-new-token-next]')?->getAttribute('href'),
+    ])->toBe([
+        '~/.zshrc',
+        'export NEXUS_WORK_TOKEN='.$plainToken,
+        'This is the only time Nexus shows this token. If you lose it, create another and revoke this one.',
+        'Next: set up a client',
+        route('stars.show', $this->star).'#setup',
+    ]);
+});
+
+it('opens the form for a new token with the name the client setup suggests', function (): void {
+    $page = Livewire::withQueryParams(['new_token' => 'Cursor'])->test('pages::stars.access', ['star' => $this->star])
+        ->assertSet('name', 'Cursor')
+        ->assertDispatched('modal-show', name: 'new-token');
+
+    $page->call('create')->assertHasNoErrors();
+
+    expect($this->star->tokens()->sole()->name)->toBe('Cursor');
+});
+
+it('ignores a suggested token name that is not a plain name', function (mixed $suggested): void {
+    Livewire::withQueryParams(['new_token' => $suggested])->test('pages::stars.access', ['star' => $this->star])
+        ->assertSet('name', '')
+        ->assertNotDispatched('modal-show');
+})->with([
+    'markup' => '<script>alert("token")</script>',
+    'a line break' => "Cursor\nexport EVIL=1",
+    'a trailing line break' => "Cursor\n",
+    'a quote' => 'Cursor"',
+    'blank' => ' ',
+    'longer than a token name' => str_repeat('a', 101),
+    'a list' => [['Cursor']],
+]);
+
+it('suggests no token name when the Star can have no more tokens, or no longer uses them', function (Closure $arrange): void {
+    $arrange($this->star);
+
+    Livewire::withQueryParams(['new_token' => 'Cursor'])->test('pages::stars.access', ['star' => $this->star])
+        ->assertSet('name', '')
+        ->assertNotDispatched('modal-show');
+})->with([
+    'at the tokens limit' => [function (Star $star): void {
+        config(['nexus.limits.tokens_per_star' => 1]);
+        StarToken::factory()->for($star)->create();
+    }],
+    'in signed-URL mode' => [fn (Star $star): bool => $star->forceFill(['access_mode' => StarAccessMode::SignedUrl])->save()],
+]);
 
 it('requires a token name', function (): void {
     Livewire::test('pages::stars.access', ['star' => $this->star])
@@ -136,8 +206,7 @@ it('shows the signed URL to copy in signed-URL mode, with no tokens', function (
 
     $this->get(route('stars.access', $this->star))
         ->assertOk()
-        ->assertSeeTextInOrder(['Access mode', 'Signed URL', 'Signed URL', 'Anyone who has this URL can use the Star', 'Rotate URL'])
-        ->assertSee('value="'.e($this->star->signedUrl()).'"', escape: false)
+        ->assertSeeTextInOrder(['Access mode', 'Signed URL', 'Signed URL', 'Anyone who has this URL can use the Star', $this->star->signedUrl(), 'Rotate URL'])
         ->assertDontSeeText('Create token');
 });
 
