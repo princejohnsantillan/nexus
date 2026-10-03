@@ -3,12 +3,13 @@
 declare(strict_types=1);
 
 use App\Actions\DeleteStar;
-use App\Actions\UpdateStarConnections;
+use App\Actions\UpdateStar;
 use App\Enums\McpClient;
 use App\Models\Connection;
 use App\Models\Star;
 use App\Stars\ClientSetup;
 use App\Stars\StarCallers;
+use App\Stars\StarChanges;
 use App\Stars\StarStats;
 use App\Stars\StarStatsCounter;
 use Carbon\CarbonImmutable;
@@ -71,11 +72,16 @@ return new #[Title('Star')] class extends Component
      */
     public array $connectionIds = [];
 
+    /**
+     * Whether the Connections or details differ from the Star as stored, so
+     * the browser asks before leaving the page (`unsavedChangesGuard`).
+     */
+    #[Locked]
+    public bool $hasUnsavedChanges = false;
+
     public function mount(): void
     {
-        $this->name = $this->star->name;
-        $this->description = $this->star->description ?? '';
-        $this->resetConnections();
+        $this->resetFields();
         $this->client = McpClient::preferredFor($this->star->access_mode, request()->cookie(self::CLIENT_COOKIE))->value;
         $this->heardWhenOpened = resolve(StarCallers::class)->watermark($this->star);
         $this->listeningSince = now()->getTimestamp();
@@ -102,6 +108,11 @@ return new #[Title('Star')] class extends Component
         $this->listeningSince = now()->getTimestamp();
     }
 
+    public function dehydrate(): void
+    {
+        $this->hasUnsavedChanges = $this->star->exists && ! $this->changes->isEmpty();
+    }
+
     /**
      * The Connections the Star can include: every one of its user's.
      *
@@ -111,6 +122,15 @@ return new #[Title('Star')] class extends Component
     public function connections(): Collection
     {
         return $this->star->user->connections()->withCount('tools')->orderBy('name')->orderBy('id')->get();
+    }
+
+    /**
+     * What saving would change, and what each change does.
+     */
+    #[Computed]
+    public function changes(): StarChanges
+    {
+        return StarChanges::of($this->star, $this->connectionIds, $this->name, $this->description);
     }
 
     /**
@@ -223,42 +243,54 @@ return new #[Title('Star')] class extends Component
         return ClientSetup::tokenVariable($this->star);
     }
 
-    public function saveConnections(UpdateStarConnections $updateStarConnections): void
-    {
-        $this->validate(
-            [
-                'connectionIds' => ['array'],
-                'connectionIds.*' => ['integer', Rule::exists('connections', 'id')->where('user_id', $this->star->user_id)],
-            ],
-            ['connectionIds.*.exists' => __('Choose only your own Connections.')],
-        );
-
-        $updateStarConnections->handle($this->star, array_map(intval(...), $this->connectionIds));
-
-        unset($this->stats);
-        $this->resetConnections();
-
-        Flux::toast(variant: 'success', text: __('Saved. The Star includes :count.', [
-            'count' => trans_choice(':count Connection|:count Connections', count($this->connectionIds)),
-        ]));
-    }
-
-    public function saveDetails(): void
+    /**
+     * Save the Connections and details together, once both are valid, so
+     * the Star matches the page, as the unsaved-changes bar described. The
+     * Connections are written only when they differ from the Star as stored.
+     */
+    public function save(UpdateStar $updateStar): void
     {
         $this->name = trim($this->name);
         $this->description = trim($this->description);
 
-        $this->validate([
-            'name' => ['required', 'string', 'max:100'],
-            'description' => ['nullable', 'string', 'max:500'],
-        ]);
+        if ($this->changes->isEmpty()) {
+            return;
+        }
 
-        $this->star->update([
-            'name' => $this->name,
-            'description' => $this->description === '' ? null : $this->description,
-        ]);
+        $this->validate(
+            [
+                'connectionIds' => ['array'],
+                'connectionIds.*' => ['integer', Rule::exists('connections', 'id')->where('user_id', $this->star->user_id)],
+                'name' => ['required', 'string', 'max:100'],
+                'description' => ['nullable', 'string', 'max:500'],
+            ],
+            ['connectionIds.*.exists' => __('Choose only your own Connections.')],
+        );
 
-        Flux::toast(variant: 'success', text: __('Saved.'));
+        $changesConnections = $this->changes->connectionIds !== [];
+
+        $updateStar->handle(
+            $this->star,
+            $this->name,
+            $this->description === '' ? null : $this->description,
+            $changesConnections ? array_map(intval(...), $this->connectionIds) : null,
+        );
+
+        unset($this->stats, $this->changes);
+        $this->resetFields();
+
+        Flux::toast(variant: 'success', text: $changesConnections
+            ? __('Saved. The Star includes :count.', ['count' => trans_choice(':count Connection|:count Connections', count($this->connectionIds))])
+            : __('Saved.'));
+    }
+
+    /**
+     * Put the Connections and details back as stored.
+     */
+    public function discard(): void
+    {
+        unset($this->changes);
+        $this->resetFields();
     }
 
     public function delete(DeleteStar $deleteStar): void
@@ -271,14 +303,16 @@ return new #[Title('Star')] class extends Component
     }
 
     /**
-     * Fill the Connections picker from the Star as stored.
+     * Fill the Connections picker and the details from the Star as stored.
      */
-    private function resetConnections(): void
+    private function resetFields(): void
     {
+        $this->name = $this->star->name;
+        $this->description = $this->star->description ?? '';
         $this->connectionIds = array_values(array_map(
             fn (Connection $connection): string => (string) $connection->id,
             $this->star->connections()->orderBy('connections.id')->get()->all(),
         ));
-        $this->resetValidation(['connectionIds', 'connectionIds.*']);
+        $this->resetValidation();
     }
 };

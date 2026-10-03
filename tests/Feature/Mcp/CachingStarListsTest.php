@@ -226,7 +226,7 @@ describe('cached reads', function (): void {
     it('never caches instructions written from a copy of the Star loaded before it was renamed', function (): void {
         $loadedBeforeTheRename = Star::query()->findOrFail($this->star->id);
 
-        Livewire::test('pages::stars.show', ['star' => $this->star])->set('name', 'Research')->call('saveDetails');
+        Livewire::test('pages::stars.show', ['star' => $this->star])->set('name', 'Research')->call('save');
         resolve(StarInstructions::class)->for($loadedBeforeTheRename);
 
         expect(instructionsOf($this->client))->toContain('"Research" Star')->not->toContain('"Work" Star');
@@ -309,7 +309,7 @@ describe('lists worked out afresh after', function (): void {
 
         Livewire::test('pages::stars.show', ['star' => $this->star])
             ->set('connectionIds', [(string) $this->wiki->id, (string) $wiki2->id])
-            ->call('saveConnections')
+            ->call('save')
             ->assertHasNoErrors();
 
         expect(listedDescriptions($this->client->listTools()))->toBe([
@@ -428,7 +428,7 @@ describe('lists worked out afresh after', function (): void {
         Livewire::test('pages::stars.show', ['star' => $this->star])
             ->set('name', 'Research')
             ->set('description', 'For reading papers.')
-            ->call('saveDetails')
+            ->call('save')
             ->assertHasNoErrors();
 
         expect(instructionsOf($this->client))->toContain('"Research" Star', 'For reading papers.')->not->toContain('"Work" Star');

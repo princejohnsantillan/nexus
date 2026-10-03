@@ -4,10 +4,13 @@
 
     <x-connection-picker :connections="$connections" wire:model="connectionIds" />
 
-    Each Connection needs `tools_count` loaded (`withCount('tools')`).
+    Each Connection needs `tools_count` loaded (`withCount('tools')`). Pass
+    `unsaved` with the ids of the Connections ticked or unticked since the
+    last save to mark them "Not saved".
 --}}
 @props([
     'connections',
+    'unsaved' => [],
 ])
 
 <flux:checkbox.group variant="cards" {{ $attributes->class('flex-col') }}>
@@ -17,7 +20,13 @@
                 <x-connector-logo :connector="$connection->connector()" size="sm" />
 
                 <div class="min-w-0 flex-1">
-                    <flux:heading class="truncate">{{ $connection->name }}</flux:heading>
+                    <div class="flex min-w-0 items-center gap-2">
+                        <flux:heading class="truncate">{{ $connection->name }}</flux:heading>
+
+                        @if (in_array($connection->id, $unsaved, true))
+                            <x-not-saved class="sm:hidden" />
+                        @endif
+                    </div>
 
                     <flux:text size="sm" class="mt-0.5 truncate">
                         <span class="font-mono">{{ $connection->handle }}</span>
@@ -26,6 +35,10 @@
                     </flux:text>
                 </div>
             </div>
+
+            @if (in_array($connection->id, $unsaved, true))
+                <x-not-saved class="self-center max-sm:hidden" />
+            @endif
 
             <flux:checkbox.indicator class="mt-px" />
         </flux:checkbox>
