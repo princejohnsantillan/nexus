@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Actions\DeleteConnection;
 use App\Actions\RefreshCatalog;
 use App\Actions\UpdateConnectionServer;
+use App\Actions\UpdateStarConnections;
 use App\ConnectionOAuth\NexusClient;
 use App\Connectors\Connector;
 use App\Enums\ConnectionAuthType;
@@ -13,7 +14,10 @@ use App\Models\Connection;
 use App\Models\Star;
 use App\Rules\HeaderName;
 use App\Rules\McpServerUrl;
+use App\Stars\StarTool;
+use App\Stars\StarToolset;
 use Flux\Flux;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Arr;
 use Illuminate\Validation\Rule;
@@ -95,6 +99,41 @@ return new #[Title('Connection')] class extends Component
     public function stars(): Collection
     {
         return $this->connection->stars()->orderBy('name')->orderBy('stars.id')->get();
+    }
+
+    /**
+     * How many of this Connection's tools are on in each Star that includes
+     * it, by the Star's id.
+     *
+     * @return array<int, int>
+     */
+    #[Computed]
+    public function enabledToolCounts(): array
+    {
+        $toolset = resolve(StarToolset::class);
+
+        return $this->stars->mapWithKeys(fn (Star $star): array => [
+            $star->id => count(array_filter(
+                $toolset->tools($star),
+                fn (StarTool $tool): bool => $tool->enabled && $tool->connection->id === $this->connection->id,
+            )),
+        ])->all();
+    }
+
+    /**
+     * The user's Stars that don't include this Connection, to add it to.
+     *
+     * @return Collection<int, Star>
+     */
+    #[Computed]
+    public function otherStars(): Collection
+    {
+        return Star::query()
+            ->where('user_id', $this->connection->user_id)
+            ->whereDoesntHave('connections', fn (Builder $query): Builder => $query->whereKey($this->connection->id))
+            ->orderBy('name')
+            ->orderBy('id')
+            ->get();
     }
 
     /**
@@ -273,6 +312,26 @@ return new #[Title('Connection')] class extends Component
 
         unset($this->needsOAuthSignIn);
         $this->toastRefresh($loaded, onlyThisAccount: true);
+    }
+
+    /**
+     * Add this Connection to another of the user's Stars, where its tools
+     * start from that Star's new-tool policy.
+     */
+    public function addToStar(int $starId, UpdateStarConnections $updateStarConnections): void
+    {
+        $star = Star::query()->where('user_id', $this->connection->user_id)->findOrFail($starId);
+
+        $added = $updateStarConnections->add($star, $this->connection);
+
+        unset($this->stars, $this->enabledToolCounts, $this->otherStars);
+
+        $replace = ['connection' => $this->connection->name, 'star' => $star->name];
+
+        Flux::toast(
+            variant: $added ? 'success' : 'warning',
+            text: $added ? __(':connection added to :star.', $replace) : __(':star already includes :connection.', $replace),
+        );
     }
 
     public function delete(DeleteConnection $deleteConnection): void
