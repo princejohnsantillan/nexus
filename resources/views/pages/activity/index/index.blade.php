@@ -83,7 +83,7 @@
                                 @if ($entry->star !== null)
                                     <flux:link :href="route('stars.show', $entry->star)" wire:navigate class="font-medium">{{ $entry->star->name }}</flux:link>
                                 @else
-                                    <flux:text size="sm" class="text-zinc-400 italic dark:text-zinc-500">{{ __('Deleted Star') }}</flux:text>
+                                    <flux:text size="sm" class="text-zinc-500 italic dark:text-zinc-400">{{ __('Deleted Star') }}</flux:text>
                                 @endif
                             </flux:table.cell>
                             <flux:table.cell class="max-w-48 truncate">
@@ -93,16 +93,16 @@
                                         <flux:link :href="route('connections.show', $entry->connection)" wire:navigate>{{ $entry->connection->name }}</flux:link>
                                     </div>
                                 @elseif ($entry->connectionWasDeleted())
-                                    <flux:text size="sm" class="text-zinc-400 italic dark:text-zinc-500">{{ __('Deleted Connection') }}</flux:text>
+                                    <flux:text size="sm" class="text-zinc-500 italic dark:text-zinc-400">{{ __('Deleted Connection') }}</flux:text>
                                 @else
-                                    <flux:text size="sm" class="text-zinc-400 dark:text-zinc-500">{{ __('None') }}</flux:text>
+                                    <flux:text size="sm" class="text-zinc-500 dark:text-zinc-400">{{ __('None') }}</flux:text>
                                 @endif
                             </flux:table.cell>
                             <flux:table.cell class="max-w-64 truncate font-mono">
                                 @if ($entry->exposed_name !== null)
                                     <span title="{{ $entry->exposed_name }}">{{ $entry->exposed_name }}</span>
                                 @else
-                                    <flux:text size="sm" class="font-sans text-zinc-400 dark:text-zinc-500">{{ __('No name') }}</flux:text>
+                                    <flux:text size="sm" class="font-sans text-zinc-500 dark:text-zinc-400">{{ __('No name') }}</flux:text>
                                 @endif
                             </flux:table.cell>
                             <flux:table.cell>{{ $entry->kind->label() }}</flux:table.cell>

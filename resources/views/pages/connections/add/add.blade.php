@@ -64,7 +64,7 @@
         </flux:card>
     </div>
 
-    <flux:text size="sm" class="mt-8 text-zinc-400 dark:text-zinc-500">{{ $this->attribution }}</flux:text>
+    <flux:text size="sm" class="mt-8 text-zinc-500 dark:text-zinc-400">{{ $this->attribution }}</flux:text>
 
     <flux:modal name="connect" class="w-full max-w-lg">
         @if ($this->connector !== null)

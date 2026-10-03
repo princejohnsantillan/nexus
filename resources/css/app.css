@@ -84,6 +84,17 @@
     outline-offset: 2px;
 }
 
+/* Flux draws placeholders in zinc-400, too faint on white; Muted keeps them legible. Flux sets them as utilities, so this sits outside any layer too. */
+input::placeholder,
+textarea::placeholder {
+    color: var(--color-zinc-500);
+}
+
+.dark input::placeholder,
+.dark textarea::placeholder {
+    color: var(--color-zinc-400);
+}
+
 @layer components {
     /* The current sidebar item is a raised white pill with the accent icon. */
     [data-flux-sidebar-item][data-current] [data-flux-icon] {

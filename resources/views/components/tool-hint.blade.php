@@ -24,5 +24,5 @@ $neutral = 'bg-zinc-50 text-zinc-600 ring-1 ring-zinc-200 ring-inset dark:bg-whi
 @elseif ($value === false)
     <span {{ $attributes->class([$badge, $neutral]) }}>{{ __('No') }}</span>
 @else
-    <flux:text size="sm" class="text-zinc-400 dark:text-zinc-500" {{ $attributes }}>{{ __('Not stated') }}</flux:text>
+    <flux:text size="sm" class="text-zinc-500 dark:text-zinc-400" {{ $attributes }}>{{ __('Not stated') }}</flux:text>
 @endif

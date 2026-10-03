@@ -28,5 +28,5 @@ $badge = 'inline-flex h-5.5 items-center rounded-md px-1.5 text-xs font-medium w
         @endif
     </div>
 @else
-    <flux:text size="sm" class="text-zinc-400 dark:text-zinc-500" {{ $attributes }}>&mdash;</flux:text>
+    <flux:text size="sm" class="text-zinc-500 dark:text-zinc-400" {{ $attributes }}>&mdash;</flux:text>
 @endif
