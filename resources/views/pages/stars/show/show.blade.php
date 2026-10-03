@@ -27,7 +27,7 @@
                     <flux:link :href="route('stars.access', $star)" wire:navigate>{{ __('Access page') }}</flux:link>{{ __(', where you can revoke each of them.') }}
                 </flux:text>
             @else
-                <flux:text>
+                <flux:text class="wrap-anywhere">
                     {{ __('Create a token on the') }}
                     <flux:link :href="route('stars.access', $star)" wire:navigate>{{ __('Access page') }}</flux:link>
                     {{ __('and put it in the :variable environment variable, e.g. in your shell profile. Each snippet below reads it from there, so the token never sits in a config file.', ['variable' => $this->tokenVariable]) }}
@@ -111,7 +111,7 @@
     <flux:modal name="delete-star" class="w-full max-w-lg">
         <div class="space-y-6">
             <div>
-                <flux:heading size="lg">{{ __('Delete :name?', ['name' => $star->name]) }}</flux:heading>
+                <flux:heading size="lg" class="wrap-anywhere">{{ __('Delete :name?', ['name' => $star->name]) }}</flux:heading>
                 <flux:text class="mt-2">{{ __('Clients using its endpoint stop working, its connected apps are revoked and its switches are removed. Your Connections stay. This can\'t be undone.') }}</flux:text>
             </div>
 

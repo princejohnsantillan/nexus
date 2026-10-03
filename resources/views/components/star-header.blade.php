@@ -25,7 +25,7 @@
             </div>
 
             @if (filled($star->description))
-                <flux:text class="mt-1.5">{{ $star->description }}</flux:text>
+                <flux:text class="mt-1.5 wrap-anywhere">{{ $star->description }}</flux:text>
             @endif
         </div>
 
