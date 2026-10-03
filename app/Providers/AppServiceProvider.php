@@ -212,7 +212,8 @@ class AppServiceProvider extends ServiceProvider
     /**
      * The consent screen, naming the client, the Star it registered with
      * and the signed-in user. It offers approval only when the user may
-     * give it: for their own Star, while it uses OAuth.
+     * give it: for their own Star, while it uses OAuth. "Not you?" carries
+     * the request's query, to come back to the same screen after signing in.
      *
      * @param  array<string, mixed>  $parameters  Passport's: the client, the user, the scopes, the request and the auth token.
      */
@@ -220,6 +221,7 @@ class AppServiceProvider extends ServiceProvider
     {
         $client = $parameters['client'] ?? null;
         $user = $parameters['user'] ?? null;
+        $request = $parameters['request'] ?? null;
         $app = $client instanceof Client && $user instanceof User ? StarOAuthClient::approvableBy($user, $client->id) : null;
 
         return response()->view('oauth.authorize', [
@@ -228,6 +230,7 @@ class AppServiceProvider extends ServiceProvider
             'authToken' => $parameters['authToken'] ?? null,
             'app' => $app,
             'toolCount' => $app instanceof StarOAuthClient ? count(resolve(StarToolset::class)->enabledTools($app->star)) : 0,
+            'switchAccountUrl' => route('oauth.switch-account', $request instanceof Request ? $request->query->all() : []),
         ]);
     }
 
