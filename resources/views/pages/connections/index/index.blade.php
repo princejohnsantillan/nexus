@@ -125,7 +125,15 @@
                                             @endforeach
 
                                             @if ($connection->stars->count() > 2)
-                                                <span class="text-xs text-zinc-500 dark:text-zinc-400" title="{{ $connection->stars->skip(2)->pluck('name')->join(', ') }}">{{ __('+:count', ['count' => $connection->stars->count() - 2]) }}</span>
+                                                <flux:dropdown position="bottom" align="start">
+                                                    <flux:button size="xs" variant="ghost" :aria-label="trans_choice('Show :count more Star|Show :count more Stars', $connection->stars->count() - 2)">{{ __('+:count', ['count' => $connection->stars->count() - 2]) }}</flux:button>
+
+                                                    <flux:menu>
+                                                        @foreach ($connection->stars->skip(2) as $star)
+                                                            <flux:menu.item icon="star" :href="route('stars.show', $star)" wire:navigate wire:key="connection-{{ $connection->id }}-more-star-{{ $star->id }}">{{ $star->name }}</flux:menu.item>
+                                                        @endforeach
+                                                    </flux:menu>
+                                                </flux:dropdown>
                                             @endif
                                         </div>
                                     @endif

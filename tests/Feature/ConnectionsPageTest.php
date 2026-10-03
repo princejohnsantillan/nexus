@@ -70,6 +70,20 @@ it('shows the Stars that use each Connection, linking to them', function (): voi
         ->assertDontSee(route('stars.show', $personal));
 });
 
+it('links to every Star that uses a Connection, beyond the two shown as chips', function (): void {
+    $github = Connection::factory()->for($this->user)->create(['name' => 'GitHub']);
+    $stars = collect(['Alpha', 'Beta', 'Gamma', 'Delta'])
+        ->map(fn (string $name): Star => Star::factory()->for($this->user)->including($github)->create(['name' => $name]));
+
+    $component = Livewire::test('pages::connections.index')
+        ->assertSeeText('+2')
+        ->assertSeeHtml('aria-label="Show 2 more Stars"');
+
+    foreach ($stars as $star) {
+        $component->assertSee(route('stars.show', $star));
+    }
+});
+
 it('says why a Connection needs sign-in and offers to reconnect it', function (): void {
     $notion = Connection::factory()->for($this->user)->fromConnector('notion')->oauth()->create(['name' => 'Notion', 'handle' => 'notion']);
     $notion->forceFill(['status' => ConnectionStatus::NeedsAuth, 'last_error' => 'The sign-in expired and the server didn\'t renew it. Reconnect to sign in again.'])->save();
