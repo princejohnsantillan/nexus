@@ -86,6 +86,29 @@ it('says the client can call nothing until a tool is switched on in the Star', f
         ->assertSeeText('None are on yet, so it can\'t call anything until you switch some on.');
 });
 
+it('names only the host this request returns to when the client registered several', function (string $redirectUri, string $host, string $otherHost): void {
+    $clientId = (string) StarOAuthFlow::registering($this->star, [
+        'client_name' => 'Claude',
+        'redirect_uris' => ['https://example.com/callback', 'http://127.0.0.1:33418/callback'],
+    ])->assertCreated()->json('client_id');
+
+    $this->actingAs($this->owner)->get(StarOAuthFlow::authorizeUrl($clientId, redirectUri: $redirectUri))
+        ->assertOk()
+        ->assertSeeTextInOrder(['Authorizing will redirect to', $host])
+        ->assertDontSeeText($otherHost);
+
+    expect((string) StarOAuthFlow::approve()->assertRedirect()->headers->get('Location'))->toStartWith($redirectUri.'?');
+})->with([
+    'the first' => ['https://example.com/callback', 'example.com', '127.0.0.1'],
+    'the second' => ['http://127.0.0.1:33418/callback', '127.0.0.1', 'example.com'],
+]);
+
+it('names the client\'s only redirect host when the request names none', function (): void {
+    $this->actingAs($this->owner)->get(Uri::of(StarOAuthFlow::authorizeUrl($this->clientId))->withoutQuery(['redirect_uri'])->value())
+        ->assertOk()
+        ->assertSeeTextInOrder(['Authorizing will redirect to', 'claude.ai']);
+});
+
 it('escapes the name a client registers with', function (): void {
     $clientId = StarOAuthFlow::register($this->star, '<script>alert(1)</script>');
 

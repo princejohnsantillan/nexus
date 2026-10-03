@@ -1,8 +1,8 @@
 {{--
     OAuth to Nexus: the consent screen Passport shows when an MCP client
     asks to use a Star in OAuth mode. Nexus and the client side by side, the
-    question, what the client could do as icon rows, where approving sends
-    the user and who is signed in, with "Not you?" to sign in as someone
+    question, what the client could do as icon rows, where approving this
+    request sends the user and who is signed in, with "Not you?" to sign in as someone
     else and come back to this screen. It offers Approve only when `$app` is
     set: the client registered with one of the user's own Stars, which still
     uses OAuth. Anyone else's Star isn't named. The forms post to Passport's
@@ -14,6 +14,7 @@
     /** @var \App\Models\StarOAuthClient|null $app */
     /** @var int $toolCount */
     /** @var string $authToken */
+    /** @var string|null $redirectHost */
     /** @var string $switchAccountUrl */
 @endphp
 
@@ -112,9 +113,11 @@
                         </li>
                     </ul>
 
-                    <x-slot:hint>
-                        {{ __('Authorizing will redirect to') }} <span class="font-mono break-all text-zinc-950 dark:text-white">{{ implode(', ', $app->redirectHosts()) }}</span>
-                    </x-slot:hint>
+                    @if (filled($redirectHost))
+                        <x-slot:hint>
+                            {{ __('Authorizing will redirect to') }} <span class="font-mono break-all text-zinc-950 dark:text-white">{{ $redirectHost }}</span>
+                        </x-slot:hint>
+                    @endif
 
                     <x-slot:actions>
                         <form method="POST" action="{{ route('passport.authorizations.deny') }}">

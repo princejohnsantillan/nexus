@@ -125,20 +125,48 @@ class StarOAuthClient extends Model
      */
     public function redirectHosts(): array
     {
-        $hosts = [];
+        return array_values(array_unique(array_filter(array_map($this->hostOf(...), $this->redirectUris()))));
+    }
+
+    /**
+     * Where approving an authorization request sends the user back, shown
+     * like redirectHosts(): the redirect URI the request names, which
+     * Passport has already checked against the client's, or else the
+     * client's only one, as Passport does. Null when there is neither.
+     */
+    public function redirectHostFor(?string $requestedRedirectUri): ?string
+    {
+        $uris = $this->redirectUris();
+        $redirectUri = $requestedRedirectUri ?? (count($uris) === 1 ? $uris[0] : null);
+
+        return $redirectUri === null ? null : $this->hostOf($redirectUri);
+    }
+
+    /**
+     * The redirect URIs the client registered.
+     *
+     * @return list<string>
+     */
+    private function redirectUris(): array
+    {
         $uris = $this->client?->getAttribute('redirect_uris');
 
-        foreach (is_array($uris) ? $uris : [] as $uri) {
-            $scheme = is_string($uri) ? parse_url($uri, PHP_URL_SCHEME) : null;
-            $host = is_string($uri) ? parse_url($uri, PHP_URL_HOST) : null;
+        return array_values(array_filter(is_array($uris) ? $uris : [], is_string(...)));
+    }
 
-            if (! is_string($scheme) || ! is_string($host) || $host === '') {
-                continue;
-            }
+    /**
+     * The host of an HTTPS or loopback redirect URI, or the scheme and host
+     * of a desktop app's own scheme; null for anything else.
+     */
+    private function hostOf(string $uri): ?string
+    {
+        $scheme = parse_url($uri, PHP_URL_SCHEME);
+        $host = parse_url($uri, PHP_URL_HOST);
 
-            $hosts[] = in_array($scheme, ['http', 'https'], true) ? $host : "{$scheme}://{$host}";
+        if (! is_string($scheme) || ! is_string($host) || $host === '') {
+            return null;
         }
 
-        return array_values(array_unique($hosts));
+        return in_array($scheme, ['http', 'https'], true) ? $host : "{$scheme}://{$host}";
     }
 }
