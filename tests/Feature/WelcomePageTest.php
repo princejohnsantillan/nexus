@@ -20,6 +20,14 @@ it('pictures Connections flowing through a Star to the clients', function (): vo
         ->assertSeeText(['Claude Code', 'Cursor', 'Codex']);
 });
 
+it('links the Terms, Privacy and Refund pages from the footer', function (): void {
+    $this->get(route('home'))
+        ->assertOk()
+        ->assertSee('href="'.route('legal.terms').'"', escape: false)
+        ->assertSee('href="'.route('legal.privacy').'"', escape: false)
+        ->assertSee('href="'.route('legal.refunds').'"', escape: false);
+});
+
 it('uses the public layout without the app sidebar', function (): void {
     $this->get(route('home'))
         ->assertOk()

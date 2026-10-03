@@ -28,6 +28,11 @@ Route::middleware('guest')->group(function (): void {
     Route::get('/auth/google', GoogleRedirectController::class)->name('auth.google');
 });
 
+// The legal pages, for guests and signed-in users alike.
+Route::livewire('/terms', 'pages::legal.terms')->name('legal.terms');
+Route::livewire('/privacy', 'pages::legal.privacy')->name('legal.privacy');
+Route::livewire('/refunds', 'pages::legal.refunds')->name('legal.refunds');
+
 // Google's one callback, for guests signing in and for signed-in users adding Google from Settings.
 Route::get('/auth/google/callback', GoogleCallbackController::class)->name('auth.google.callback');
 

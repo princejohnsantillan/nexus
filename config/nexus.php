@@ -99,6 +99,24 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Contact and legal pages
+    |--------------------------------------------------------------------------
+    |
+    | The address people write to about their account, payments, refunds
+    | and privacy. The Terms, Privacy and Refund pages show it. Those pages
+    | are a draft, and say so at the top, until the owner has reviewed them
+    | with counsel and turned `reviewed` on.
+    |
+    */
+
+    'contact_email' => env('NEXUS_CONTACT_EMAIL', 'hello@example.com'),
+
+    'legal' => [
+        'reviewed' => (bool) env('NEXUS_LEGAL_REVIEWED', false),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Connectors
     |--------------------------------------------------------------------------
     |
