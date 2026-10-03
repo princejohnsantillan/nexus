@@ -22,4 +22,15 @@ enum ActivityKind: string
             self::Prompt => __('Prompt'),
         };
     }
+
+    /**
+     * What the client did, as an entry's details name it.
+     */
+    public function callLabel(): string
+    {
+        return match ($this) {
+            self::Tool => __('Tool call'),
+            self::Prompt => __('Prompt fetch'),
+        };
+    }
 }
