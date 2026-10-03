@@ -7,6 +7,8 @@ use App\Enums\StarAccessMode;
 use App\Models\Connection;
 use App\Models\Star;
 use App\Models\User;
+use App\Stars\StarCallHistory;
+use App\Stars\StarCalls;
 use App\Stars\StarTool;
 use App\Stars\StarToolset;
 use Illuminate\Auth\AuthenticationException;
@@ -73,6 +75,26 @@ return new #[Title('Stars')] class extends Component
                 'total' => count($tools),
             ]];
         })->all();
+    }
+
+    /**
+     * When each Star was last called and its calls on each of the last days, by Star id.
+     *
+     * @return array<int, StarCalls>
+     */
+    #[Computed]
+    public function calls(): array
+    {
+        return resolve(StarCallHistory::class)->forStars($this->stars);
+    }
+
+    /**
+     * How many Stars a user may have.
+     */
+    #[Computed]
+    public function starLimit(): int
+    {
+        return config()->integer('nexus.limits.stars_per_user');
     }
 
     /**

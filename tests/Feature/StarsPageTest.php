@@ -2,12 +2,15 @@
 
 declare(strict_types=1);
 
+use App\Enums\ActivityStatus;
 use App\Enums\NewToolPolicy;
 use App\Enums\StarAccessMode;
+use App\Models\ActivityEntry;
 use App\Models\Connection;
 use App\Models\ConnectionTool;
 use App\Models\Star;
 use App\Models\User;
+use Illuminate\Support\Facades\DB;
 use Livewire\Livewire;
 
 beforeEach(function (): void {
@@ -24,22 +27,102 @@ it('shows an empty state with a way to create the first Star', function (): void
         ->assertSeeText('Create your first Star');
 });
 
-it('lists the user\'s Stars with their Connections, how many tools are on and their access mode', function (): void {
+it('shows each of the user\'s Stars as a card with its Connections, how many tools are on and its access mode', function (): void {
     $wiki = Connection::factory()->for($this->user)->create(['name' => 'DeepWiki']);
     ConnectionTool::factory()->for($wiki)->create(['read_only' => true]);
     ConnectionTool::factory()->for($wiki)->create(['read_only' => false]);
     $docs = Connection::factory()->for($this->user)->create(['name' => 'Docs']);
     ConnectionTool::factory()->for($docs)->create(['read_only' => true]);
-    Star::factory()->for($this->user)->including($wiki, $docs)->create(['name' => 'Work', 'description' => 'For the work laptop']);
-    Star::factory()->for($this->user)->create(['name' => 'Empty']);
+    $work = Star::factory()->for($this->user)->including($wiki, $docs)->create(['name' => 'Work', 'description' => 'For the work laptop']);
+    Star::factory()->for($this->user)->withAccessMode(StarAccessMode::OAuth)->create(['name' => 'Empty']);
+    $more = Connection::factory()->for($this->user)->count(2)->sequence(['name' => 'Linear'], ['name' => 'Notion'])->create();
+    Star::factory()->for($this->user)->including($wiki, $docs, ...$more)->create(['name' => 'Everything']);
 
     $this->get(route('stars.index'))
         ->assertOk()
         ->assertSee('<title>Stars · Nexus</title>', escape: false)
-        ->assertSeeTextInOrder(['Name', 'Connections', 'Tools on', 'Access'])
-        ->assertSeeTextInOrder(['Empty', 'None yet', '0 of 0', 'Bearer token'])
-        ->assertSeeTextInOrder(['Work', 'For the work laptop', 'DeepWiki', 'Docs', '2 of 3', 'Bearer token'])
-        ->assertSee(route('stars.show', Star::query()->where('name', 'Work')->sole()));
+        ->assertSeeTextInOrder(['Empty', 'No Connections yet', '0 of 0 tools on', 'OAuth'])
+        ->assertSeeTextInOrder(['Everything', '+1', 'DeepWiki · Docs · Linear · Notion'])
+        ->assertSeeTextInOrder(['Work', 'For the work laptop', 'DeepWiki · Docs', '2 of 3 tools on', 'Bearer token'])
+        ->assertSee(route('stars.show', $work));
+});
+
+it('offers to copy each Star\'s endpoint URL and to see its activity', function (): void {
+    $work = Star::factory()->for($this->user)->create(['name' => 'Work']);
+    $web = Star::factory()->for($this->user)->withAccessMode(StarAccessMode::SignedUrl)->create(['name' => 'Web']);
+
+    $this->get(route('stars.index'))
+        ->assertOk()
+        ->assertSeeText('Copy endpoint URL')
+        ->assertSee('data-url="'.e($work->endpointUrl()).'"', escape: false)
+        ->assertSee('data-url="'.e($web->signedUrl()).'"', escape: false)
+        ->assertSeeText('View activity')
+        ->assertSee(route('activity.index', ['star' => $work->public_id]))
+        ->assertSee(route('activity.index', ['star' => $web->public_id]));
+});
+
+it('shows when each Star was last called, from its own Activity', function (): void {
+    $this->freezeTime();
+    $connection = Connection::factory()->for($this->user)->create();
+    $work = Star::factory()->for($this->user)->including($connection)->create(['name' => 'Work']);
+    $home = Star::factory()->for($this->user)->including($connection)->create(['name' => 'Home']);
+    Star::factory()->for($this->user)->create(['name' => 'Quiet']);
+    ActivityEntry::factory()->through($work, $connection)->create(['created_at' => now()->subHour()]);
+    ActivityEntry::factory()->through($work, $connection)->withStatus(ActivityStatus::Error)->create(['created_at' => now()->subMinutes(3)]);
+    ActivityEntry::factory()->through($home, $connection)->create(['created_at' => now()->subDays(2)]);
+    $someoneElses = Star::factory()->create(['name' => 'Theirs']);
+    ActivityEntry::factory()->through($someoneElses, Connection::factory()->for($someoneElses->user)->create())->create(['created_at' => now()]);
+
+    $this->get(route('stars.index'))
+        ->assertOk()
+        ->assertSeeTextInOrder(['Home', 'Last call 2 days ago', 'Quiet', 'Waiting for its first call…', 'Work', 'Last call 3 minutes ago'])
+        ->assertDontSeeText('Theirs');
+});
+
+it('draws a sparkline of a Star\'s calls over the last two weeks, only when it has some', function (): void {
+    $this->freezeTime();
+    $connection = Connection::factory()->for($this->user)->create();
+    $busy = Star::factory()->for($this->user)->including($connection)->create(['name' => 'Busy']);
+    $lapsed = Star::factory()->for($this->user)->including($connection)->create(['name' => 'Lapsed']);
+    ActivityEntry::factory()->through($busy, $connection)->count(2)->create(['created_at' => now()->subMinutes(10)]);
+    ActivityEntry::factory()->through($busy, $connection)->create(['created_at' => now()->subDays(13)]);
+    ActivityEntry::factory()->through($busy, $connection)->create(['created_at' => now()->subDays(15)]);
+    ActivityEntry::factory()->through($lapsed, $connection)->create(['created_at' => now()->subDays(20)]);
+
+    $response = $this->get(route('stars.index'))->assertOk();
+
+    $response->assertSeeTextInOrder(['Busy', 'Last call 10 minutes ago', '3 calls in the last 14 days', 'Lapsed', 'Last call 2 weeks ago'])
+        ->assertDontSeeText('1 call in the last 14 days');
+    expect(substr_count($response->getContent(), 'data-sparkline'))->toBe(1);
+});
+
+it('reads every Star\'s calls from Activity in one query', function (): void {
+    $this->freezeTime();
+    $connection = Connection::factory()->for($this->user)->create();
+    $stars = Star::factory()->for($this->user)->including($connection)->count(3)->create();
+
+    foreach ($stars as $star) {
+        ActivityEntry::factory()->through($star, $connection)->create(['created_at' => now()->subMinute()]);
+    }
+
+    DB::enableQueryLog();
+    $this->get(route('stars.index'))->assertOk()->assertSeeText('Last call 1 minute ago');
+    DB::disableQueryLog();
+
+    $activityQueries = array_filter(array_column(DB::getQueryLog(), 'query'), fn (string $query): bool => str_contains($query, 'activity_entries'));
+    expect($activityQueries)->toHaveCount(1);
+});
+
+it('counts the user\'s Stars against the limit next to Create Star', function (): void {
+    config(['nexus.limits.stars_per_user' => 5]);
+    Star::factory()->for($this->user)->count(2)->create();
+    Star::factory()->create();
+
+    $page = Livewire::test('pages::stars.index')
+        ->assertSeeTextInOrder(['2 / 5 Stars', 'Create Star'])
+        ->assertDontSeeText('Star limit reached');
+
+    expect(createStarIsDisabled($page->html()))->toBeFalse();
 });
 
 it('shows only the user\'s own Stars', function (): void {
@@ -171,10 +254,14 @@ it('stops at the Stars limit with a friendly message', function (): void {
     config(['nexus.limits.stars_per_user' => 2]);
     Star::factory()->for($this->user)->count(2)->create();
 
-    Livewire::test('pages::stars.index')
+    $page = Livewire::test('pages::stars.index')
+        ->assertSeeTextInOrder(['2 / 2 Stars', 'Create Star'])
         ->assertSeeText('Star limit reached')
-        ->assertSeeText('You have 2 Stars, the most an account can have. Delete one to create another.')
-        ->set('name', 'One too many')
+        ->assertSeeText('You have 2 Stars, the most an account can have. Delete one to create another.');
+
+    expect(createStarIsDisabled($page->html()))->toBeTrue();
+
+    $page->set('name', 'One too many')
         ->call('create')
         ->assertHasErrors(['limit' => 'You have 2 Stars, the most an account can have. Delete one to create another.']);
 
@@ -197,3 +284,11 @@ it('escapes the names and descriptions users give their Stars', function (): voi
         ->assertDontSee('<script>alert("name")</script>', escape: false)
         ->assertDontSee('<img src=x onerror=alert(1)>', escape: false);
 });
+
+/**
+ * Whether the page's Create Star button (the one in the header) is disabled.
+ */
+function createStarIsDisabled(string $html): bool
+{
+    return preg_match('/<button[^>]*\sdisabled="disabled"[^>]*>(?:(?!<\/button>).)*Create Star/s', $html) === 1;
+}
