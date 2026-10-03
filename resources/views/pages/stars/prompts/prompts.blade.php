@@ -48,50 +48,32 @@
                                 <flux:link :href="route('connections.show', $group['connection'])" wire:navigate>{{ __('Refresh its tools and prompts') }}</flux:link>
                             </flux:text>
                         @else
-                            <flux:table class="mt-3">
-                                <flux:table.columns>
-                                    <flux:table.column class="w-0">{{ __('On') }}</flux:table.column>
-                                    <flux:table.column>{{ __('Prompt') }}</flux:table.column>
-                                    <flux:table.column>{{ __('Set by') }}</flux:table.column>
-                                </flux:table.columns>
+                            <div class="mt-4 divide-y divide-zinc-200 overflow-hidden rounded-xl border border-zinc-200 bg-white dark:divide-white/10 dark:border-white/10 dark:bg-white/[4%]">
+                                @foreach ($group['prompts'] as $prompt)
+                                    <x-permission-row wire:key="prompt-{{ $prompt->prompt->id }}" :title="$prompt->prompt->title" :description="$prompt->prompt->description">
+                                        <x-slot:name>{{ $prompt->name }}</x-slot:name>
 
-                                <flux:table.rows>
-                                    @foreach ($group['prompts'] as $prompt)
-                                        <flux:table.row :key="$prompt->prompt->id">
-                                            <flux:table.cell>
-                                                {{-- Keyed by its state, so a switch changed on the server is drawn afresh: Flux's switch keeps its own state otherwise. --}}
-                                                <flux:switch
-                                                    wire:key="switch-{{ $prompt->prompt->id }}-{{ $prompt->enabled ? 'on' : 'off' }}"
-                                                    :checked="$prompt->enabled"
-                                                    wire:click="switchPrompt({{ $prompt->prompt->id }}, {{ $prompt->enabled ? 'false' : 'true' }})"
-                                                    :aria-label="__('Switch :name on or off', ['name' => $prompt->name])"
-                                                />
-                                            </flux:table.cell>
-                                            <flux:table.cell class="max-w-md whitespace-normal!">
-                                                <div class="break-all font-mono text-sm font-medium text-zinc-800 dark:text-white">{{ $prompt->name }}</div>
-                                                @if ($prompt->prompt->title !== null)
-                                                    <div class="text-sm text-zinc-500 dark:text-zinc-400">{{ $prompt->prompt->title }}</div>
-                                                @endif
-                                                @if ($prompt->prompt->description !== null)
-                                                    <flux:text size="sm" class="mt-1 line-clamp-2">{{ $prompt->prompt->description }}</flux:text>
-                                                @endif
-                                            </flux:table.cell>
-                                            <flux:table.cell>
-                                                @if ($prompt->followsDefault())
-                                                    <flux:tooltip :content="__('Prompts are on unless you switch them off.')">
-                                                        <flux:badge size="sm">{{ __('Default') }}</flux:badge>
-                                                    </flux:tooltip>
-                                                @else
-                                                    <div class="flex items-center gap-1">
-                                                        <flux:badge size="sm" color="blue">{{ __('Your choice') }}</flux:badge>
-                                                        <flux:button size="xs" variant="ghost" wire:click="resetPrompt({{ $prompt->prompt->id }})" :aria-label="__('Reset :name to the default', ['name' => $prompt->name])">{{ __('Reset') }}</flux:button>
-                                                    </div>
-                                                @endif
-                                            </flux:table.cell>
-                                        </flux:table.row>
-                                    @endforeach
-                                </flux:table.rows>
-                            </flux:table>
+                                        {{-- Keyed by its state, so a switch changed on the server is drawn afresh: Flux's switch keeps its own state otherwise. --}}
+                                        <flux:switch
+                                            wire:key="switch-{{ $prompt->prompt->id }}-{{ $prompt->enabled ? 'on' : 'off' }}"
+                                            :checked="$prompt->enabled"
+                                            wire:click="switchPrompt({{ $prompt->prompt->id }}, {{ $prompt->enabled ? 'false' : 'true' }})"
+                                            :aria-label="__('Switch :name on or off', ['name' => $prompt->name])"
+                                        />
+
+                                        @if ($prompt->followsDefault())
+                                            <flux:tooltip :content="__('Prompts are on unless you switch them off.')">
+                                                <span class="text-xs text-zinc-500 dark:text-zinc-400">{{ __('Default') }}</span>
+                                            </flux:tooltip>
+                                        @else
+                                            <span class="text-xs text-zinc-600 sm:whitespace-nowrap dark:text-zinc-300">
+                                                {{ __('Your choice') }} <span aria-hidden="true">·</span>
+                                                <button type="button" class="font-medium text-accent-content hover:underline" wire:click="resetPrompt({{ $prompt->prompt->id }})" aria-label="{{ __('Reset :name to the default', ['name' => $prompt->name]) }}">{{ __('Reset') }}</button>
+                                            </span>
+                                        @endif
+                                    </x-permission-row>
+                                @endforeach
+                            </div>
                         @endif
                     </div>
                 @endforeach

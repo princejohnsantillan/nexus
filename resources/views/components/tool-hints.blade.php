@@ -1,8 +1,8 @@
 {{--
-    The behaviour hints a server declared true for a tool, as small badges,
-    or a dash when it declared none: read-only green, destructive red,
-    open-world amber, idempotent neutral. Hints declared false or not stated
-    show nothing; the Connection's Tools page shows all four in full.
+    The behaviour hints a server declared true for a tool, as small badges:
+    read-only green, destructive red, open-world amber, idempotent neutral.
+    Hints declared false or not stated show nothing, so a tool that declared
+    none renders nothing; the Connection's Tools page shows all four in full.
 --}}
 @props([
     'tool',
@@ -27,6 +27,4 @@ $badge = 'inline-flex h-5.5 items-center rounded-md px-1.5 text-xs font-medium w
             <span class="{{ $badge }} bg-warning-wash text-warning">{{ __('Open-world') }}</span>
         @endif
     </div>
-@else
-    <flux:text size="sm" class="text-zinc-500 dark:text-zinc-400" {{ $attributes }}>&mdash;</flux:text>
 @endif

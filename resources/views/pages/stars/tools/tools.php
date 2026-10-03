@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Actions\SwitchStarTools;
 use App\Enums\NewToolPolicy;
+use App\Enums\ToolRisk;
 use App\Models\Connection;
 use App\Models\ConnectionTool;
 use App\Models\Star;
@@ -34,9 +35,11 @@ return new #[Title('Star tools')] class extends Component
 
     /**
      * Each of the Star's Connections, by name, with the tools the filter
-     * shows and how many of all its tools are on.
+     * shows, sorted into risk groups, and how many of all its tools are on.
+     * A risk group counts only the tools the filter shows, as its switch
+     * changes only those, and is left out when it shows none.
      *
-     * @return list<array{connection: Connection, tools: list<StarTool>, enabled: int, total: int}>
+     * @return list<array{connection: Connection, tools: list<StarTool>, risks: list<array{risk: ToolRisk, tools: list<StarTool>, enabled: int, ownChoices: int}>, enabled: int, total: int}>
      */
     #[Computed]
     public function groups(): array
@@ -49,12 +52,17 @@ return new #[Title('Star tools')] class extends Component
 
         $connections = $this->star->connections()->orderBy('name')->orderBy('connections.id')->get();
 
-        return array_values($connections->map(fn (Connection $connection): array => [
-            'connection' => $connection,
-            'tools' => array_values(array_filter($tools[$connection->id] ?? [], $this->isShown(...))),
-            'enabled' => count(array_filter($tools[$connection->id] ?? [], fn (StarTool $tool): bool => $tool->enabled)),
-            'total' => count($tools[$connection->id] ?? []),
-        ])->all());
+        return array_values($connections->map(function (Connection $connection) use ($tools): array {
+            $shown = array_values(array_filter($tools[$connection->id] ?? [], $this->isShown(...)));
+
+            return [
+                'connection' => $connection,
+                'tools' => $shown,
+                'risks' => $this->riskGroups($shown),
+                'enabled' => count(array_filter($tools[$connection->id] ?? [], fn (StarTool $tool): bool => $tool->enabled)),
+                'total' => count($tools[$connection->id] ?? []),
+            ];
+        })->all());
     }
 
     public function updatedPolicy(): void
@@ -101,19 +109,14 @@ return new #[Title('Star tools')] class extends Component
      */
     public function switchConnection(int $connectionId, string $choice, SwitchStarTools $switchStarTools): void
     {
-        $enabled = match ($choice) {
-            'on' => true,
-            'off' => false,
-            'reset' => null,
-            default => abort(404),
-        };
+        $enabled = $this->choice($choice);
 
         $connection = $this->star->connections()->findOrFail($connectionId);
 
         $group = collect($this->groups)->firstWhere('connection.id', $connection->id);
         $filtered = trim($this->search) !== '';
 
-        $toolNames = $filtered ? array_map(fn (StarTool $tool): string => $tool->tool->name, $group['tools'] ?? []) : null;
+        $toolNames = $filtered ? $this->toolNames($group['tools'] ?? []) : null;
         $count = $toolNames === null ? $group['total'] ?? 0 : count($toolNames);
 
         $switchStarTools->handle($this->star, $connection, $enabled, $toolNames);
@@ -127,6 +130,90 @@ return new #[Title('Star tools')] class extends Component
             false => trans_choice('Switched off :count :connection tool.|Switched off :count :connection tools.', $count, $replace),
             null => trans_choice(':count :connection tool follows the policy again.|:count :connection tools follow the policy again.', $count, $replace),
         });
+    }
+
+    /**
+     * Switch every tool the filter shows in one risk group of one Connection
+     * on (`on`) or off (`off`), or let them follow the policy again (`reset`).
+     */
+    public function switchGroup(int $connectionId, string $risk, string $choice, SwitchStarTools $switchStarTools): void
+    {
+        $enabled = $this->choice($choice);
+        $risk = ToolRisk::tryFrom($risk) ?? abort(404);
+
+        $connection = $this->star->connections()->findOrFail($connectionId);
+
+        $group = collect($this->groups)->firstWhere('connection.id', $connection->id);
+        $toolNames = $this->toolNames(collect($group['risks'] ?? [])->firstWhere('risk', $risk)['tools'] ?? []);
+        $count = count($toolNames);
+
+        $switchStarTools->handle($this->star, $connection, $enabled, $toolNames);
+
+        $this->forgetTools();
+
+        $replace = ['connection' => $connection->name, 'risk' => $risk->label()];
+
+        Flux::toast(variant: 'success', text: match ($enabled) {
+            true => trans_choice('Switched on :count :connection tool (:risk).|Switched on :count :connection tools (:risk).', $count, $replace),
+            false => trans_choice('Switched off :count :connection tool (:risk).|Switched off :count :connection tools (:risk).', $count, $replace),
+            null => trans_choice(':count :connection tool (:risk) follows the policy again.|:count :connection tools (:risk) follow the policy again.', $count, $replace),
+        });
+    }
+
+    /**
+     * The switch a bulk choice gives: on (`on`), off (`off`) or none, so the
+     * policy decides (`reset`).
+     */
+    private function choice(string $choice): ?bool
+    {
+        return match ($choice) {
+            'on' => true,
+            'off' => false,
+            'reset' => null,
+            default => abort(404),
+        };
+    }
+
+    /**
+     * The tools' names in their Connection's catalog.
+     *
+     * @param  list<StarTool>  $tools
+     * @return list<string>
+     */
+    private function toolNames(array $tools): array
+    {
+        return array_map(fn (StarTool $tool): string => $tool->tool->name, $tools);
+    }
+
+    /**
+     * The tools in their risk groups, safest first, leaving out empty groups,
+     * with how many of each are on and how many have the user's own switch.
+     *
+     * @param  list<StarTool>  $tools
+     * @return list<array{risk: ToolRisk, tools: list<StarTool>, enabled: int, ownChoices: int}>
+     */
+    private function riskGroups(array $tools): array
+    {
+        $byRisk = [];
+
+        foreach ($tools as $tool) {
+            $byRisk[ToolRisk::of($tool->tool)->value][] = $tool;
+        }
+
+        $groups = [];
+
+        foreach (ToolRisk::cases() as $risk) {
+            if (isset($byRisk[$risk->value])) {
+                $groups[] = [
+                    'risk' => $risk,
+                    'tools' => $byRisk[$risk->value],
+                    'enabled' => count(array_filter($byRisk[$risk->value], fn (StarTool $tool): bool => $tool->enabled)),
+                    'ownChoices' => count(array_filter($byRisk[$risk->value], fn (StarTool $tool): bool => ! $tool->followsPolicy())),
+                ];
+            }
+        }
+
+        return $groups;
     }
 
     /**
