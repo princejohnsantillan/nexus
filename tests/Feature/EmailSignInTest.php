@@ -15,10 +15,12 @@ use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Log\Events\MessageLogged;
 use Illuminate\Mail\Events\MessageSending;
 use Illuminate\Notifications\Events\NotificationSending;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Notification;
+use Illuminate\Support\Sleep;
 use Illuminate\Support\Str;
 use Livewire\Livewire;
 use Tests\Support\SentEmailCodes;
@@ -498,7 +500,7 @@ it('uses up every code for the address once one is used, so one sent at the same
     expect(EmailCode::query()->count())->toBe(0);
 });
 
-it('takes back the counts of a send another limit refuses, so it costs nothing', function (): void {
+it('doesn\'t count a send that one limit refuses against the others', function (): void {
     Notification::fake();
     $this->freezeSecond();
     config(['nexus.limits.email_codes_per_address_per_hour' => 1, 'nexus.limits.email_codes_per_ip_per_hour' => 1]);
@@ -557,3 +559,26 @@ it('fails to send an email with an exception of its own, with no code anywhere i
                 ->and(TraceArguments::contain($exception, $codes[0]))->toBeFalse();
         });
 });
+
+it('lets sends to one address, or from one IP address, take turns, refusing one that waits too long', function (string $lockName): void {
+    Notification::fake();
+    Sleep::fake(syncWithCarbon: true);
+    $lock = Cache::lock($lockName, 30);
+    $lock->get();
+
+    Livewire::test('pages::auth.sign-in')
+        ->set('email', 'ada@example.com')
+        ->call('sendCode')
+        ->assertHasErrors(['email'])
+        ->assertSeeText('You can ask for another code in 5 seconds.');
+
+    Notification::assertNothingSent();
+    expect(EmailCode::query()->count())->toBe(0);
+
+    $lock->release();
+    askForSignInCode('ada@example.com');
+    expect(SentEmailCodes::all('ada@example.com'))->toHaveCount(1);
+})->with([
+    'the address' => ['email-codes.address.'.hash('sha256', 'ada@example.com')],
+    'the IP address' => ['email-codes.ip.127.0.0.1'],
+]);
