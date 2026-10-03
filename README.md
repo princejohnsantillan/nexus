@@ -118,7 +118,7 @@ Set the page title with `#[Title('…')]` on the class. Pages use the app layout
 ### Layouts and shared Blade components
 
 - `layouts::app` ([`resources/views/layouts/app.blade.php`](resources/views/layouts/app.blade.php)) is the signed-in app: a Flux sidebar with Stars, Connections and Activity that collapses into a menu on small screens, and a profile menu with the appearance switch. It is the default page layout.
-- `layouts::public` is for public pages such as the welcome and sign-in pages. Choose it with `#[Layout('layouts::public')]`.
+- `layouts::public` is for public pages such as the welcome, sign-in and legal pages. Choose it with `#[Layout('layouts::public')]`.
 - Both include [`partials/head.blade.php`](resources/views/partials/head.blade.php), which loads the fonts (`@fonts`), the Vite assets and `@fluxAppearance`; both end with `@fluxScripts`.
 - Shared pieces live in `resources/views/components`: `<x-empty-state>` (every list needs a helpful empty state), `<x-appearance-switch>`, `<x-app-logo>`, `<x-icons.github>` and `<x-icons.google>` (the services' marks), `<x-connection-header>` (a breadcrumb back to Connections, a Connection's logo, name, status, handle and account label, and its row of sub-page links), `<x-connection-status>` (a Connection's status as a pill in its status colour), `<x-account-label>` (the account a Connection signed in as and its "use for" note, inline; add `separated` to put a " · " before each part when it follows other text), `<x-tool-hint>` (one hint as yes, no or not stated; `tone` colours a yes like that hint's badge), `<x-tool-hints>` (the hints a tool declared true, as badges: read-only green, destructive red, open-world amber, idempotent neutral), `<x-star-header>` (a Star's name, description and row of sub-page links), `<x-connection-picker>` (checkbox cards for choosing a Star's Connections; bind it like a checkbox group), `<x-own-oauth-app>` (the optional client ID and secret of an OAuth app the user registered on a custom server, with the callback URL to register; bind `clientId` and `clientSecret`) and `<x-connector-logo>` (a service's logo: `:connector="$connection->connector()"`, on a tile at `size="md"` for cards and headers or `sm` for lists and pickers, or bare at `xs` for badges; a server icon for a custom server). The Star chart components (section and danger cards, stat tiles, the sparkline and the code panel) are described [below](#the-star-chart-design-system).
 - `<x-sign-in-frame>` is the frame of the sign-in pages (boards S1–S3): the logo, the page's own content in the middle of the left column with the open-source line under it, and `<x-star-chart>` filling the right on wide screens.
@@ -137,8 +137,12 @@ Set the page title with `#[Title('…')]` on the class. Pages use the app layout
 - `<x-empty-state compact>`: a smaller empty state, with its heading one level down, for a list inside a card or a flyout.
 - `<x-adding-to-star :star="$star" />`: the banner that says the user is adding a Connection to a Star and will go back to it once it's connected (see [Adding a Connection from a Star](#adding-a-connection-from-a-star)); `cancel` adds a Cancel that goes back to the Star, adding nothing.
 - `<x-handle-preview :handle="$handle" />`: the tool name agents will see, `handle__tool`, under a handle field, following the Livewire property as the user types (`model`, `handle` unless you say), and that the handle can't change later. Pass a `tool` the server has, or it shows `<tool>`.
+- `<x-public-header />`: the top of the public pages (welcome and legal): the logo, the appearance menu and "Sign in", or "Go to Stars" for a signed-in visitor.
+- `<x-public-footer />`: the bottom of the public pages: "Nexus is open source." with the slot after it (a page's own sentence), then links to Terms, Privacy, Refunds and GitHub, the current page marked.
+- `<x-legal-page :title="…" updated="2026-10-03">`: a legal page between the public header and footer: the draft note (see [Terms, Privacy and Refund pages](#terms-privacy-and-refund-pages)), the title, "Last updated" with the `updated` date, and the text as the slot, one column about 680px wide. Write the slot as plain `<h2>`, `<p>`, `<ul>` and `<strong>`: the component styles them.
+- `<x-contact-email />`: the contact address (`NEXUS_CONTACT_EMAIL`) as a mailto link.
 - Route parameters for records resolve only within the signed-in user's own data (`bindOwnRecords()` in `AppServiceProvider`), so another user's Connection is a 404, never a 403. Bind each new record type there the same way. The MCP endpoint (`/mcp/{star}`) is the exception: it has no session, so it binds nothing and its access middleware finds the Star.
-- Every page except the welcome and sign-in pages requires sign-in: add app routes inside the `auth` group in [`routes/web.php`](routes/web.php). Guests are sent to the sign-in page (`/sign-in`, `pages::auth.sign-in`) and come back to the page they asked for once they sign in, so every way of signing in ends with `redirect()->intended(route('stars.index'))`. Signed-in visitors to the welcome or sign-in page go to the app.
+- Every page except the welcome, sign-in and legal pages requires sign-in: add app routes inside the `auth` group in [`routes/web.php`](routes/web.php). Guests are sent to the sign-in page (`/sign-in`, `pages::auth.sign-in`) and come back to the page they asked for once they sign in, so every way of signing in ends with `redirect()->intended(route('stars.index'))`. Signed-in visitors to the welcome or sign-in page go to the app.
 - Toasts: in a Livewire action call `Flux::toast(...)`. To show one after a redirect, flash `toast` with its text and a variant (`success`, `warning` or `danger`): `to_route('home')->with('toast', ['variant' => 'success', 'text' => __('Saved.')])`. Both layouts render it with `<x-flash-toast>`.
 
 ### UI with Flux free
@@ -509,6 +513,12 @@ A Star's overview opens with its stats, worked out by [`App\Stars\StarStatsCount
 
 `ActivityEntry` is mass-prunable: [`routes/console.php`](routes/console.php) schedules `model:prune` for it daily, which deletes entries older than `NEXUS_ACTIVITY_RETENTION_DAYS` (30) days in bulk, without loading them. To prune now, run `php artisan model:prune --model="App\Models\ActivityEntry"`.
 
+### Terms, Privacy and Refund pages
+
+The Terms of Service (`/terms`, `legal.terms`), Privacy Policy (`/privacy`, `legal.privacy`) and Refund Policy (`/refunds`, `legal.refunds`) are public: guests and signed-in users alike can read them, so their routes sit outside both the `guest` and `auth` groups. They are Livewire pages under `pages::legal.*`, each in an `<x-legal-page>`, and every public page's footer links all three. PayMongo's account activation asks for them too.
+
+Their text is a plain-language draft. Until the owner has reviewed it with counsel and set `NEXUS_LEGAL_REVIEWED=true`, each page says "This draft is reviewed before Nexus takes payments." at the top. They give `NEXUS_CONTACT_EMAIL` as the address for questions, refunds and privacy requests. When you change a page's text, change its `updated` date too: it's the page's "Last updated" date.
+
 ### Architecture rules and banned functions
 
 [`tests/Arch/ArchitectureTest.php`](tests/Arch/ArchitectureTest.php) applies Pest's Laravel and security presets, a "no debug calls" rule and strict types for `App` and `Database`. Architecture rules can't see the anonymous classes in component files, so [`tests/Arch/ComponentScanTest.php`](tests/Arch/ComponentScanTest.php) scans every component PHP file for calls to the same banned functions (debug helpers, `env`, `eval`, `exec` and friends, `unserialize`, `extract` and the rest), including calls through a `use function` import or alias, and proves the scan catches a `dd()`. Like the architecture rules, it can't see dynamic calls such as `$function()` or string callables. The lists live in [`tests/Support/BannedFunctions.php`](tests/Support/BannedFunctions.php).
@@ -591,9 +601,10 @@ APP_ENV=production
 APP_DEBUG=false
 APP_URL=https://{the environment's laravel.cloud domain}
 SESSION_SECURE_COOKIE=true
+NEXUS_CONTACT_EMAIL={the address people write to about their account, payments and privacy}
 ```
 
-Leave `NEXUS_DEV_SIGN_IN` unset (the dev sign-in exists only locally anyway). The `NEXUS_` limits and timeouts keep their defaults unless you set them.
+Leave `NEXUS_DEV_SIGN_IN` unset (the dev sign-in exists only locally anyway). Leave `NEXUS_LEGAL_REVIEWED` unset until the owner has reviewed the [legal pages](#terms-privacy-and-refund-pages) with counsel, then set it to `true` to take their draft note off. The `NEXUS_` limits and timeouts keep their defaults unless you set them.
 
 Email sign-in stays hidden in production until a mail provider is set up, which is a later deploy step: set `MAIL_MAILER` to a mailer that delivers (such as `smtp`, with the provider's `MAIL_HOST`, `MAIL_USERNAME` and `MAIL_PASSWORD`, the password as a secret) and `MAIL_FROM_ADDRESS` to an address it may send from. With `log` or `array` the sign-in page and Settings don't offer it.
 
