@@ -29,10 +29,10 @@
         destroy() { clearInterval(this.timer) },
         clock() { return Math.floor(this.left / 60) + ':' + String(this.left % 60).padStart(2, '0') },
     }"
-    {{ $attributes->class('flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t border-zinc-200 pt-5 text-sm dark:border-white/10') }}
+    {{ $attributes->class('flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t border-zinc-200 pt-4 text-[0.8125rem] leading-4 dark:border-white/10') }}
 >
     <div>
-        <span x-show="left > 0" @style(['display: none' => $seconds === 0]) class="text-zinc-500 dark:text-zinc-400">
+        <span x-show="left > 0" @style(['display: none' => $seconds === 0]) class="text-zinc-600 dark:text-zinc-400">
             {{ $failed ? __('Send a new code in') : __('Didn\'t get it? Resend in') }}
             <span x-text="clock()" class="tabular-nums">{{ intdiv($seconds, 60) }}:{{ Str::padLeft((string) ($seconds % 60), 2, '0') }}</span>
         </span>
@@ -41,7 +41,7 @@
             @if ($failed)
                 <flux:link as="button" variant="ghost" wire:click="{{ $action }}">{{ __('Send a new code') }}</flux:link>
             @else
-                <span class="text-zinc-500 dark:text-zinc-400">{{ __('Didn\'t get it?') }}</span>
+                <span class="text-zinc-600 dark:text-zinc-400">{{ __('Didn\'t get it?') }}</span>
                 <flux:link as="button" variant="ghost" wire:click="{{ $action }}">{{ __('Resend code') }}</flux:link>
             @endif
         </span>
