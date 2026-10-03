@@ -80,6 +80,8 @@ use Laravel\Passport\HasApiTokens;
  * @property-read int|null $activity_entries_count
  * @property-read Collection<int, SignInIdentity> $signInIdentities
  * @property-read int|null $sign_in_identities_count
+ * @property-read Collection<int, Payment> $payments
+ * @property-read int|null $payments_count
  *
  * @mixin \Eloquent
  */
@@ -133,6 +135,16 @@ class User extends Authenticatable implements OAuthenticatable
     public function stars(): HasMany
     {
         return $this->hasMany(Star::class);
+    }
+
+    /**
+     * The checkouts the user started for Pro: pending, paid or expired.
+     *
+     * @return HasMany<Payment, $this>
+     */
+    public function payments(): HasMany
+    {
+        return $this->hasMany(Payment::class);
     }
 
     /**

@@ -10,6 +10,7 @@ use App\Auth\PassportClientRepository;
 use App\Connectors\ConnectorCatalog;
 use App\Mcp\StarCaller;
 use App\Models\Connection;
+use App\Models\Payment;
 use App\Models\Star;
 use App\Models\StarOAuthClient;
 use App\Models\User;
@@ -191,6 +192,16 @@ class AppServiceProvider extends ServiceProvider
             abort_unless($user instanceof User, 404);
 
             return $user->stars()->where('public_id', $publicId)->firstOrFail();
+        });
+
+        Route::pattern('payment', '[0-9a-z]{26}');
+
+        Route::bind('payment', function (string $reference): Payment {
+            $user = Auth::user();
+
+            abort_unless($user instanceof User, 404);
+
+            return $user->payments()->where('reference', $reference)->firstOrFail();
         });
     }
 

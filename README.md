@@ -253,9 +253,26 @@ ConnectionOAuthFlow::signIn($this, $connection, $server->authorizationServer());
 
 Afterwards, `received('tools/call')` returns the JSON-RPC messages it got, decoded with objects kept as objects, `requests()` the HTTP requests (for headers), and `transferOptions()` the HTTP client's options for each one, such as its timeouts. Anything sent to another URL is a stray request and fails the test.
 
+#### The fake PayMongo
+
+[`Tests\Support\FakePayMongo`](tests/Support/FakePayMongo.php) stands in for PayMongo's API at `https://api.paymongo.com`, through `Http::fake()`, so the real client and the outbound guard run. `FakePayMongo::fake()` also gives Nexus a test secret key, which it checks on every request:
+
+```php
+$payMongo = FakePayMongo::fake();
+
+Livewire::actingAs($user)->test('pages::billing.upgrade')->call('continueToPayment');  // creates a session
+$payMongo->created();                                    // the attributes Nexus sent for each one
+
+$payMongo->paid($payment, 'gcash');                      // the user paid on PayMongo
+$payMongo->paidByCard($payment, 'visa', '4345');
+$payMongo->expired($payment);                            // it expired unpaid
+```
+
+It keeps sessions the way PayMongo does: creating one answers with only its id and URL (the same session again for a repeated `Idempotency-Key`), reading one answers with its payments and leaves a paid session's status `active`, and expiring a paid or expired one is refused with a 400. Sessions are named by their id or by the `Payment` that holds one, so a factory-made payment's session can be scripted without creating it: `open()` makes it known, and `paid()`, `paidByCard()` and `expired()` make it known in that state. `respondTo('create' | 'read' | 'expire', $responder)` replaces an answer, with `FakePayMongo::failure($status, $detail)`, `unreachable()` or any closure; `beforeAnswering()` runs a callback while a request is in flight, to play out a race. Afterwards, `requests()` returns what it received, `lastSessionId()` the newest session and `statusOf()` a session's own status.
+
 #### Downstream text stays out of logs
 
-Nexus never copies text a downstream server sent (its error messages, response bodies or headers) into the log, failed-job records or activity entries. The tests in [`tests/Feature/DownstreamText`](tests/Feature/DownstreamText) prove it for every way a tool call, prompt fetch, catalog refresh (on the page and on the queue), Connection sign-in (discovery, registration, callback, renewal) or sign-in to Nexus can fail. [`Tests\Support\DownstreamCanary`](tests/Support/DownstreamCanary.php) does the looking: have a fake server send `DownstreamCanary::TEXT`, then
+Nexus never copies text a downstream server sent (its error messages, response bodies or headers) into the log, failed-job records or activity entries. The tests in [`tests/Feature/DownstreamText`](tests/Feature/DownstreamText) prove it for every way a tool call, prompt fetch, catalog refresh (on the page and on the queue), Connection sign-in (discovery, registration, callback, renewal), sign-in to Nexus or request to PayMongo can fail. [`Tests\Support\DownstreamCanary`](tests/Support/DownstreamCanary.php) does the looking: have a fake server send `DownstreamCanary::TEXT`, then
 
 ```php
 $canary = DownstreamCanary::watch();            // before the request
@@ -555,11 +572,38 @@ Both billing pages follow their boards' frame: 880px wide and left-aligned, 56px
 - **Pro:** an "Active" pill, "Pro until {date} · N days left" and **Extend Pro**.
 - **Pro's last 7 days:** an amber "Ends in N days" pill, "Pro until {date} · then you're back on Free", **Extend Pro** as the primary button and an amber footer.
 
-Under the header, a row of `<x-usage-meter>`s shows the Stars and Connections against the plan's limits. The row lays out as many meters as it holds, side by side (stacked on a phone), so the weekly tool-calls meter goes in as a third. "Paid monthly" or "Paid yearly" beside "Pro" comes from the latest paid payment, once Nexus records payments; until then it isn't shown. The Payments card shows the compact empty state "No payments yet"; the list of paid payments goes in its body, keeping the empty state for none.
+Under the header, a row of `<x-usage-meter>`s shows the Stars and Connections against the plan's limits. The row lays out as many meters as it holds, side by side (stacked on a phone), so the weekly tool-calls meter goes in as a third. "Paid monthly" or "Paid yearly" beside "Pro" comes from the latest paid payment. The Payments card (board P4) lists the user's paid payments, newest first: the date, "Nexus Pro · Monthly" or "· Yearly", how it was paid ("GCash", "Visa ···· 4242"), the amount and a "Paid" pill; on a phone the date and method go under the description. Pending and expired checkouts charged nothing, so they aren't listed. With none, it shows the compact empty state "No payments yet".
 
-**The Upgrade page** (`/billing/upgrade`, `billing.upgrade`, `pages::billing.upgrade`; board P2) offers Free and Pro side by side with the Monthly / Yearly picker. Yearly is picked unless the link says `?period=month` (`?period=year` works too; anything else is Yearly), and switching changes Pro's price, its "Billed …" label and the line under the price. On Free, the Free card says "Your plan" and the heading is "Go Pro". On Pro the heading is "Extend Pro", saying what paying for the picked period does: "Adds a year to Pro: until {current end} becomes until {new end}." Until this Nexus takes payments, a callout, "Payments aren't set up on this Nexus yet.", stands in the Pro card where "Continue to payment" goes.
+**The Upgrade page** (`/billing/upgrade`, `billing.upgrade`, `pages::billing.upgrade`; board P2) offers Free and Pro side by side with the Monthly / Yearly picker. Yearly is picked unless the link says `?period=month` (`?period=year` works too; anything else is Yearly), and switching changes Pro's price, its "Billed …" label and the line under the price. On Free, the Free card says "Your plan" and the heading is "Go Pro". On Pro the heading is "Extend Pro", saying what paying for the picked period does: "Adds a year to Pro: until {current end} becomes until {new end}." **Continue to payment** starts a PayMongo checkout for the picked period and sends the browser to it (see [Paying with PayMongo](#paying-with-paymongo)); if PayMongo can't start one, the reason shows under the button. Until this Nexus takes payments, a callout, "Payments aren't set up on this Nexus yet.", stands in its place. Back from a checkout cancelled on PayMongo (`?cancelled=1`), a callout says "Payment cancelled. Nothing was charged."
 
 **The sidebar's plan card** (`<x-plan-card>`, board P8) shows on Free the user's Stars against the Free limit ("2 / 2 Stars", amber with a full bar at the limit, Atlas blue below it), "Go Pro for unlimited Stars, Connections and tool calls." and **Upgrade to Pro**; in Pro's last 7 days, "Pro ends in N days" and **Extend Pro**; and otherwise on Pro, nothing. Its states are branches of the component, checked in order, so a Free state that matters more (such as the week's tool calls used up) goes before the Stars one. It shows in the mobile sidebar menu too.
+
+#### Paying with PayMongo
+
+Pro is paid on [PayMongo](https://www.paymongo.com)'s hosted checkout, in pesos, by card, GCash, Maya or QR Ph: one checkout session for each month or year bought, never a subscription.
+
+**Setting it up.** Take the keys from the PayMongo dashboard (Developers → API keys) and set them in `.env`; they live only there and in production's secrets, never in the repo:
+
+| Variable | Value |
+| --- | --- |
+| `PAYMONGO_SECRET_KEY` | The secret key: `sk_test_…` in test mode, `sk_live_…` for real payments. Payments are set up only when it is set. |
+| `PAYMONGO_PUBLIC_KEY` | The public key, `pk_test_…` or `pk_live_…`. |
+| `PAYMONGO_WEBHOOK_SECRET` | The signing secret PayMongo shows for Nexus's webhook. |
+| `PAYMONGO_PAYMENT_METHODS` | The methods checkout offers, by PayMongo's names, comma-separated: `card`, `gcash`, `paymaya` (Maya), `qrph` (QR Ph), `grab_pay`. Empty means `card,gcash,paymaya,qrph`. |
+
+They are read from `services.paymongo` ([`config/services.php`](config/services.php)). Without a secret key the Upgrade page says payments aren't set up, and nothing calls PayMongo.
+
+To try it locally, put a test-mode secret and public key in `.env`, sign in, and pay on the Upgrade page with PayMongo's test card `4343434343434345` (any future expiry, any CVC), or pick GCash or Maya and press **Authorize Test Payment** on PayMongo's test page. PayMongo sends the browser back to `APP_URL`, so set it to the address you browse Nexus at. No webhook is needed: the return page asks PayMongo itself. Test payments show in the dashboard's test mode.
+
+**The client.** [`App\Billing\PayMongo`](app/Billing/PayMongo.php) makes the three requests, through Laravel's HTTP client (so the [outbound guard](#outbound-requests) checks them) with HTTP Basic auth, the secret key as the username: `createCheckoutSession($attributes, $idempotencyKey)` (`POST /v2/checkout_sessions`), `checkoutSession($id)` (`GET /v1/checkout_sessions/{id}`) and `expireCheckoutSession($id)` (`POST …/expire`). Each returns an `App\Billing\CheckoutSession`: its id, `checkoutUrl`, `status` and payments (`App\Billing\CheckoutPayment`: status, amount, method, card brand and last 4, `paid_at`, receipt email). Only a payment says whether a session was paid: PayMongo leaves a paid session's own status `active`. Every failure throws `App\Exceptions\PayMongoRequestFailed` with Nexus's own message ("PayMongo couldn't start the checkout. Try again in a minute."); what PayMongo answered is never shown, logged or stored, and only the request and its HTTP status are logged.
+
+**Payments.** Each checkout is an `App\Models\Payment`: the user's (deleted with them), its public `reference` (a ULID, also PayMongo's `reference_number` and the route key), the `period`, `amount` in centavos and currency, its `status` (`App\Enums\PaymentStatus`: `Pending`, `Paid`, `Expired`), the checkout session's id and URL, and once paid, PayMongo's payment id, the `method` (PayMongo's name, `methodLabel()` as people know it), the card's brand and last 4, the receipt email, `paid_at`, when Nexus confirmed it and the Pro period it bought (`pro_from`, `pro_until`). Route parameters bind only the signed-in user's own payments. In tests, `Payment::factory()` makes a pending yearly checkout; `monthly()`, `paid($method)`, `paidByCard($brand, $last4)` and `expired()` change it.
+
+- [`App\Actions\StartCheckout`](app/Actions/StartCheckout.php) creates the payment and its session, priced from the plan and never from the request: one line item, "Nexus Pro · Monthly" or "· Yearly", the configured methods, the return page as `success_url`, the Upgrade page with `?period=…&cancelled=1&payment={reference}` as `cancel_url`, `send_email_receipt` and the user's name and email as `billing`, with the reference as the idempotency key. It then expires the user's older pending checkouts, best effort. When PayMongo refuses, the payment is deleted again.
+- [`App\Actions\ConfirmPayment`](app/Actions/ConfirmPayment.php) is the one way a payment is confirmed. It asks PayMongo for the session and, when it holds a paid payment, marks the payment paid and moves the user's `pro_until` to `proUntilAfterPaying()`, in one transaction holding the user's row and then the payment's; a session that expired unpaid makes it expired. A paid or expired payment is returned as it is without asking, so confirming twice changes nothing. The return page uses it now; the webhook and a scheduled reconciliation reuse it.
+- [`App\Actions\ExpireCheckout`](app/Actions/ExpireCheckout.php) closes a pending checkout (cancelled, or left behind by a newer one). It confirms first, so a checkout paid after all is applied, never expired; PayMongo refuses to expire a paid or expired session, and then the session is read again and recorded as it is.
+
+**Coming back.** The return page (`/billing/payments/{payment}`, `billing.payments.show`, `pages::billing.payments.show`; boards P5b and P5) confirms the payment when it opens. While it is pending it shows "Confirming your payment" (P5b) and checks again every 2 seconds for 2 minutes, then says PayMongo hasn't confirmed yet and offers **Check again**. Paid, it shows "You're on Pro" (or "Pro extended" when it added to Pro the user had), the receipt (what, how and when it was paid, the amount and the new end of Pro) and the email PayMongo sent the receipt to (P5). Expired, it says nothing was charged and offers **Try again** for the same period. Revisiting it never applies a payment twice. A checkout cancelled on PayMongo comes back to the Upgrade page, which expires it, best effort, and goes to its receipt instead if it was paid after all.
 
 ### Architecture rules and banned functions
 
@@ -659,6 +703,7 @@ These are Cloud Secrets linked to the environment, never custom variables, files
 | `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | The GitHub sign-in app |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | The Google sign-in OAuth client (optional: without it, Google sign-in is hidden) |
 | `NEXUS_GITHUB_CLIENT_ID`, `NEXUS_GITHUB_CLIENT_SECRET` | The GitHub connector app (optional: without it, users connect GitHub with their own token or OAuth app) |
+| `PAYMONGO_SECRET_KEY`, `PAYMONGO_PUBLIC_KEY`, `PAYMONGO_WEBHOOK_SECRET` | PayMongo's live keys and webhook secret (optional: without the secret key, payments aren't set up; see [Paying with PayMongo](#paying-with-paymongo)) |
 | `PASSPORT_PRIVATE_KEY`, `PASSPORT_PUBLIC_KEY` | A new RSA key pair for signing OAuth-to-Nexus access tokens, each the whole PEM text (see below) |
 
 Cloud never shows a secret's value again, and without the master key no stored credential can be decrypted, so keep a copy of `NEXUS_MASTER_KEY` in a password manager and never change it. Changing `APP_KEY` signs everyone out and breaks every signed URL unless the old key goes in `APP_PREVIOUS_KEYS`. A custom variable overrides a secret of the same name, so if the environment already has an `APP_KEY` custom variable, delete it.

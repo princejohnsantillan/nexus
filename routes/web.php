@@ -60,6 +60,7 @@ Route::middleware('auth')->group(function (): void {
     Route::livewire('/activity', 'pages::activity.index')->name('activity.index');
     Route::livewire('/billing', 'pages::billing.index')->name('billing.index');
     Route::livewire('/billing/upgrade', 'pages::billing.upgrade')->name('billing.upgrade');
+    Route::livewire('/billing/payments/{payment}', 'pages::billing.payments.show')->name('billing.payments.show');
     Route::livewire('/settings', 'pages::settings.index')->name('settings.index');
     Route::get('/settings/sign-in-methods/google', AddGoogleController::class)->name('settings.add-google');
 

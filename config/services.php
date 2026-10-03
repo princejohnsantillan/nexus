@@ -42,6 +42,23 @@ return [
         'redirect' => '/auth/google/callback',
     ],
 
+    /*
+    | PayMongo takes the payments for Pro (App\Billing\PayMongo). Payments are
+    | set up only when the secret key is set. The payment methods are the
+    | ones its hosted checkout offers, by PayMongo's names; left empty, they
+    | are card, GCash, Maya and QR Ph.
+    */
+
+    'paymongo' => [
+        'secret_key' => env('PAYMONGO_SECRET_KEY'),
+        'public_key' => env('PAYMONGO_PUBLIC_KEY'),
+        'webhook_secret' => env('PAYMONGO_WEBHOOK_SECRET'),
+        'payment_methods' => array_values(array_filter(array_map(
+            trim(...),
+            explode(',', (string) env('PAYMONGO_PAYMENT_METHODS') ?: 'card,gcash,paymaya,qrph'),
+        ))),
+    ],
+
     'slack' => [
         'notifications' => [
             'bot_user_oauth_token' => env('SLACK_BOT_USER_OAUTH_TOKEN'),

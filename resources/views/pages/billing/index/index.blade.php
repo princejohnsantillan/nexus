@@ -20,7 +20,9 @@
                     <p class="text-2xl leading-8 font-bold tracking-tight text-zinc-950 dark:text-white">{{ $this->plan->label() }}</p>
 
                     @if ($isPro)
-                        {{-- "Paid monthly" or "Paid yearly" goes here, from the latest paid payment, once Nexus records payments. --}}
+                        @if ($this->payments->isNotEmpty())
+                            <p class="text-sm leading-[1.125rem] text-zinc-600 dark:text-zinc-400" data-paid-period>{{ $this->payments->first()->period === App\Enums\BillingPeriod::Year ? __('Paid yearly') : __('Paid monthly') }}</p>
+                        @endif
 
                         <span @class([
                             'inline-flex h-5.5 items-center gap-1.25 self-center rounded-full px-2 text-xs leading-4 font-medium whitespace-nowrap',
@@ -82,11 +84,44 @@
             <p class="text-sm leading-[1.375rem] text-zinc-600 dark:text-zinc-400">{{ __('Every payment you\'ve made. PayMongo emails you a receipt for each one.') }}</p>
         </div>
 
-        {{-- Once Nexus records payments, the paid ones are listed here as a table, newest first, and this empty state stays for none. --}}
-        <div class="px-4 pt-5 pb-6 sm:px-6">
-            <x-empty-state compact icon="receipt" :heading="__('No payments yet')">
-                {{ $isPro ? __('Receipts show up here once you pay for Pro.') : __('You\'re on Free, so there\'s nothing to pay. Receipts show up here once you go Pro.') }}
-            </x-empty-state>
-        </div>
+        @if ($this->payments->isEmpty())
+            <div class="px-4 pt-5 pb-6 sm:px-6">
+                <x-empty-state compact icon="receipt" :heading="__('No payments yet')">
+                    {{ $isPro ? __('Receipts show up here once you pay for Pro.') : __('You\'re on Free, so there\'s nothing to pay. Receipts show up here once you go Pro.') }}
+                </x-empty-state>
+            </div>
+        @else
+            @php
+                $column = 'h-9! py-0! px-0! border-y! border-zinc-200! bg-zinc-50 text-xs! leading-4 font-medium! text-zinc-600! dark:border-white/10! dark:bg-black/15 dark:text-zinc-400!';
+                $cell = 'h-13! py-0! px-0! border-t-0! border-b! border-zinc-200! text-sm! leading-[1.125rem] dark:border-white/10!';
+            @endphp
+
+            <flux:table class="mt-5" data-payments-table>
+                <flux:table.columns>
+                    <flux:table.column :class="$column.' w-41 ps-6! max-sm:hidden'">{{ __('Date') }}</flux:table.column>
+                    <flux:table.column :class="$column.' ps-4! sm:ps-0!'">{{ __('Description') }}</flux:table.column>
+                    <flux:table.column :class="$column.' w-30 max-sm:hidden'">{{ __('Method') }}</flux:table.column>
+                    <flux:table.column :class="$column.' w-27.5 max-sm:w-28 max-sm:pe-4!'" align="end">{{ __('Amount') }}</flux:table.column>
+                    <flux:table.column :class="$column.' w-28.5 ps-5! pe-6! max-sm:hidden'">{{ __('Status') }}</flux:table.column>
+                </flux:table.columns>
+
+                <flux:table.rows>
+                    @foreach ($this->payments as $payment)
+                        <flux:table.row :key="$payment->id" data-payment-row>
+                            <flux:table.cell :class="$cell.' ps-6! text-zinc-950! dark:text-white! max-sm:hidden'">{{ App\Billing\BillingCalendar::date($payment->paid_at ?? $payment->created_at ?? now()) }}</flux:table.cell>
+                            <flux:table.cell :class="$cell.' ps-4! sm:ps-0! text-zinc-950! dark:text-white!'">
+                                {{ $payment->itemName() }}
+                                <span class="mt-0.5 block text-[13px] leading-4 text-zinc-600 sm:hidden dark:text-zinc-400">{{ App\Billing\BillingCalendar::date($payment->paid_at ?? $payment->created_at ?? now()) }} · {{ $payment->methodLabel() }}</span>
+                            </flux:table.cell>
+                            <flux:table.cell :class="$cell.' text-zinc-600! dark:text-zinc-400! max-sm:hidden'">{{ $payment->methodLabel() }}</flux:table.cell>
+                            <flux:table.cell :class="$cell.' font-mono text-[13px]! text-zinc-950! dark:text-white! max-sm:pe-4!'" align="end">{{ App\Billing\Pesos::exact($payment->amount) }}</flux:table.cell>
+                            <flux:table.cell :class="$cell.' ps-5! pe-6! max-sm:hidden'">
+                                <span class="inline-flex h-5.5 items-center rounded-full bg-success-wash px-2 text-xs leading-4 font-medium text-success">{{ __('Paid') }}</span>
+                            </flux:table.cell>
+                        </flux:table.row>
+                    @endforeach
+                </flux:table.rows>
+            </flux:table>
+        @endif
     </section>
 </div>
