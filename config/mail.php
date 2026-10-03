@@ -117,4 +117,24 @@ return [
         'name' => env('MAIL_FROM_NAME', env('APP_NAME', 'Laravel')),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Markdown Mail Settings
+    |--------------------------------------------------------------------------
+    |
+    | Nexus's emails are Markdown mail drawn in the Star chart theme, the CSS
+    | in resources/views/mail/star-chart.css, which Laravel finds as the
+    | view "mail.star-chart". Publishing the mail components into "paths"
+    | would override them; Nexus keeps Laravel's own.
+    |
+    */
+
+    'markdown' => [
+        'theme' => 'star-chart',
+
+        'paths' => [
+            resource_path('views/vendor/mail'),
+        ],
+    ],
+
 ];

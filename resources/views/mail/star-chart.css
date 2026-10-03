@@ -1,0 +1,344 @@
+/*
+ * The Star chart for Laravel's Markdown mail (config mail.markdown.theme):
+ * ink on white, hairline borders instead of shadows, and Atlas blue for the
+ * one thing to do next. The colours are the tokens in resources/css/app.css.
+ * Laravel's mail layout asks clients for light only, so there is no dark
+ * partner. Inter shows where the reader has it, the system font elsewhere.
+ * Mail clients ignore most CSS, so this keeps to what inlines into style
+ * attributes: no variables, pseudo-elements or layout tricks.
+ */
+
+/* Base */
+
+body,
+body *:not(html):not(style):not(br):not(tr):not(code) {
+    box-sizing: border-box;
+    font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif,
+        'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
+    position: relative;
+}
+
+body {
+    -webkit-text-size-adjust: none;
+    background-color: #ffffff;
+    color: #565c69;
+    height: 100%;
+    line-height: 1.5;
+    margin: 0;
+    padding: 0;
+    width: 100% !important;
+}
+
+p,
+ul,
+ol,
+blockquote {
+    line-height: 22px;
+    text-align: start;
+}
+
+a {
+    color: #2f45d8;
+}
+
+a img {
+    border: none;
+}
+
+strong {
+    color: #0e1116;
+    font-weight: 600;
+}
+
+/* Typography */
+
+h1 {
+    color: #0e1116;
+    font-size: 20px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    line-height: 28px;
+    margin-top: 0;
+    margin-bottom: 12px;
+    text-align: start;
+}
+
+h2 {
+    color: #0e1116;
+    font-size: 16px;
+    font-weight: 600;
+    line-height: 24px;
+    margin-top: 0;
+    text-align: start;
+}
+
+h3 {
+    color: #0e1116;
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 20px;
+    margin-top: 0;
+    text-align: start;
+}
+
+p {
+    color: #565c69;
+    font-size: 14px;
+    line-height: 22px;
+    margin-top: 0;
+    margin-bottom: 16px;
+    text-align: start;
+}
+
+ul,
+ol {
+    color: #565c69;
+    font-size: 14px;
+    margin-top: 0;
+    margin-bottom: 16px;
+    padding-left: 20px;
+}
+
+li {
+    margin-bottom: 8px;
+}
+
+p.sub {
+    font-size: 12px;
+}
+
+img {
+    max-width: 100%;
+}
+
+/* Layout */
+
+.wrapper {
+    -premailer-cellpadding: 0;
+    -premailer-cellspacing: 0;
+    -premailer-width: 100%;
+    background-color: #f6f7f9;
+    margin: 0;
+    padding: 0;
+    width: 100%;
+}
+
+.content {
+    -premailer-cellpadding: 0;
+    -premailer-cellspacing: 0;
+    -premailer-width: 100%;
+    margin: 0;
+    padding: 0;
+    width: 100%;
+}
+
+/* Header */
+
+.header {
+    padding: 32px 0 24px;
+    text-align: center;
+}
+
+.header a {
+    color: #0e1116;
+    font-size: 16px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    text-decoration: none;
+}
+
+/* Logo */
+
+.logo {
+    height: 75px;
+    margin-top: 15px;
+    margin-bottom: 10px;
+    max-height: 75px;
+    width: 75px;
+}
+
+/* Body */
+
+.body {
+    -premailer-cellpadding: 0;
+    -premailer-cellspacing: 0;
+    -premailer-width: 100%;
+    background-color: #f6f7f9;
+    border-bottom: 1px solid #f6f7f9;
+    border-top: 1px solid #f6f7f9;
+    margin: 0;
+    padding: 0;
+    width: 100%;
+}
+
+.inner-body {
+    -premailer-cellpadding: 0;
+    -premailer-cellspacing: 0;
+    -premailer-width: 570px;
+    background-color: #ffffff;
+    border: 1px solid #e4e6eb;
+    border-radius: 12px;
+    margin: 0 auto;
+    padding: 0;
+    width: 570px;
+}
+
+.inner-body a {
+    word-break: break-all;
+}
+
+/* Subcopy */
+
+.subcopy {
+    border-top: 1px solid #e4e6eb;
+    margin-top: 24px;
+    padding-top: 24px;
+}
+
+.subcopy p {
+    color: #6c727e;
+    font-size: 13px;
+    line-height: 20px;
+}
+
+/* Footer */
+
+.footer {
+    -premailer-cellpadding: 0;
+    -premailer-cellspacing: 0;
+    -premailer-width: 570px;
+    margin: 0 auto;
+    padding: 0;
+    text-align: center;
+    width: 570px;
+}
+
+.footer p {
+    color: #6c727e;
+    font-size: 12px;
+    line-height: 16px;
+    text-align: center;
+}
+
+.footer a {
+    color: #6c727e;
+    text-decoration: underline;
+}
+
+/* Tables */
+
+.table table {
+    -premailer-cellpadding: 0;
+    -premailer-cellspacing: 0;
+    -premailer-width: 100%;
+    margin: 24px auto;
+    width: 100%;
+}
+
+.table th {
+    border-bottom: 1px solid #e4e6eb;
+    color: #0e1116;
+    font-size: 13px;
+    font-weight: 500;
+    margin: 0;
+    padding-bottom: 8px;
+}
+
+.table td {
+    border-bottom: 1px solid #e4e6eb;
+    color: #565c69;
+    font-size: 14px;
+    line-height: 20px;
+    margin: 0;
+    padding: 10px 0;
+}
+
+.content-cell {
+    max-width: 100vw;
+    padding: 32px;
+}
+
+/* Buttons: 36px tall, radius 8, as the app's primary button. The borders pad them, since Outlook ignores padding on links. */
+
+.action {
+    -premailer-cellpadding: 0;
+    -premailer-cellspacing: 0;
+    -premailer-width: 100%;
+    margin: 24px auto;
+    padding: 0;
+    text-align: center;
+    width: 100%;
+    float: unset;
+}
+
+.button {
+    -webkit-text-size-adjust: none;
+    border-radius: 8px;
+    color: #ffffff;
+    display: inline-block;
+    font-size: 14px;
+    font-weight: 500;
+    line-height: 20px;
+    overflow: hidden;
+    text-decoration: none;
+}
+
+.button-blue,
+.button-primary {
+    background-color: #2f45d8;
+    border-bottom: 8px solid #2f45d8;
+    border-left: 14px solid #2f45d8;
+    border-right: 14px solid #2f45d8;
+    border-top: 8px solid #2f45d8;
+}
+
+.button-green,
+.button-success {
+    background-color: #15803d;
+    border-bottom: 8px solid #15803d;
+    border-left: 14px solid #15803d;
+    border-right: 14px solid #15803d;
+    border-top: 8px solid #15803d;
+}
+
+.button-red,
+.button-error {
+    background-color: #c8322b;
+    border-bottom: 8px solid #c8322b;
+    border-left: 14px solid #c8322b;
+    border-right: 14px solid #c8322b;
+    border-top: 8px solid #c8322b;
+}
+
+/* Panels: a wash with a hairline, like the app's card footers. */
+
+.panel {
+    margin: 24px 0;
+}
+
+.panel-content {
+    background-color: #f6f7f9;
+    border: 1px solid #e4e6eb;
+    border-radius: 8px;
+    color: #0e1116;
+    padding: 16px;
+}
+
+.panel-content p {
+    color: #0e1116;
+}
+
+.panel-item {
+    padding: 0;
+}
+
+.panel-item p:last-of-type {
+    margin-bottom: 0;
+    padding-bottom: 0;
+}
+
+/* Utilities */
+
+.break-all {
+    word-break: break-all;
+}
