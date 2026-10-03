@@ -4,13 +4,8 @@
         $cell = 'px-5! border-zinc-200! dark:border-white/10!';
     @endphp
 
-    <div class="flex flex-wrap items-end justify-between gap-4">
-        <div class="min-w-0">
-            <flux:heading size="xl" level="1">{{ __('Connections') }}</flux:heading>
-            <flux:text class="mt-2">{{ __('Each Connection is one of your accounts on a remote MCP server. Connect it once, use it in any Star.') }}</flux:text>
-        </div>
-
-        <div class="flex items-center gap-4">
+    <x-page-header :heading="__('Connections')" :description="__('Each Connection is one of your accounts on a remote MCP server. Connect it once, use it in any Star.')">
+        <x-slot:aside class="gap-4">
             <span @class([
                 'text-sm tabular-nums',
                 'text-zinc-500 dark:text-zinc-400' => ! $this->isAtConnectionLimit,
@@ -32,8 +27,8 @@
                     <flux:button variant="primary" icon="plus" href="#add-more" data-add-connection>{{ __('Add connection') }}</flux:button>
                 @endif
             @endif
-        </div>
-    </div>
+        </x-slot:aside>
+    </x-page-header>
 
     @if ($this->connections->isEmpty())
         <x-empty-state icon="link" :heading="__('No Connections yet')" class="mt-8">

@@ -6,10 +6,7 @@
         $daysLeft = $this->user->proDaysLeft();
     @endphp
 
-    <div class="flex flex-col gap-1.5">
-        <flux:heading level="1" class="text-[2rem]! leading-[2.375rem]! font-bold! tracking-tight text-zinc-950! dark:text-white!">{{ __('Billing') }}</flux:heading>
-        <p class="text-sm leading-[1.375rem] text-zinc-600 dark:text-zinc-400">{{ __('Your plan, what it covers and what you\'ve paid. Payments go through PayMongo; Nexus never sees your card.') }}</p>
-    </div>
+    <x-page-header :heading="__('Billing')" :description="__('Your plan, what it covers and what you\'ve paid. Payments go through PayMongo; Nexus never sees your card.')" />
 
     <section class="mt-8 overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-white/10 dark:bg-white/[4%]" aria-labelledby="current-plan-heading" data-current-plan="{{ $isEndingSoon ? 'pro-ending' : $this->plan->value }}">
         <div class="flex flex-wrap items-start justify-between gap-6 p-4 sm:p-6">

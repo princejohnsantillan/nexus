@@ -1,6 +1,5 @@
 <div class="mx-auto w-full max-w-3xl">
-    <flux:heading size="xl" level="1">{{ __('Settings') }}</flux:heading>
-    <flux:text class="mt-2">{{ __('Your profile, how you sign in, how Nexus looks, and your account.') }}</flux:text>
+    <x-page-header :heading="__('Settings')" :description="__('Your profile, how you sign in, how Nexus looks, and your account.')" />
 
     <div class="mt-8 space-y-6">
         <x-section-card :heading="__('Profile')" :description="$this->user->gitHubLogin() !== null ? __('Nexus takes your profile from GitHub and refreshes it every time you sign in.') : __('Your name and email address in Nexus.')">
