@@ -260,13 +260,14 @@ return new #[Title('Activity')] class extends Component
 
     /**
      * This page's entries by the day they happened on, in the viewer's
-     * timezone, newest first. Each day has its label, its UTC offset, and
-     * a summary of the calls in the range that matched the filters that
-     * whole day, not just on this page: how many, and how many weren't OK.
-     * Each row has its entry, its time in the viewer's timezone and, when
-     * the call wasn't OK, the label saying how it ended.
+     * timezone, newest first. Each day has its label, its UTC offset (both
+     * of them on a day the clocks change), and a summary of the calls in
+     * the range that matched the filters that whole day, not just on this
+     * page: how many, and how many weren't OK. Each row has its entry, its
+     * time in the viewer's timezone with the offset then and, when the call
+     * wasn't OK, the label saying how it ended.
      *
-     * @return list<array{date: string, label: string, zone: string, summary: string, rows: list<array{entry: ActivityEntry, at: CarbonImmutable, problem: string|null}>}>
+     * @return list<array{date: string, label: string, zone: string, summary: string, rows: list<array{entry: ActivityEntry, at: CarbonImmutable, zone: string, problem: string|null}>}>
      */
     #[Computed]
     public function days(): array
@@ -280,6 +281,7 @@ return new #[Title('Activity')] class extends Component
             $rowsByDate[$at->toDateString()][] = [
                 'entry' => $entry,
                 'at' => $at,
+                'zone' => $this->offsetLabel($at),
                 'problem' => $entry->status === ActivityStatus::Ok ? null : ($denialReasons->reasonFor($entry)?->label($entry->kind) ?? $entry->status->label()),
             ];
         }
@@ -298,7 +300,7 @@ return new #[Title('Activity')] class extends Component
             $days[] = [
                 'date' => $date,
                 'label' => $this->dayLabel($start),
-                'zone' => $this->zoneLabel($start),
+                'zone' => $this->dayZoneLabel($start),
                 'summary' => $notOk === 0 ? $summary : __(':calls · :count not OK', ['calls' => $summary, 'count' => number_format($notOk)]),
                 'rows' => $rows,
             ];
@@ -370,27 +372,39 @@ return new #[Title('Activity')] class extends Component
     }
 
     /**
-     * "Today", "Yesterday" or the date, for a day in the viewer's timezone.
+     * "Today", "Yesterday" or the date (with its year when it isn't this
+     * one), for a day in the viewer's timezone.
      */
     private function dayLabel(CarbonImmutable $day): string
     {
         $today = CarbonImmutable::now($this->timezone)->startOfDay();
 
-        return match (true) {
-            $day->equalTo($today) => __('Today'),
-            $day->equalTo($today->subDay()) => __('Yesterday'),
-            $day->year === $today->year => $day->isoFormat('dddd, MMMM D'),
-            default => $day->isoFormat('dddd, MMMM D, YYYY'),
+        return match ($day->toDateString()) {
+            $today->toDateString() => __('Today'),
+            $today->subDay()->toDateString() => __('Yesterday'),
+            default => $day->isoFormat($day->year === $today->year ? 'dddd, MMMM D' : 'dddd, MMMM D, YYYY'),
         };
     }
 
     /**
-     * The viewer's timezone as its offset from UTC on that day, such as
-     * "UTC+08:00", or just "UTC".
+     * The viewer's offset from UTC through a day, such as "UTC+08:00", or
+     * both offsets on a day the clocks change ("UTC+12:00 → UTC+13:00").
      */
-    private function zoneLabel(CarbonImmutable $day): string
+    private function dayZoneLabel(CarbonImmutable $day): string
     {
-        $offset = $day->format('P');
+        $start = $this->offsetLabel($day);
+        $end = $this->offsetLabel($day->endOfDay());
+
+        return $start === $end ? $start : __(':start → :end', ['start' => $start, 'end' => $end]);
+    }
+
+    /**
+     * The viewer's offset from UTC at that moment, such as "UTC+08:00", or
+     * just "UTC".
+     */
+    private function offsetLabel(CarbonImmutable $moment): string
+    {
+        $offset = $moment->format('P');
 
         return $offset === '+00:00' ? 'UTC' : 'UTC'.$offset;
     }

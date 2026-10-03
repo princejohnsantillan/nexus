@@ -167,6 +167,19 @@ it('escapes the names clients send', function (): void {
         ->assertDontSee('<script>alert(1)</script>', escape: false);
 });
 
+it('gives each call its own UTC offset, and a day the clocks change both of them', function (): void {
+    $this->travelTo('2026-09-27 20:00:00');
+    $wiki = Connection::factory()->for($this->user)->create(['handle' => 'wiki']);
+    $star = Star::factory()->for($this->user)->create();
+    ActivityEntry::factory()->through($star, $wiki, 'before_the_change')->create(['created_at' => '2026-09-26 13:30:00']);
+    ActivityEntry::factory()->through($star, $wiki, 'after_the_change')->create(['created_at' => '2026-09-26 14:30:00']);
+
+    $this->withSession(['timezone' => 'Pacific/Auckland'])->get(route('activity.index', ['range' => '7d']))
+        ->assertSeeTextInOrder(['Yesterday', 'UTC+12:00 → UTC+13:00', '03:30', 'wiki__after_the_change', '01:30', 'wiki__before_the_change'])
+        ->assertSee('title="Sunday, September 27, 2026 03:30:00 UTC+13:00"', escape: false)
+        ->assertSee('title="Sunday, September 27, 2026 01:30:00 UTC+12:00"', escape: false);
+});
+
 describe('days', function (): void {
     beforeEach(function (): void {
         $this->travelTo('2026-10-03 09:45:00');

@@ -165,7 +165,7 @@
 
                                     <time
                                         datetime="{{ $row['entry']->created_at->toIso8601String() }}"
-                                        title="{{ $row['at']->isoFormat('dddd, MMMM D, YYYY HH:mm:ss') }} {{ $day['zone'] }}"
+                                        title="{{ $row['at']->isoFormat('dddd, MMMM D, YYYY HH:mm:ss') }} {{ $row['zone'] }}"
                                         class="font-mono text-sm text-zinc-600 dark:text-zinc-400"
                                     >{{ $row['at']->format('H:i') }}</time>
 
