@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Actions;
 
+use App\Enums\Plan;
 use App\Models\Connection;
 use App\Models\User;
 use Illuminate\Contracts\Cache\LockTimeoutException;
@@ -25,7 +26,7 @@ class SaveNewConnection
 
     /**
      * Save a new Connection for the user, unless they already have as many as
-     * `nexus.limits.connections_per_user` allows. Saves for one user hold a
+     * their plan allows (Pro has no limit). Saves for one user hold a
      * cache lock while they count and insert, so two at once can't both pass
      * the check. Do slow work, such as loading tools, after this returns.
      *
@@ -47,12 +48,16 @@ class SaveNewConnection
     }
 
     /**
-     * What a user who has reached the Connections limit is told.
+     * What a user who has reached the Connections limit is told. Only Free has one.
      */
     public static function limitMessage(): string
     {
-        return __('You have :limit Connections, the most an account can have. Delete one to add another.', [
-            'limit' => config()->integer('nexus.limits.connections_per_user'),
-        ]);
+        $limit = Plan::Free->connectionLimit() ?? 0;
+
+        return trans_choice(
+            'Free includes :limit Connection. Go Pro for more, or delete it if you no longer use it.|Free includes :limit Connections. Go Pro for more, or delete one you no longer use.',
+            $limit,
+            ['limit' => $limit],
+        );
     }
 }

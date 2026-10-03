@@ -10,6 +10,7 @@
 
     <flux:menu.separator />
 
+    <flux:menu.item icon="credit-card" :href="route('billing.index')" wire:navigate>{{ __('Billing') }}</flux:menu.item>
     <flux:menu.item icon="cog-6-tooth" :href="route('settings.index')" wire:navigate>{{ __('Settings') }}</flux:menu.item>
 
     <flux:menu.separator />

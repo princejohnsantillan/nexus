@@ -10,7 +10,13 @@
                 'font-mono text-[13px] tabular-nums',
                 'text-zinc-600 dark:text-zinc-400' => ! $this->isAtStarLimit,
                 'text-warning' => $this->isAtStarLimit,
-            ]) data-star-count>{{ trans_choice(':stars / :limit Star|:stars / :limit Stars', $this->starLimit, ['stars' => $this->stars->count(), 'limit' => $this->starLimit]) }}</span>
+            ]) data-star-count>
+                @if ($this->starLimit === null)
+                    {{ trans_choice(':count Star|:count Stars', $this->stars->count()) }}
+                @else
+                    {{ trans_choice(':stars / :limit Star|:stars / :limit Stars', $this->starLimit, ['stars' => $this->stars->count(), 'limit' => $this->starLimit]) }}
+                @endif
+            </span>
 
             {{-- With no Stars yet, the empty state offers the button instead. --}}
             @if ($this->stars->isNotEmpty())

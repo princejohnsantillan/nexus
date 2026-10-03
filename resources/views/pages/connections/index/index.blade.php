@@ -16,7 +16,11 @@
                 'text-zinc-500 dark:text-zinc-400' => $this->limitMessage === null,
                 'font-medium text-warning' => $this->limitMessage !== null,
             ]) data-connection-count>
-                <span class="sr-only">{{ __('Connections used:') }}</span> {{ __(':count / :limit', ['count' => $this->connections->count(), 'limit' => $this->limit]) }}
+                @if ($this->limit === null)
+                    {{ trans_choice(':count Connection|:count Connections', $this->connections->count()) }}
+                @else
+                    <span class="sr-only">{{ __('Connections used:') }}</span> {{ __(':count / :limit', ['count' => $this->connections->count(), 'limit' => $this->limit]) }}
+                @endif
             </span>
 
             @if ($this->connections->isNotEmpty())

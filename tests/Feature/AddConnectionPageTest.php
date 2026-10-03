@@ -311,18 +311,18 @@ it('refuses a token with a line break inside it', function (): void {
 });
 
 it('explains the limit once the user has as many Connections as an account may', function (): void {
-    config(['nexus.limits.connections_per_user' => 2]);
+    config(['nexus.plans.free.connections' => 2]);
     Connection::factory()->for($this->user)->count(2)->create();
 
     Livewire::test('pages::connections.index')
         ->assertSeeText('Connection limit reached')
-        ->assertSeeText('You have 2 Connections, the most an account can have. Delete one to add another.')
+        ->assertSeeText('Free includes 2 Connections. Go Pro for more, or delete one you no longer use.')
         ->assertDontSee(route('connections.add-custom'))
         ->assertDontSeeHtml('wire:click="startConnecting(\'github\')"');
 });
 
 it('refuses another Connection at the limit without sending the token anywhere', function (): void {
-    config(['nexus.limits.connections_per_user' => 1]);
+    config(['nexus.plans.free.connections' => 1]);
     $server = FakeMcpServer::at(GITHUB_MCP_URL);
 
     $component = Livewire::test('pages::connections.index')->call('startConnecting', 'github');
@@ -330,7 +330,7 @@ it('refuses another Connection at the limit without sending the token anywhere',
 
     $component->set('token', 'github_pat_good')
         ->call('connect')
-        ->assertHasErrors(['limit' => 'You have 1 Connections, the most an account can have. Delete one to add another.']);
+        ->assertHasErrors(['limit' => 'Free includes 1 Connection. Go Pro for more, or delete it if you no longer use it.']);
 
     expect($this->user->connections()->count())->toBe(1)
         ->and($server->requests())->toBeEmpty();

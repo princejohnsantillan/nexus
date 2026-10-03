@@ -62,7 +62,8 @@ return [
     | Limits
     |--------------------------------------------------------------------------
     |
-    | Signup is public, so every user's account has limits. Calls to a Star
+    | Signup is public, so every user's account has limits; how many Stars
+    | and Connections it may have come from its plan (below). Calls to a Star
     | are limited per minute for each credential a client uses (each of its
     | tokens), so a runaway agent can't exhaust the user's downstream quotas.
     | Anyone may register an OAuth client with a Star in OAuth mode, so
@@ -74,13 +75,56 @@ return [
     */
 
     'limits' => [
-        'connections_per_user' => (int) env('NEXUS_CONNECTIONS_PER_USER', 25),
-        'stars_per_user' => (int) env('NEXUS_STARS_PER_USER', 10),
         'tokens_per_star' => (int) env('NEXUS_TOKENS_PER_STAR', 10),
         'calls_per_minute' => (int) env('NEXUS_CALLS_PER_MINUTE', 120),
         'oauth_registrations_per_hour' => (int) env('NEXUS_OAUTH_REGISTRATIONS_PER_HOUR', 20),
         'email_codes_per_address_per_hour' => (int) env('NEXUS_EMAIL_CODES_PER_ADDRESS_PER_HOUR', 5),
         'email_codes_per_ip_per_hour' => (int) env('NEXUS_EMAIL_CODES_PER_IP_PER_HOUR', 20),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Plans
+    |--------------------------------------------------------------------------
+    |
+    | What each plan includes (App\Enums\Plan) and what Pro costs. A user is
+    | on Pro while their `pro_until` is in the future, and on Free otherwise.
+    | A null limit means unlimited. Prices are in centavos (₱499.00 is
+    | 49900). The Free limits can be changed for tests and self-hosting;
+    | limits stop additions only and never delete or disable anything.
+    |
+    */
+
+    'plans' => [
+        'free' => [
+            'stars' => (int) env('NEXUS_FREE_STARS', 2),
+            'connections' => (int) env('NEXUS_FREE_CONNECTIONS', 10),
+            'tool_calls_per_week' => (int) env('NEXUS_FREE_TOOL_CALLS_PER_WEEK', 3000),
+        ],
+        'pro' => [
+            'stars' => null,
+            'connections' => null,
+            'tool_calls_per_week' => null,
+            'prices' => [
+                'month' => 49900,
+                'year' => 499900,
+            ],
+        ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Billing
+    |--------------------------------------------------------------------------
+    |
+    | Nexus bills in Philippine pesos, so billing dates (when Pro ends, when
+    | a payment was made) show in Philippine time, and the weekly tool-call
+    | limit resets in it.
+    |
+    */
+
+    'billing' => [
+        'timezone' => 'Asia/Manila',
     ],
 
     /*

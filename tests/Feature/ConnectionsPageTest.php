@@ -165,7 +165,7 @@ it('doesn\'t refresh another user\'s Connection', function (): void {
 });
 
 it('counts the user\'s Connections against the limit', function (): void {
-    config(['nexus.limits.connections_per_user' => 5]);
+    config(['nexus.plans.free.connections' => 5]);
     Connection::factory()->for($this->user)->count(2)->create();
     Connection::factory()->create();
 

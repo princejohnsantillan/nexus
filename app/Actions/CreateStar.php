@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Actions;
 
+use App\Enums\Plan;
 use App\Enums\StarAccessMode;
 use App\Models\Star;
 use App\Models\User;
@@ -34,8 +35,8 @@ class CreateStar
 
     /**
      * Create a Star for the user, including those of the given Connections
-     * that are theirs, unless they already have as many Stars as
-     * `nexus.limits.stars_per_user` allows. Its slug comes from its name,
+     * that are theirs, unless they already have as many Stars as their
+     * plan allows (Pro has no limit). Its slug comes from its name,
      * with a number added when another of the user's Stars has it. Creations
      * for one user hold a cache lock while they count and insert, so two at
      * once can't both pass the check.
@@ -79,14 +80,14 @@ class CreateStar
     }
 
     /**
-     * What a user who has reached the Stars limit is told.
+     * What a user who has reached the Stars limit is told. Only Free has one.
      */
     public static function limitMessage(): string
     {
-        $limit = config()->integer('nexus.limits.stars_per_user');
+        $limit = Plan::Free->starLimit() ?? 0;
 
         return trans_choice(
-            'You have :limit Star, the most an account can have. Delete it to create another.|You have :limit Stars, the most an account can have. Delete one to create another.',
+            'Free includes :limit Star. Go Pro for more, or delete it if you no longer use it.|Free includes :limit Stars. Go Pro for more, or delete one you no longer use.',
             $limit,
             ['limit' => $limit],
         );

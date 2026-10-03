@@ -38,6 +38,11 @@
 
             <x-action-required :problems="$connectionProblems" />
 
+            {{-- The card leads to the Upgrade page, so that page doesn't show it. --}}
+            @unless (request()->routeIs('billing.upgrade'))
+                <x-plan-card :user="auth()->user()" />
+            @endunless
+
             <flux:dropdown position="top" align="start" class="max-lg:hidden">
                 <button type="button" class="group flex w-full items-center gap-2.5 rounded-lg p-1.5 text-start hover:bg-zinc-800/5 dark:hover:bg-white/10" data-flux-sidebar-profile>
                     <flux:avatar size="xs" circle :src="auth()->user()->avatar_url" :name="auth()->user()->name" :initials="auth()->user()->initials()" class="size-7 bg-accent-wash text-accent-content" />

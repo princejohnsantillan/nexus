@@ -23,7 +23,7 @@ it('creates a Star including only the user\'s own Connections', function (): voi
 
 it('keeps to the limit when two creations for one user overlap', function (): void {
     Sleep::fake(syncWithCarbon: true);
-    config(['nexus.limits.stars_per_user' => 1]);
+    config(['nexus.plans.free.stars' => 1]);
     $user = User::factory()->create();
     $overlapped = false;
     $refused = null;
@@ -48,7 +48,7 @@ it('keeps to the limit when two creations for one user overlap', function (): vo
 });
 
 it('releases the lock when the user is at the limit', function (): void {
-    config(['nexus.limits.stars_per_user' => 0]);
+    config(['nexus.plans.free.stars' => 0]);
     $user = User::factory()->create();
 
     expect(fn (): mixed => resolve(CreateStar::class)->handle($user, ['name' => 'Work', 'description' => null]))

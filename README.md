@@ -117,7 +117,7 @@ Set the page title with `#[Title('…')]` on the class. Pages use the app layout
 
 ### Layouts and shared Blade components
 
-- `layouts::app` ([`resources/views/layouts/app.blade.php`](resources/views/layouts/app.blade.php)) is the signed-in app: a Flux sidebar with Stars, Connections and Activity that collapses into a menu on small screens, and a profile menu with the appearance switch. It is the default page layout.
+- `layouts::app` ([`resources/views/layouts/app.blade.php`](resources/views/layouts/app.blade.php)) is the signed-in app: a Flux sidebar with Stars, Connections and Activity that collapses into a menu on small screens, the plan card above the profile, and a profile menu with Billing, Settings and the appearance switch. It is the default page layout.
 - `layouts::public` is for public pages such as the welcome, sign-in and legal pages. Choose it with `#[Layout('layouts::public')]`.
 - Both include [`partials/head.blade.php`](resources/views/partials/head.blade.php), which loads the fonts (`@fonts`), the Vite assets and `@fluxAppearance`; both end with `@fluxScripts`.
 - Shared pieces live in `resources/views/components`: `<x-empty-state>` (every list needs a helpful empty state), `<x-appearance-switch>`, `<x-app-logo>`, `<x-icons.github>` and `<x-icons.google>` (the services' marks), `<x-connection-header>` (a breadcrumb back to Connections, a Connection's logo, name, status, handle and account label, and its row of sub-page links), `<x-connection-status>` (a Connection's status as a pill in its status colour), `<x-account-label>` (the account a Connection signed in as and its "use for" note, inline; add `separated` to put a " · " before each part when it follows other text), `<x-tool-hint>` (one hint as yes, no or not stated; `tone` colours a yes like that hint's badge), `<x-tool-hints>` (the hints a tool declared true, as badges: read-only green, destructive red, open-world amber, idempotent neutral), `<x-star-header>` (a Star's name, description and row of sub-page links), `<x-connection-picker>` (checkbox cards for choosing a Star's Connections; bind it like a checkbox group), `<x-own-oauth-app>` (the optional client ID and secret of an OAuth app the user registered on a custom server, with the callback URL to register; bind `clientId` and `clientSecret`) and `<x-connector-logo>` (a service's logo: `:connector="$connection->connector()"`, on a tile at `size="md"` for cards and headers or `sm` for lists and pickers, or bare at `xs` for badges; a server icon for a custom server). The Star chart components (section and danger cards, stat tiles, the sparkline and the code panel) are described [below](#the-star-chart-design-system).
@@ -135,6 +135,10 @@ Set the page title with `#[Title('…')]` on the class. Pages use the app layout
 - `<x-star-problems :star="$star" />` is a banner for each of a Star's Connections that needs attention (what is wrong, how many of the Star's tools are unavailable, and the fix). `<x-star-header>` shows it under the header of every Star page.
 - `<x-tool-flyout>`: the tool details flyout (a `flux:modal` flyout named `tool-details`) for an `App\Stars\ToolDetails`: the exposed and server's names, title, full description, hints, parameters, which of the user's Stars have the tool on, and its latest calls. A Star's Tools page puts the tool's switch in its `switch` slot. `<x-tool-flyout.trigger :tool="$tool">` is a tool's name as the button that opens it: the page's `showToolDetails($toolId)` keeps the id in `detailsToolId` and shows the modal, and closing it forgets the id and puts focus back on the trigger.
 - `<x-empty-state compact>`: a smaller empty state, with its heading one level down, for a list inside a card or a flyout.
+- `<x-plan-card :user="$user" />`: the sidebar's plan card (board P8). The app layout shows it under `<x-action-required>`, above the profile, on every page but the Upgrade page it leads to. See [Plans and billing](#plans-and-billing) for its states.
+- `<x-usage-meter :label="__('Stars')" :used="$count" :limit="$limit" />`: one figure of the Billing page's usage row: the count "of" the limit and a bar, amber with "· limit reached" at the limit; a null limit reads "of unlimited · No limit on Pro".
+- `<x-billing-period-picker wire:model.live="period" />`: Monthly or Yearly as a segmented radio group, with what Yearly saves on its badge, bound to an `App\Enums\BillingPeriod` value.
+- `<x-free-plan-card :current="true" />` and `<x-pro-plan-card :period="$period" />`: the two plans as cards to choose from, with their prices and what they include from `nexus.plans` (Pro priced for the period). `current` gives Free a "Your plan" badge; an `action` slot puts a button (or a callout) at the bottom of either.
 - `<x-adding-to-star :star="$star" />`: the banner that says the user is adding a Connection to a Star and will go back to it once it's connected (see [Adding a Connection from a Star](#adding-a-connection-from-a-star)); `cancel` adds a Cancel that goes back to the Star, adding nothing.
 - `<x-handle-preview :handle="$handle" />`: the tool name agents will see, `handle__tool`, under a handle field, following the Livewire property as the user types (`model`, `handle` unless you say), and that the handle can't change later. Pass a `tool` the server has, or it shows `<tool>`.
 - `<x-public-header />`: the top of the public pages (welcome and legal): the logo, the appearance menu and "Sign in", or "Go to Stars" for a signed-in visitor.
@@ -302,7 +306,7 @@ Show who a user is with `$user->signInName()` (`@octocat`, or else an email addr
 
 ### Connections and their catalogs
 
-A Connection (`App\Models\Connection`) is one of a user's accounts on a remote MCP server. Its handle prefixes its tools' names in Stars, so it never changes once created: the model refuses to save a changed handle. A header sign-in keeps the header's name in `settings` and its value encrypted in `secrets`. `nexus.limits.connections_per_user` (`NEXUS_CONNECTIONS_PER_USER`, 25) caps how many a user may have. Save every new Connection through `App\Actions\SaveNewConnection`: it holds a per-user cache lock while it counts and inserts, so two adds at once can't both slip under the limit, and its `limitMessage()` is what the user is told. Load tools after it returns, outside the lock. Delete one through `App\Actions\DeleteConnection`, which holds its row while it deletes it, as adding Connections to a Star does, so a Star it is being added to at that moment either gets it in time to have its lists forgotten or finds it gone (see [Caching a Star's lists](#caching-a-stars-lists)).
+A Connection (`App\Models\Connection`) is one of a user's accounts on a remote MCP server. Its handle prefixes its tools' names in Stars, so it never changes once created: the model refuses to save a changed handle. A header sign-in keeps the header's name in `settings` and its value encrypted in `secrets`. The user's plan caps how many they may add (10 on Free, none on Pro; see [Plans and billing](#plans-and-billing)). Save every new Connection through `App\Actions\SaveNewConnection`: it holds a per-user cache lock while it counts and inserts, so two adds at once can't both slip under the limit, and its `limitMessage()` is what the user is told. Load tools after it returns, outside the lock. Delete one through `App\Actions\DeleteConnection`, which holds its row while it deletes it, as adding Connections to a Star does, so a Star it is being added to at that moment either gets it in time to have its lists forgotten or finds it gone (see [Caching a Star's lists](#caching-a-stars-lists)).
 
 A Connection's catalog is its stored copy of the server's tools (`App\Models\ConnectionTool`) and prompts (`App\Models\ConnectionPrompt`). [`App\Actions\RefreshCatalog`](app/Actions/RefreshCatalog.php) re-reads it:
 
@@ -370,7 +374,7 @@ To test against real Notion and Linear locally, nothing needs registering: Nexus
 
 ### Stars and their tools
 
-A Star (`App\Models\Star`) is one MCP server endpoint owned by a user, bundling some of their Connections. Its URLs use its `public_id`, 20 random lowercase letters and digits (`/stars/{public_id}`, and `/mcp/{public_id}` for clients), never its numeric id, so they stay the same when it is renamed. Its `slug` comes from its name when it is created ("work", then "work-2" for the user's next "Work"), is unique among the user's Stars, names it in client configuration, and is kept when the Star is renamed. `nexus.limits.stars_per_user` (`NEXUS_STARS_PER_USER`, 10) caps how many a user may have.
+A Star (`App\Models\Star`) is one MCP server endpoint owned by a user, bundling some of their Connections. Its URLs use its `public_id`, 20 random lowercase letters and digits (`/stars/{public_id}`, and `/mcp/{public_id}` for clients), never its numeric id, so they stay the same when it is renamed. Its `slug` comes from its name when it is created ("work", then "work-2" for the user's next "Work"), is unique among the user's Stars, names it in client configuration, and is kept when the Star is renamed. The user's plan caps how many they may create (2 on Free, none on Pro; see [Plans and billing](#plans-and-billing)).
 
 Change Stars through the actions, which keep their rules:
 
@@ -518,6 +522,42 @@ A Star's overview opens with its stats, worked out by [`App\Stars\StarStatsCount
 The Terms of Service (`/terms`, `legal.terms`), Privacy Policy (`/privacy`, `legal.privacy`) and Refund Policy (`/refunds`, `legal.refunds`) are public: guests and signed-in users alike can read them, so their routes sit outside both the `guest` and `auth` groups. They are Livewire pages under `pages::legal.*`, each in an `<x-legal-page>`, and every public page's footer links all three. PayMongo's account activation asks for them too.
 
 Their text is a plain-language draft. Until the owner has reviewed it with counsel and set `NEXUS_LEGAL_REVIEWED=true`, each page says "This draft is reviewed before Nexus takes payments." at the top. They give `NEXUS_CONTACT_EMAIL` as the address for questions, refunds and privacy requests. When you change a page's text, change its `updated` date too: it's the page's "Last updated" date.
+
+### Plans and billing
+
+Every account is on one of two plans, `App\Enums\Plan`:
+
+| | Free | Pro |
+| --- | --- | --- |
+| Stars | 2 (`NEXUS_FREE_STARS`) | Unlimited |
+| Connections | 10 (`NEXUS_FREE_CONNECTIONS`) | Unlimited |
+| Tool calls | 3,000 a week (`NEXUS_FREE_TOOL_CALLS_PER_WEEK`) | Unlimited |
+| Price | ₱0 | ₱499 a month or ₱4,999 a year |
+
+The values live in [`config/nexus.php`](config/nexus.php) under `plans`: each plan's `stars`, `connections` and `tool_calls_per_week` (null means unlimited) and Pro's `prices`, in centavos as PayMongo counts them (49900 a month, 499900 a year). The Free limits can be changed with their variables, for tests and self-hosting. Read them through the enum: `Plan::Free->starLimit()`, `connectionLimit()`, `toolCallsPerWeek()`, `price(BillingPeriod::Year)` and `yearlySaving()` (what a year saves over twelve months). `App\Enums\BillingPeriod` is what one payment buys, a `Month` or a `Year`; its `after($moment)` adds one without running into the next month (a month after January 31 is the end of February).
+
+**Who is on Pro.** Pro is prepaid and never renews on its own. `users.pro_until` is when the user's Pro ends:
+
+- `$user->plan()` is Pro while `pro_until` is in the future, and Free otherwise (null or past).
+- `$user->proDaysLeft()` is how many days of Pro are left, a part of a day counting as a whole one, or null on Free; `isProEndingSoon()` is true in Pro's last `User::PRO_ENDING_SOON_DAYS` (7) days, when the Billing page and the plan card warn.
+- `$user->nextProStart()` is when Pro paid for now starts: now, or the current `pro_until` if that is later, so paying early never loses days and months and years stack. `proUntilAfterPaying($period)` is that plus the period, the new `pro_until` a confirmed payment sets.
+- In tests, `User::factory()->pro()` has a year of Pro left, `proEndingIn($days)` ends in that many days and `proEnded()` ended yesterday.
+
+**Limits stop additions, never delete.** `$user->hasReachedStarLimit()` and `hasReachedConnectionLimit()` compare the user's count with their plan's limit, and Pro never reaches one. `App\Actions\CreateStar` and `App\Actions\SaveNewConnection` (which every way of adding a Connection goes through: the gallery, a custom server, and adding from a Star) refuse an addition at the limit under their per-user locks, with `limitMessage()` ("Free includes 2 Stars. Go Pro for more, or delete one you no longer use."). Nothing over a limit is deleted or disabled: an older account with more, or a Pro that ended, keeps every Star and Connection working and just can't add more. The Stars and Connections pages count against the limit on Free ("2 / 2 Stars", amber at it) and just count on Pro ("5 Stars").
+
+**Billing time and money.** Billing dates show in Philippine time whatever the app's timezone, from `nexus.billing.timezone` (`Asia/Manila`): format them with `App\Billing\BillingCalendar::date($moment)` ("Oct 3, 2026") or `shortDate()` ("Oct 3"), or get the local moment with `local()`. The weekly tool-call limit resets on the same calendar. `App\Billing\Pesos::rounded($centavos)` writes a price ("₱4,999", "₱417") and `exact()` a receipt amount ("₱4,999.00").
+
+**The Billing page** (`/billing`, `billing.index`, `pages::billing.index`; boards P1, P4 and P6) is reached from the profile menu. Its current-plan card has three states:
+
+- **Free:** "Free", "₱0 / month" and **Upgrade to Pro**.
+- **Pro:** an "Active" pill, "Pro until {date} · N days left" and **Extend Pro**.
+- **Pro's last 7 days:** an amber "Ends in N days" pill, "Pro until {date} · then you're back on Free", **Extend Pro** as the primary button and an amber footer.
+
+Under the header, a row of `<x-usage-meter>`s shows the Stars and Connections against the plan's limits. The row lays out as many meters as it holds, side by side (stacked on a phone), so the weekly tool-calls meter goes in as a third. "Paid monthly" or "Paid yearly" beside "Pro" comes from the latest paid payment, once Nexus records payments; until then it isn't shown. The Payments card shows the compact empty state "No payments yet"; the list of paid payments goes in its body, keeping the empty state for none.
+
+**The Upgrade page** (`/billing/upgrade`, `billing.upgrade`, `pages::billing.upgrade`; board P2) offers Free and Pro side by side with the Monthly / Yearly picker. Yearly is picked unless the link says `?period=month` (`?period=year` works too; anything else is Yearly), and switching changes Pro's price, its "Billed …" label and the line under the price. On Free, the Free card says "Your plan" and the heading is "Go Pro". On Pro the heading is "Extend Pro", saying what paying for the picked period does: "Adds a year to Pro: until {current end} becomes until {new end}." Until this Nexus takes payments, a callout, "Payments aren't set up on this Nexus yet.", stands in the Pro card where "Continue to payment" goes.
+
+**The sidebar's plan card** (`<x-plan-card>`, board P8) shows on Free the user's Stars against the Free limit ("2 / 2 Stars", amber with a full bar at the limit, Atlas blue below it), "Go Pro for unlimited Stars, Connections and tool calls." and **Upgrade to Pro**; in Pro's last 7 days, "Pro ends in N days" and **Extend Pro**; and otherwise on Pro, nothing. Its states are branches of the component, checked in order, so a Free state that matters more (such as the week's tool calls used up) goes before the Stars one. It shows in the mobile sidebar menu too.
 
 ### Architecture rules and banned functions
 
