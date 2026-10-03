@@ -14,54 +14,158 @@
     </x-stat-strip>
 
     <div class="mt-6 grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_24rem]">
-        <x-section-card id="setup" class="scroll-mt-6" :heading="__('Set up a client')">
-            @if ($star->access_mode === App\Enums\StarAccessMode::SignedUrl)
-                <flux:text>
-                    {{ __('Each snippet below holds the Star\'s signed URL and nothing else. Keep them out of shared or committed config files; if the URL leaks, rotate it on the') }}
+        <x-section-card id="setup" class="scroll-mt-6" :heading="__('Set up a client')" :description="__('Pick the client. You\'ll only see its steps.')">
+            <x-slot:aside>
+                <div x-data="{ copied: false }">
+                    <flux:button
+                        size="sm"
+                        x-on:click="navigator.clipboard.writeText($refs.prompt.textContent).then(() => { copied = true; setTimeout(() => copied = false, 2000) })"
+                        x-bind:data-copied="copied"
+                        data-setup-prompt-copy
+                    >
+                        <flux:icon.sparkles variant="micro" class="block size-3.5 text-accent-content [[data-copied]>&]:hidden" />
+                        <flux:icon.check variant="micro" class="hidden size-3.5 [[data-copied]>&]:block" />
+                        <span class="[[data-copied]>&]:hidden">{{ __('Copy setup as prompt') }}</span>
+                        <span class="hidden [[data-copied]>&]:inline" role="status">{{ __('Copied') }}</span>
+                    </flux:button>
+
+                    <pre x-ref="prompt" hidden data-setup-prompt>{{ $this->setupPrompt }}</pre>
+                </div>
+            </x-slot:aside>
+
+            <div class="-m-1 overflow-x-auto p-1">
+                <flux:radio.group wire:model.live="client" variant="segmented" size="sm" class="w-max" :aria-label="__('Client')" data-setup-picker>
+                    @foreach ($this->clients as $option)
+                        <flux:radio :value="$option->value" wire:key="client-{{ $option->value }}" data-setup-client="{{ $option->value }}">
+                            @if (in_array($option, $this->clientsThatCalled, true))
+                                <span class="size-1.5 shrink-0 rounded-full bg-success" aria-hidden="true" data-setup-client-called></span>
+                                <span>{{ $option->label() }}</span>
+                                <span class="sr-only">{{ __('(has reached this Star)') }}</span>
+                            @else
+                                {{ $option->label() }}
+                            @endif
+                        </flux:radio>
+                    @endforeach
+                </flux:radio.group>
+            </div>
+
+            @php
+                $addStep = $star->access_mode === App\Enums\StarAccessMode::Token ? 2 : 1;
+                $checkStep = $addStep + ($this->setup['login'] !== null ? 2 : 1);
+            @endphp
+
+            <ol class="mt-6 space-y-6" data-setup-steps>
+                @if ($star->access_mode === App\Enums\StarAccessMode::Token)
+                    <x-step :number="1" :heading="__('Put a token in your shell')">
+                        <x-slot:aside>
+                            <flux:link :href="route('stars.access', ['star' => $star, 'new_token' => $this->chosenClient->label()])" class="font-medium" wire:navigate data-setup-create-token>{{ __('Create a token for :client →', ['client' => $this->chosenClient->label()]) }}</flux:link>
+                        </x-slot:aside>
+
+                        <x-code-panel :file="App\Stars\ClientSetup::SHELL_PROFILE" :code="App\Stars\ClientSetup::tokenExport($star)" />
+                    </x-step>
+                @endif
+
+                <x-step :number="$addStep" :heading="__('Add :star to :client', ['star' => $star->name, 'client' => $this->chosenClient->label()])">
+                    @if ($this->setup['instruction'] !== null)
+                        <flux:text>{{ $this->setup['instruction'] }}</flux:text>
+                    @endif
+
+                    <x-code-panel :code="$this->setup['snippet']" :file="$this->setup['file']" :label="$this->setup['instruction'] !== null ? __('URL') : null" />
+                </x-step>
+
+                @if ($this->setup['login'] !== null)
+                    <x-step :number="$addStep + 1" :heading="__('Sign in and approve it')">
+                        <flux:text>{{ $this->setup['login']['instruction'] }}</flux:text>
+
+                        @if ($this->setup['login']['snippet'] !== null)
+                            <x-code-panel :code="$this->setup['login']['snippet']" />
+                        @endif
+                    </x-step>
+                @endif
+
+                <x-step :number="$checkStep" :heading="__('Check it works')" pending>
+                    <div aria-live="polite">
+                        @island(name: 'check', always: true)
+                            @if ($this->heardAt !== null)
+                                <div class="flex flex-wrap items-center gap-x-3.5 gap-y-2 rounded-lg border border-success/25 bg-success-wash p-4" wire:key="setup-check-heard" data-setup-check="heard">
+                                    <span class="flex size-8 shrink-0 items-center justify-center rounded-full bg-success/15">
+                                        <flux:icon.check variant="mini" class="size-4 text-success" />
+                                    </span>
+
+                                    <div class="min-w-0 flex-1">
+                                        <p class="text-sm font-semibold text-zinc-950 wrap-anywhere dark:text-white">{{ __(':client reached :star :time', ['client' => $this->chosenClient->label(), 'star' => $this->star->name, 'time' => $this->heardAt->diffForHumans()]) }}</p>
+                                        <flux:text class="mt-0.5">{{ __('It\'s set up. Its calls show in Activity.') }}</flux:text>
+                                    </div>
+
+                                    <flux:link :href="route('activity.index', ['star' => $this->star->public_id])" class="shrink-0 text-sm font-medium max-sm:w-full max-sm:ps-11.5" wire:navigate>{{ __('See Activity →') }}</flux:link>
+                                </div>
+                            @else
+                                <div
+                                    @if ($this->isListening) wire:poll.5s wire:key="setup-check-listening-{{ $this->listeningSince }}" @else wire:key="setup-check-stopped" @endif
+                                    @class([
+                                        'rounded-lg border p-4',
+                                        'border-accent/20 bg-accent-wash' => $this->isListening,
+                                        'border-zinc-200 bg-zinc-50 dark:border-white/10 dark:bg-white/5' => ! $this->isListening,
+                                    ])
+                                    data-setup-check="{{ $this->isListening ? 'listening' : 'stopped' }}"
+                                >
+                                    <div class="flex flex-wrap items-center gap-x-3.5 gap-y-2">
+                                        @if ($this->isListening)
+                                            <span class="relative flex size-8 shrink-0 items-center justify-center rounded-full bg-accent/10">
+                                                <span class="absolute size-4 rounded-full bg-accent/25 motion-safe:animate-ping"></span>
+                                                <span class="relative size-2 rounded-full bg-accent"></span>
+                                            </span>
+                                        @else
+                                            <span class="flex size-8 shrink-0 items-center justify-center rounded-full bg-zinc-200/70 dark:bg-white/10">
+                                                <span class="size-2 rounded-full bg-zinc-400 dark:bg-zinc-500"></span>
+                                            </span>
+                                        @endif
+
+                                        <div class="min-w-0 flex-1">
+                                            @if ($this->isListening)
+                                                <p class="text-sm font-semibold text-zinc-950 dark:text-white">{{ __('Waiting for a call from :client…', ['client' => $this->chosenClient->label()]) }}</p>
+                                                <flux:text class="mt-0.5">{{ $this->checkHint }}</flux:text>
+                                            @else
+                                                <p class="text-sm font-semibold text-zinc-950 dark:text-white">{{ __('No call from :client yet', ['client' => $this->chosenClient->label()]) }}</p>
+                                                <flux:text class="mt-0.5">{{ __('Stopped listening after 10 minutes. Listen again once you\'ve set it up.') }}</flux:text>
+                                            @endif
+                                        </div>
+
+                                        <div class="flex shrink-0 items-center gap-3 max-sm:w-full max-sm:ps-11.5">
+                                            <button type="button" class="text-sm font-medium text-accent-content hover:underline" wire:click="$toggle('showTips')" aria-expanded="{{ $this->showTips ? 'true' : 'false' }}" aria-controls="setup-tips" data-setup-troubleshoot>{{ __('Troubleshoot') }}</button>
+
+                                            @unless ($this->isListening)
+                                                <flux:button size="sm" wire:click="listenAgain">{{ __('Listen again') }}</flux:button>
+                                            @endunless
+                                        </div>
+                                    </div>
+
+                                    @if ($this->showTips)
+                                        <ul id="setup-tips" class="mt-3 list-disc space-y-1 border-t border-accent/10 ps-[3.75rem] pt-3 text-sm text-zinc-600 marker:text-zinc-400 dark:text-zinc-300" data-setup-tips>
+                                            @foreach ($this->troubleshooting as $tip)
+                                                <li wire:key="tip-{{ $loop->index }}">{{ $tip }}</li>
+                                            @endforeach
+                                        </ul>
+                                    @endif
+                                </div>
+                            @endif
+                        @endisland
+                    </div>
+                </x-step>
+            </ol>
+
+            <x-slot:hint>
+                @if ($star->access_mode === App\Enums\StarAccessMode::SignedUrl)
+                    {{ __('The snippet holds the Star\'s signed URL. Keep it out of shared or committed files; if it leaks, rotate it on the') }}
                     <flux:link :href="route('stars.access', $star)" wire:navigate>{{ __('Access page') }}</flux:link>
                     {{ __('and set up your clients again.') }}
-                </flux:text>
-            @elseif ($star->access_mode === App\Enums\StarAccessMode::OAuth)
-                <flux:text>
-                    {{ __('Each client below takes only the URL, then signs in to Nexus: you sign in too if you need to, and approve it for this Star. The apps you approved are listed on the') }}
-                    <flux:link :href="route('stars.access', $star)" wire:navigate>{{ __('Access page') }}</flux:link>{{ __(', where you can revoke each of them.') }}
-                </flux:text>
-            @else
-                <flux:text class="wrap-anywhere">
-                    {{ __('Create a token on the') }}
-                    <flux:link :href="route('stars.access', $star)" wire:navigate>{{ __('Access page') }}</flux:link>
-                    {{ __('and put it in the :variable environment variable, e.g. in your shell profile. Each snippet below reads it from there, so the token never sits in a config file.', ['variable' => $this->tokenVariable]) }}
-                </flux:text>
-
-                <x-code-panel :code="'export '.$this->tokenVariable.'=nxs_…'" class="mt-4" />
-            @endif
-
-            <div class="mt-6 space-y-6">
-                @foreach ($this->clientSetup as $setup)
-                    <div wire:key="setup-{{ $loop->index }}">
-                        <flux:heading level="3">{{ $setup['client'] }}</flux:heading>
-                        <flux:text size="sm" class="mt-1">
-                            @if ($setup['file'] !== null)
-                                {{ __('Add to') }} <span class="font-mono">{{ $setup['file'] }}</span>:
-                            @elseif ($setup['instruction'] !== null)
-                                {{ $setup['instruction'] }}
-                            @else
-                                {{ __('Run in a terminal:') }}
-                            @endif
-                        </flux:text>
-
-                        <x-code-panel :code="$setup['snippet']" :file="$setup['file']" :label="$setup['instruction'] !== null ? __('URL') : null" class="mt-2" />
-
-                        @if ($setup['login'] !== null)
-                            <flux:text size="sm" class="mt-3">{{ $setup['login']['instruction'] }}</flux:text>
-
-                            @if ($setup['login']['snippet'] !== null)
-                                <x-code-panel :code="$setup['login']['snippet']" class="mt-2" />
-                            @endif
-                        @endif
-                    </div>
-                @endforeach
-            </div>
+                @elseif ($star->access_mode === App\Enums\StarAccessMode::OAuth)
+                    {{ __('Clients take only the URL, then sign in to Nexus, where you approve each for this Star. Revoke them on the') }}
+                    <flux:link :href="route('stars.access', $star)" wire:navigate>{{ __('Access page') }}</flux:link>{{ __('.') }}
+                @else
+                    <span class="wrap-anywhere">{{ __('Each snippet reads the token from :variable, so it never sits in a config file.', ['variable' => $this->tokenVariable]) }}</span>
+                @endif
+            </x-slot:hint>
         </x-section-card>
 
         <div class="grid gap-6">

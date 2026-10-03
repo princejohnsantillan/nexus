@@ -4,21 +4,59 @@ declare(strict_types=1);
 
 use App\Actions\DeleteStar;
 use App\Actions\UpdateStarConnections;
+use App\Enums\McpClient;
 use App\Models\Connection;
 use App\Models\Star;
 use App\Stars\ClientSetup;
+use App\Stars\StarCallers;
 use App\Stars\StarStats;
 use App\Stars\StarStatsCounter;
+use Carbon\CarbonImmutable;
 use Flux\Flux;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Facades\Cookie;
 use Illuminate\Validation\Rule;
 use Livewire\Attributes\Computed;
+use Livewire\Attributes\Locked;
 use Livewire\Attributes\Title;
 use Livewire\Component;
 
 return new #[Title('Star')] class extends Component
 {
+    /**
+     * The cookie that remembers the client last chosen in "Set up a client".
+     */
+    private const string CLIENT_COOKIE = 'nexus_setup_client';
+
+    /**
+     * How long "Check it works" listens for a call before it stops.
+     */
+    private const int LISTEN_SECONDS = 600;
+
     public Star $star;
+
+    /**
+     * The client being set up (an McpClient value).
+     */
+    public string $client = '';
+
+    /**
+     * When the page was opened (a Unix time): "Check it works" turns green
+     * for a call from then on.
+     */
+    #[Locked]
+    public int $openedAt = 0;
+
+    /**
+     * When "Check it works" last started listening (a Unix time).
+     */
+    #[Locked]
+    public int $listeningSince = 0;
+
+    /**
+     * Whether "Check it works" shows its troubleshooting tips.
+     */
+    public bool $showTips = false;
 
     public string $name = '';
 
@@ -36,6 +74,29 @@ return new #[Title('Star')] class extends Component
         $this->name = $this->star->name;
         $this->description = $this->star->description ?? '';
         $this->resetConnections();
+        $this->client = McpClient::preferredFor($this->star->access_mode, request()->cookie(self::CLIENT_COOKIE))->value;
+        $this->openedAt = $this->listeningSince = now()->getTimestamp();
+    }
+
+    /**
+     * Remember the chosen client in the browser, and listen afresh for its
+     * first call.
+     */
+    public function updatedClient(): void
+    {
+        $this->client = $this->chosenClient->value;
+
+        Cookie::queue(self::CLIENT_COOKIE, $this->client, 60 * 24 * 365);
+
+        $this->listenAgain();
+    }
+
+    /**
+     * Listen for a call again, for another ten minutes.
+     */
+    public function listenAgain(): void
+    {
+        $this->listeningSince = now()->getTimestamp();
     }
 
     /**
@@ -59,14 +120,95 @@ return new #[Title('Star')] class extends Component
     }
 
     /**
-     * Copy-paste setup for each client, for the Star's access mode.
+     * The clients that can reach the Star in its access mode, to pick from.
      *
-     * @return list<array{client: string, file: string|null, instruction: string|null, snippet: string, login: array{instruction: string, snippet: string|null}|null}>
+     * @return list<McpClient>
      */
     #[Computed]
-    public function clientSetup(): array
+    public function clients(): array
     {
-        return resolve(ClientSetup::class)->for($this->star);
+        return McpClient::for($this->star->access_mode);
+    }
+
+    /**
+     * The client being set up, or the first one when the choice can't
+     * reach the Star.
+     */
+    #[Computed]
+    public function chosenClient(): McpClient
+    {
+        return McpClient::preferredFor($this->star->access_mode, $this->client);
+    }
+
+    /**
+     * The clients that have already reached the Star.
+     *
+     * @return list<McpClient>
+     */
+    #[Computed]
+    public function clientsThatCalled(): array
+    {
+        return resolve(StarCallers::class)->clientsThatCalled($this->star);
+    }
+
+    /**
+     * Copy-paste setup for the chosen client, for the Star's access mode.
+     *
+     * @return array{file: string|null, instruction: string|null, snippet: string, login: array{instruction: string, snippet: string|null}|null}
+     */
+    #[Computed]
+    public function setup(): array
+    {
+        return resolve(ClientSetup::class)->for($this->star, $this->chosenClient);
+    }
+
+    /**
+     * The chosen client's setup as an instruction for an agent.
+     */
+    #[Computed]
+    public function setupPrompt(): string
+    {
+        return resolve(ClientSetup::class)->prompt($this->star, $this->chosenClient);
+    }
+
+    /**
+     * What to do for the Star to hear from the chosen client.
+     */
+    #[Computed]
+    public function checkHint(): string
+    {
+        return resolve(ClientSetup::class)->checkHint($this->star, $this->chosenClient);
+    }
+
+    /**
+     * Tips for when the Star doesn't hear from the chosen client.
+     *
+     * @return list<string>
+     */
+    #[Computed]
+    public function troubleshooting(): array
+    {
+        return resolve(ClientSetup::class)->troubleshooting($this->star, $this->chosenClient);
+    }
+
+    /**
+     * When the Star last heard from the chosen client since the page was
+     * opened, or null when it hasn't yet.
+     */
+    #[Computed]
+    public function heardAt(): ?CarbonImmutable
+    {
+        return resolve(StarCallers::class)->lastHeardFrom($this->star, $this->chosenClient, now()->setTimestamp($this->openedAt));
+    }
+
+    /**
+     * Whether "Check it works" is still listening for a call: for ten
+     * minutes after it started.
+     */
+    #[Computed]
+    public function isListening(): bool
+    {
+        return now()->getTimestamp() - $this->listeningSince < self::LISTEN_SECONDS;
     }
 
     /**
