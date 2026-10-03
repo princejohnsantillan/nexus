@@ -90,12 +90,17 @@ it('reads "Extend Pro" on Pro, with when Pro would end after paying', function (
         ->assertSeeText('Adds a month to Pro: until Oct 8, 2026 becomes until Nov 8, 2026.');
 });
 
-it('adds a month to the last day of a month without running into the next', function (): void {
-    $this->actingAs(User::factory()->create(['pro_until' => CarbonImmutable::parse('2027-01-31 06:00:00', 'UTC')]));
+it('adds a period on the Philippine calendar, without running into the next month', function (string $proUntil, string $period, string $lede): void {
+    $this->actingAs(User::factory()->create(['pro_until' => CarbonImmutable::parse($proUntil, 'UTC')]));
 
-    Livewire::withQueryParams(['period' => 'month'])->test('pages::billing.upgrade')
-        ->assertSeeText('Adds a month to Pro: until Jan 31, 2027 becomes until Feb 28, 2027.');
-});
+    Livewire::withQueryParams(['period' => $period])->test('pages::billing.upgrade')
+        ->assertSeeText($lede);
+})->with([
+    'the last day of January' => ['2027-01-31 06:00:00', 'month', 'Adds a month to Pro: until Jan 31, 2027 becomes until Feb 28, 2027.'],
+    'January 31 in Manila, still January 30 in UTC' => ['2027-01-30 18:00:00', 'month', 'Adds a month to Pro: until Jan 31, 2027 becomes until Feb 28, 2027.'],
+    'May 1 in Manila, still April 30 in UTC' => ['2027-04-30 18:00:00', 'month', 'Adds a month to Pro: until May 1, 2027 becomes until Jun 1, 2027.'],
+    'a year from March 1 in Manila, still February 28 in UTC' => ['2027-02-28 18:00:00', 'year', 'Adds a year to Pro: until Mar 1, 2027 becomes until Mar 1, 2028.'],
+]);
 
 it('says payments aren\'t set up in place of the payment button', function (): void {
     $this->actingAs(User::factory()->create());

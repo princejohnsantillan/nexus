@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Enums;
 
+use App\Billing\BillingCalendar;
 use Carbon\CarbonImmutable;
 
 /**
@@ -28,14 +29,21 @@ enum BillingPeriod: string
     }
 
     /**
-     * The moment one period after the given one. A month after January 31
-     * is the end of February, not March 3.
+     * The moment one period after the given one, counted on the billing
+     * calendar (Philippine time), so a month after a day Pro shows as May 1
+     * is June 1 there, whatever day it is in UTC. A month after January 31
+     * is the end of February, not March 3. The result keeps the given
+     * moment's timezone, so it is stored as the right instant.
      */
     public function after(CarbonImmutable $moment): CarbonImmutable
     {
-        return match ($this) {
-            self::Month => $moment->addMonthNoOverflow(),
-            self::Year => $moment->addYearNoOverflow(),
+        $local = BillingCalendar::local($moment);
+
+        $later = match ($this) {
+            self::Month => $local->addMonthNoOverflow(),
+            self::Year => $local->addYearNoOverflow(),
         };
+
+        return $later->setTimezone($moment->getTimezone());
     }
 }

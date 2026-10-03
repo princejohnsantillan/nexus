@@ -1,16 +1,17 @@
-<div class="mx-auto w-full max-w-5xl">
+{{-- The billing boards' frame: 880 wide, left-aligned, 56px in and 40px down from the main area on wide screens (flux:main pads 32). --}}
+<div class="w-full max-w-220 lg:mt-2 lg:mb-8 lg:ms-6">
     @php
         $isPro = $this->plan === App\Enums\Plan::Pro;
         $isEndingSoon = $this->user->isProEndingSoon();
         $daysLeft = $this->user->proDaysLeft();
     @endphp
 
-    <div class="flex max-w-220 flex-col gap-1.5">
+    <div class="flex flex-col gap-1.5">
         <flux:heading level="1" class="text-[2rem]! leading-[2.375rem]! font-bold! tracking-tight text-zinc-950! dark:text-white!">{{ __('Billing') }}</flux:heading>
         <p class="text-sm leading-[1.375rem] text-zinc-600 dark:text-zinc-400">{{ __('Your plan, what it covers and what you\'ve paid. Payments go through PayMongo; Nexus never sees your card.') }}</p>
     </div>
 
-    <section class="mt-8 max-w-220 overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-white/10 dark:bg-white/[4%]" aria-labelledby="current-plan-heading" data-current-plan="{{ $isEndingSoon ? 'pro-ending' : $this->plan->value }}">
+    <section class="mt-8 overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-white/10 dark:bg-white/[4%]" aria-labelledby="current-plan-heading" data-current-plan="{{ $isEndingSoon ? 'pro-ending' : $this->plan->value }}">
         <div class="flex flex-wrap items-start justify-between gap-6 p-4 sm:p-6">
             <div class="flex min-w-0 flex-col gap-1.5">
                 <h2 id="current-plan-heading" class="text-xs leading-4 font-medium tracking-[0.06em] text-zinc-500 uppercase dark:text-zinc-400">{{ __('Current plan') }}</h2>
@@ -75,7 +76,7 @@
         </div>
     </section>
 
-    <section class="mt-8 max-w-220 overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-white/10 dark:bg-white/[4%]" aria-labelledby="payments-heading" data-payments>
+    <section class="mt-8 overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-white/10 dark:bg-white/[4%]" aria-labelledby="payments-heading" data-payments>
         <div class="flex flex-col gap-1 px-4 pt-6 sm:px-6">
             <h2 id="payments-heading" class="text-base leading-6 font-semibold text-zinc-950 dark:text-white">{{ __('Payments') }}</h2>
             <p class="text-sm leading-[1.375rem] text-zinc-600 dark:text-zinc-400">{{ __('Every payment you\'ve made. PayMongo emails you a receipt for each one.') }}</p>

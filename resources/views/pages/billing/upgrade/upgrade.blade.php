@@ -1,12 +1,14 @@
-<div class="mx-auto w-full max-w-5xl">
+{{-- The billing boards' frame: 880 wide, left-aligned, 56px in and 40px down from the main area on wide screens (flux:main pads 32). --}}
+<div class="w-full max-w-220 lg:mt-2 lg:mb-8 lg:ms-6">
     <nav aria-label="{{ __('Breadcrumb') }}">
-        <flux:breadcrumbs>
-            <flux:breadcrumbs.item :href="route('billing.index')" separator="slash" class="*:font-normal *:text-zinc-600 dark:*:text-zinc-300" wire:navigate>{{ __('Billing') }}</flux:breadcrumbs.item>
-            <flux:breadcrumbs.item class="*:text-zinc-950 dark:*:text-white" aria-current="page">{{ __('Upgrade') }}</flux:breadcrumbs.item>
-        </flux:breadcrumbs>
+        <ol class="flex items-center gap-2 text-sm leading-[1.125rem]">
+            <li><a href="{{ route('billing.index') }}" class="text-zinc-600 underline-offset-4 hover:underline dark:text-zinc-300" wire:navigate>{{ __('Billing') }}</a></li>
+            <li class="text-zinc-300 dark:text-white/30" aria-hidden="true">/</li>
+            <li class="font-medium text-zinc-950 dark:text-white" aria-current="page">{{ __('Upgrade') }}</li>
+        </ol>
     </nav>
 
-    <div class="mt-7 flex max-w-220 flex-col gap-6 sm:flex-row sm:items-end sm:justify-between">
+    <div class="mt-7 flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between">
         <div class="flex min-w-0 flex-col gap-2">
             <flux:heading level="1" class="text-[3rem]! leading-[3.25rem]! font-bold! tracking-tight text-zinc-950! dark:text-white!">{{ $this->isPro ? __('Extend Pro') : __('Go Pro') }}</flux:heading>
 
@@ -26,7 +28,7 @@
         <x-billing-period-picker wire:model.live="period" class="shrink-0" />
     </div>
 
-    <div class="mt-7 grid max-w-220 gap-5 md:grid-cols-2">
+    <div class="mt-7 grid gap-5 md:grid-cols-2">
         <x-free-plan-card :current="! $this->isPro" />
 
         <x-pro-plan-card :period="$this->billingPeriod">
@@ -37,7 +39,7 @@
         </x-pro-plan-card>
     </div>
 
-    <div class="mt-8 grid max-w-220 gap-6 sm:grid-cols-3 sm:gap-8">
+    <div class="mt-8 grid gap-6 sm:grid-cols-3 sm:gap-8">
         @foreach ([
             ['icon' => 'lock-closed', 'heading' => __('Pay on PayMongo'), 'text' => __('You\'ll finish on PayMongo\'s secure checkout with a card, GCash, Maya or QR Ph, then come straight back here.')],
             ['icon' => 'arrow-path', 'heading' => __('No auto-renew'), 'text' => __('Pay for a month or a year at a time. Pro doesn\'t renew on its own; we email you a week before it ends.')],
