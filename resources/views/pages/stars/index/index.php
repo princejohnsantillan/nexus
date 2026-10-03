@@ -7,6 +7,8 @@ use App\Enums\StarAccessMode;
 use App\Models\Connection;
 use App\Models\Star;
 use App\Models\User;
+use App\Stars\StarCallHistory;
+use App\Stars\StarCalls;
 use App\Stars\StarTool;
 use App\Stars\StarToolset;
 use Illuminate\Auth\AuthenticationException;
@@ -76,6 +78,26 @@ return new #[Title('Stars')] class extends Component
     }
 
     /**
+     * When each Star was last called and its calls on each of the last days, by Star id.
+     *
+     * @return array<int, StarCalls>
+     */
+    #[Computed]
+    public function calls(): array
+    {
+        return resolve(StarCallHistory::class)->forStars($this->stars);
+    }
+
+    /**
+     * How many Stars a user may have.
+     */
+    #[Computed]
+    public function starLimit(): int
+    {
+        return config()->integer('nexus.limits.stars_per_user');
+    }
+
+    /**
      * The Connections a new Star can include.
      *
      * @return Collection<int, Connection>
@@ -87,12 +109,23 @@ return new #[Title('Stars')] class extends Component
     }
 
     /**
+     * Whether the user has as many Stars as they may have. A boolean, so
+     * Livewire keeps it for the request: a null computed value, such as
+     * limitMessage's, is worked out again each time the view reads it.
+     */
+    #[Computed]
+    public function isAtStarLimit(): bool
+    {
+        return $this->user->hasReachedStarLimit();
+    }
+
+    /**
      * What to tell the user when they can't create another Star, or null when they can.
      */
     #[Computed]
     public function limitMessage(): ?string
     {
-        return $this->user->hasReachedStarLimit() ? CreateStar::limitMessage() : null;
+        return $this->isAtStarLimit ? CreateStar::limitMessage() : null;
     }
 
     public function create(CreateStar $createStar): void

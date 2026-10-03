@@ -5,23 +5,30 @@
             <flux:text class="mt-2">{{ __('Each Star is one MCP server endpoint that bundles some of your Connections.') }}</flux:text>
         </div>
 
-        @if ($this->stars->isNotEmpty())
-            <flux:modal.trigger name="create-star">
-                <flux:button variant="primary" icon="plus" :disabled="$this->limitMessage !== null">{{ __('Create Star') }}</flux:button>
-            </flux:modal.trigger>
-        @endif
+        <div class="flex min-h-10 items-center gap-4">
+            <span @class([
+                'font-mono text-[13px] tabular-nums',
+                'text-zinc-600 dark:text-zinc-400' => ! $this->isAtStarLimit,
+                'text-warning' => $this->isAtStarLimit,
+            ]) data-star-count>{{ trans_choice(':stars / :limit Star|:stars / :limit Stars', $this->starLimit, ['stars' => $this->stars->count(), 'limit' => $this->starLimit]) }}</span>
+
+            {{-- With no Stars yet, the empty state offers the button instead. --}}
+            @if ($this->stars->isNotEmpty())
+                <flux:modal.trigger name="create-star">
+                    <flux:button variant="primary" icon="plus" :disabled="$this->isAtStarLimit">{{ __('Create Star') }}</flux:button>
+                </flux:modal.trigger>
+            @endif
+        </div>
     </div>
 
-    <flux:separator variant="subtle" class="my-6" />
-
-    @if ($this->limitMessage !== null)
-        <flux:callout icon="exclamation-triangle" color="amber" class="mb-6" :heading="__('Star limit reached')">
+    @if ($this->isAtStarLimit)
+        <flux:callout icon="exclamation-triangle" color="amber" class="mt-8" :heading="__('Star limit reached')">
             <flux:callout.text>{{ $this->limitMessage }}</flux:callout.text>
         </flux:callout>
     @endif
 
     @if ($this->stars->isEmpty())
-        <x-empty-state icon="star" :heading="__('No Stars yet')">
+        <x-empty-state icon="star" :heading="__('No Stars yet')" class="mt-8">
             {{ __('Create a Star, choose the Connections it includes and switch each tool on or off. Then add it once to Claude Code, claude.ai, Codex, Cursor or Grok.') }}
 
             <x-slot:actions>
@@ -31,41 +38,83 @@
             </x-slot:actions>
         </x-empty-state>
     @else
-        <flux:table>
-            <flux:table.columns>
-                <flux:table.column>{{ __('Name') }}</flux:table.column>
-                <flux:table.column>{{ __('Connections') }}</flux:table.column>
-                <flux:table.column align="end">{{ __('Tools on') }}</flux:table.column>
-                <flux:table.column>{{ __('Access') }}</flux:table.column>
-            </flux:table.columns>
-
-            <flux:table.rows>
+        <div class="@container mt-8">
+            <div class="grid gap-4 @xl:grid-cols-2 @4xl:grid-cols-3">
                 @foreach ($this->stars as $star)
-                    <flux:table.row :key="$star->id">
-                        <flux:table.cell>
-                            <flux:link :href="route('stars.show', $star)" wire:navigate class="font-medium">{{ $star->name }}</flux:link>
+                    @php($calls = $this->calls[$star->id])
 
-                            @if (filled($star->description))
-                                <flux:text size="sm" class="mt-0.5 max-w-xs truncate">{{ $star->description }}</flux:text>
-                            @endif
-                        </flux:table.cell>
-                        <flux:table.cell class="max-w-xs whitespace-normal!">
+                    <article class="relative flex flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white hover:border-zinc-300 dark:border-white/10 dark:bg-white/[4%] dark:hover:border-white/20" aria-labelledby="star-{{ $star->id }}-name" wire:key="star-{{ $star->id }}" data-star-card>
+                        <div class="flex flex-1 flex-col gap-4 p-5">
+                            <div class="flex items-start justify-between gap-3">
+                                <div class="min-w-0">
+                                    <h2 id="star-{{ $star->id }}-name" class="truncate text-base font-semibold text-zinc-950 dark:text-white">
+                                        {{-- The link covers the card, so a click anywhere on it opens the Star. --}}
+                                        <a href="{{ route('stars.show', $star) }}" class="after:absolute after:inset-0" wire:navigate>{{ $star->name }}</a>
+                                    </h2>
+
+                                    @if (filled($star->description))
+                                        <p class="mt-1 line-clamp-2 text-[13px] text-zinc-600 dark:text-zinc-400">{{ $star->description }}</p>
+                                    @endif
+                                </div>
+
+                                <flux:dropdown align="end" class="relative z-10 -me-2 -mt-1.5" x-data>
+                                    <flux:button variant="ghost" size="sm" icon="ellipsis-horizontal" square :aria-label="__('More actions for :name', ['name' => $star->name])" />
+
+                                    <flux:menu>
+                                        <flux:menu.item
+                                            icon="document-duplicate"
+                                            data-url="{{ $star->clientUrl() }}"
+                                            data-copied="{{ __('Copied the endpoint URL of :name.', ['name' => $star->name]) }}"
+                                            x-on:click="navigator.clipboard.writeText($el.dataset.url).then(() => $flux.toast({ text: $el.dataset.copied, variant: 'success' }))"
+                                        >{{ __('Copy endpoint URL') }}</flux:menu.item>
+                                        <flux:menu.item icon="pulse" :href="route('activity.index', ['star' => $star->public_id])" wire:navigate>{{ __('View activity') }}</flux:menu.item>
+                                    </flux:menu>
+                                </flux:dropdown>
+                            </div>
+
                             @if ($star->connections->isEmpty())
-                                <flux:text size="sm" class="text-zinc-500 dark:text-zinc-400">{{ __('None yet') }}</flux:text>
+                                <p class="text-[13px] text-zinc-500 dark:text-zinc-400">{{ __('No Connections yet') }}</p>
                             @else
-                                <div class="flex flex-wrap gap-1">
-                                    @foreach ($star->connections as $connection)
-                                        <flux:badge size="sm" class="gap-1.5" wire:key="star-{{ $star->id }}-connection-{{ $connection->id }}"><x-connector-logo :connector="$connection->connector()" size="xs" />{{ $connection->name }}</flux:badge>
+                                <div class="flex min-w-0 items-center gap-1.5">
+                                    @foreach ($star->connections->take(3) as $connection)
+                                        <x-connector-logo :connector="$connection->connector()" size="sm" wire:key="star-{{ $star->id }}-logo-{{ $connection->id }}" />
                                     @endforeach
+
+                                    @if ($star->connections->count() > 3)
+                                        <span class="flex size-8 shrink-0 items-center justify-center rounded-lg bg-zinc-100 text-xs font-medium text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300">+{{ $star->connections->count() - 3 }}</span>
+                                    @endif
+
+                                    <p class="min-w-0 truncate ps-1 text-[13px] text-zinc-600 dark:text-zinc-400">{{ $star->connections->pluck('name')->join(' · ') }}</p>
                                 </div>
                             @endif
-                        </flux:table.cell>
-                        <flux:table.cell align="end">{{ __(':enabled of :total', $this->toolCounts[$star->id]) }}</flux:table.cell>
-                        <flux:table.cell>{{ $star->access_mode->label() }}</flux:table.cell>
-                    </flux:table.row>
+
+                            <div class="mt-auto flex items-center justify-between gap-2">
+                                <p class="text-[13px] font-medium text-zinc-950 dark:text-white">{{ __(':enabled of :total tools on', $this->toolCounts[$star->id]) }}</p>
+
+                                <span class="inline-flex h-5.5 shrink-0 items-center rounded-md border border-zinc-300 px-1.75 text-xs font-medium text-zinc-950 dark:border-white/20 dark:text-white">{{ $star->access_mode->label() }}</span>
+                            </div>
+                        </div>
+
+                        <div class="flex min-h-11 items-center gap-2 border-t border-zinc-200 px-5 py-2.5 dark:border-white/10" data-star-card-footer>
+                            @if ($calls->lastCalledAt !== null)
+                                <span class="size-1.75 shrink-0 rounded-full bg-success" aria-hidden="true"></span>
+                                <p class="min-w-0 flex-1 truncate text-[13px] text-zinc-600 dark:text-zinc-400">
+                                    {{ __('Last call') }} <time datetime="{{ $calls->lastCalledAt->toIso8601String() }}" title="{{ $calls->lastCalledAt->toDayDateTimeString() }}">{{ $calls->lastCalledAt->diffForHumans() }}</time>
+                                </p>
+
+                                @if ($calls->recentTotal() > 0)
+                                    <x-sparkline :values="$calls->daily" />
+                                    <span class="sr-only">{{ trans_choice(':count call in the last :days days|:count calls in the last :days days', $calls->recentTotal(), ['days' => count($calls->daily)]) }}</span>
+                                @endif
+                            @else
+                                <span class="size-1.75 shrink-0 rounded-full bg-accent" aria-hidden="true"></span>
+                                <p class="min-w-0 flex-1 truncate text-[13px] text-zinc-600 dark:text-zinc-400">{{ __('Waiting for its first call…') }}</p>
+                            @endif
+                        </div>
+                    </article>
                 @endforeach
-            </flux:table.rows>
-        </flux:table>
+            </div>
+        </div>
     @endif
 
     <flux:modal name="create-star" class="w-full max-w-xl">

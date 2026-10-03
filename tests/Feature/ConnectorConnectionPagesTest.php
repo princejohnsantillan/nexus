@@ -132,7 +132,7 @@ it('shows each Connection\'s logo in the Stars list and on a Star\'s Tools page'
 
     $this->get(route('stars.index'))
         ->assertOk()
-        ->assertSee(githubLogo('size-3.5'), escape: false);
+        ->assertSeeInOrder([githubLogo('size-4'), 'GitHub'], escape: false);
 
     $this->get(route('stars.tools', $star))
         ->assertOk()
