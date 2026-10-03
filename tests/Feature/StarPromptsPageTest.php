@@ -83,6 +83,12 @@ it('draws a switch afresh when its state changes, since Flux\'s switch keeps its
         ->assertDontSeeHtml('wire:key="switch-'.$this->summarize->id.'-on"');
 });
 
+it('switches a prompt on its switch\'s change event, which Flux sends for a click, Enter or Space alike', function (): void {
+    Livewire::test('pages::stars.prompts', ['star' => $this->star])
+        ->assertSeeHtml('wire:key="switch-'.$this->summarize->id.'-on" wire:change="switchPrompt('.$this->summarize->id.', false)"')
+        ->assertDontSeeHtml('wire:click="switchPrompt(');
+});
+
 it('resets a prompt to on by default', function (): void {
     resolve(SwitchStarPrompts::class)->handle($this->star, $this->wiki, false, ['summarize']);
 

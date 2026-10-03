@@ -23,7 +23,7 @@
                 <div class="flex flex-wrap items-end justify-between gap-4">
                     <div class="min-w-0 sm:max-w-xl">
                         <flux:heading size="lg" level="2" id="tools-heading">{{ __('Tools') }}</flux:heading>
-                        <flux:text class="mt-1">{{ __('Decide by risk first: a group\'s switch gives each of its tools your own choice. Clients see each tool as handle__tool, and your own switches stay when a server\'s tools are refreshed.') }}</flux:text>
+                        <flux:text class="mt-1">{{ __('Decide by risk first: a group\'s switch gives each of its tools your own choice. Clients see each tool as handle__tool, and your own switches stay when a server\'s tools are refreshed. Choose a tool\'s name for its details.') }}</flux:text>
                     </div>
 
                     <div class="w-full sm:w-72">
@@ -95,11 +95,11 @@
 
                                             <span class="text-sm whitespace-nowrap text-zinc-600 max-sm:hidden dark:text-zinc-300">{{ match (true) { $allOn => __('All on'), $risk['enabled'] === 0 => __('All off'), default => __('Some on') } }}</span>
 
-                                            {{-- Keyed by its state, so a switch changed on the server is drawn afresh: Flux's switch keeps its own state otherwise. --}}
+                                            {{-- Keyed by its state, so a switch changed on the server is drawn afresh: Flux's switch keeps its own state otherwise. It reports a toggle by click, Enter or Space as a change event, never a keyboard click. --}}
                                             <flux:switch
                                                 wire:key="group-switch-{{ $riskId }}-{{ $allOn ? 'on' : 'off' }}"
                                                 :checked="$allOn"
-                                                wire:click="switchGroup({{ $group['connection']->id }}, '{{ $risk['risk']->value }}', '{{ $allOn ? 'off' : 'on' }}')"
+                                                wire:change="switchGroup({{ $group['connection']->id }}, '{{ $risk['risk']->value }}', '{{ $allOn ? 'off' : 'on' }}')"
                                                 :aria-label="__('Switch every :risk tool of :connection on or off', $names)"
                                             />
                                         </div>
@@ -107,14 +107,14 @@
                                         <div id="{{ $riskId }}-tools" x-show="open" class="divide-y divide-zinc-200 border-t border-zinc-200 dark:divide-white/10 dark:border-white/10">
                                             @foreach ($risk['tools'] as $tool)
                                                 <x-permission-row wire:key="tool-{{ $tool->tool->id }}" :title="$tool->tool->title" :description="$tool->tool->description">
-                                                    <x-slot:name>{{ $tool->name }}</x-slot:name>
+                                                    <x-slot:name><x-tool-flyout.trigger :tool="$tool->tool">{{ $tool->name }}</x-tool-flyout.trigger></x-slot:name>
                                                     <x-slot:hints><x-tool-hints :tool="$tool->tool" /></x-slot:hints>
 
-                                                    {{-- Keyed by its state, so a switch changed on the server is drawn afresh: Flux's switch keeps its own state otherwise. --}}
+                                                    {{-- Keyed by its state, so a switch changed on the server is drawn afresh: Flux's switch keeps its own state otherwise. It reports a toggle by click, Enter or Space as a change event, never a keyboard click. --}}
                                                     <flux:switch
                                                         wire:key="switch-{{ $tool->tool->id }}-{{ $tool->enabled ? 'on' : 'off' }}"
                                                         :checked="$tool->enabled"
-                                                        wire:click="switchTool({{ $tool->tool->id }}, {{ $tool->enabled ? 'false' : 'true' }})"
+                                                        wire:change="switchTool({{ $tool->tool->id }}, {{ $tool->enabled ? 'false' : 'true' }})"
                                                         :aria-label="__('Switch :name on or off', ['name' => $tool->name])"
                                                     />
 
@@ -140,4 +140,34 @@
             </section>
         @endif
     </div>
+
+    <x-tool-flyout :details="$this->toolDetails">
+        @if ($this->detailsTool !== null)
+            @php($detailsTool = $this->detailsTool)
+
+            <x-slot:switch>
+                <div class="flex items-center justify-between gap-4">
+                    <div class="min-w-0">
+                        <flux:heading level="3">{{ $detailsTool->enabled ? __('On in :star', ['star' => $star->name]) : __('Off in :star', ['star' => $star->name]) }}</flux:heading>
+                        <flux:text size="sm" class="mt-0.5">
+                            @if ($detailsTool->followsPolicy())
+                                {{ __('Follows the new-tool policy: :policy.', ['policy' => $star->new_tool_policy->label()]) }}
+                            @else
+                                {{ __('Your choice') }} <span aria-hidden="true">·</span>
+                                <button type="button" class="font-medium text-accent-content hover:underline" wire:click="resetTool({{ $detailsTool->tool->id }})">{{ __('Reset to the policy') }}</button>
+                            @endif
+                        </flux:text>
+                    </div>
+
+                    {{-- Keyed by its state, so a switch changed on the server is drawn afresh: Flux's switch keeps its own state otherwise. It reports a toggle by click, Enter or Space as a change event, never a keyboard click. --}}
+                    <flux:switch
+                        wire:key="details-switch-{{ $detailsTool->tool->id }}-{{ $detailsTool->enabled ? 'on' : 'off' }}"
+                        :checked="$detailsTool->enabled"
+                        wire:change="switchTool({{ $detailsTool->tool->id }}, {{ $detailsTool->enabled ? 'false' : 'true' }})"
+                        :aria-label="__('Switch :name on or off in :star', ['name' => $detailsTool->name, 'star' => $star->name])"
+                    />
+                </div>
+            </x-slot:switch>
+        @endif
+    </x-tool-flyout>
 </div>

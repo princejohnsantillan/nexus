@@ -15,7 +15,7 @@
                 </x-slot:actions>
             </x-empty-state>
         @else
-            <flux:text>{{ __('The tools the server listed at the last refresh, with the behaviour hints it declared for each.') }}</flux:text>
+            <flux:text>{{ __('The tools the server listed at the last refresh, with the behaviour hints it declared for each. Choose a tool for its parameters, the Stars that have it on and its recent calls.') }}</flux:text>
 
             <div class="mt-4 overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-white/10 dark:bg-white/[4%]">
                 <flux:table class="[&_td]:border-zinc-200! [&_td]:px-5! dark:[&_td]:border-white/10! [&_th]:border-zinc-200! [&_th]:bg-zinc-50 [&_th]:px-5! [&_th]:text-xs! [&_th]:text-zinc-600! dark:[&_th]:border-white/10! dark:[&_th]:bg-black/15 dark:[&_th]:text-zinc-300!">
@@ -31,12 +31,14 @@
                         @foreach ($this->tools as $tool)
                             <flux:table.row :key="$tool->id">
                                 <flux:table.cell class="max-w-md min-w-64 whitespace-normal!">
-                                    @if ($tool->title !== null)
-                                        <div class="font-medium text-zinc-950 dark:text-white">{{ $tool->title }}</div>
-                                        <div class="font-mono text-xs text-zinc-500 dark:text-zinc-400">{{ $tool->name }}</div>
-                                    @else
-                                        <div class="font-mono font-medium text-zinc-950 dark:text-white">{{ $tool->name }}</div>
-                                    @endif
+                                    <x-tool-flyout.trigger :tool="$tool" class="block">
+                                        @if ($tool->title !== null)
+                                            <span class="block font-medium text-zinc-950 dark:text-white">{{ $tool->title }}</span>
+                                            <span class="block font-mono text-xs text-zinc-500 dark:text-zinc-400">{{ $tool->name }}</span>
+                                        @else
+                                            <span class="block font-mono font-medium text-zinc-950 dark:text-white">{{ $tool->name }}</span>
+                                        @endif
+                                    </x-tool-flyout.trigger>
                                     @if ($tool->description !== null)
                                         <p class="mt-1 line-clamp-3 text-sm text-zinc-500 dark:text-zinc-400">{{ $tool->description }}</p>
                                     @endif
@@ -52,4 +54,6 @@
             </div>
         @endif
     </div>
+
+    <x-tool-flyout :details="$this->toolDetails" />
 </div>
