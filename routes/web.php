@@ -10,6 +10,7 @@ use App\Http\Controllers\ConnectionOAuth\ClientMetadataDocumentController;
 use App\Http\Controllers\ConnectionOAuth\SignInCallbackController;
 use App\Http\Controllers\ConnectionOAuth\StartSignInController;
 use App\Http\Controllers\StarOAuth\ApproveAuthorizationController;
+use App\Http\Controllers\StarOAuth\SwitchAccountController;
 use Illuminate\Support\Facades\Route;
 use Laravel\Passport\Http\Controllers\AuthorizationController;
 use Laravel\Passport\Http\Controllers\DenyAuthorizationController;
@@ -48,6 +49,7 @@ Route::middleware('auth')->group(function (): void {
 
     Route::post('/oauth/authorize', ApproveAuthorizationController::class)->name('passport.authorizations.approve');
     Route::delete('/oauth/authorize', [DenyAuthorizationController::class, 'deny'])->name('passport.authorizations.deny');
+    Route::post('/oauth/authorize/switch-account', SwitchAccountController::class)->name('oauth.switch-account');
 
     Route::post('/logout', SignOutController::class)->name('logout');
 });
