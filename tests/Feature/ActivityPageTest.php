@@ -6,6 +6,7 @@ use App\Actions\SwitchStarPrompts;
 use App\Actions\SwitchStarTools;
 use App\Enums\ActivityKind;
 use App\Enums\ActivityStatus;
+use App\Enums\ConnectionStatus;
 use App\Enums\StarAccessMode;
 use App\Models\ActivityEntry;
 use App\Models\Connection;
@@ -13,8 +14,11 @@ use App\Models\ConnectionPrompt;
 use App\Models\ConnectionTool;
 use App\Models\Star;
 use App\Models\User;
+use App\Stars\StarPrompts;
+use App\Stars\StarToolset;
 use Illuminate\Database\Eloquent\Factories\Sequence;
 use Livewire\Livewire;
+use Tests\Support\FakeMcpServer;
 
 beforeEach(function (): void {
     $this->user = User::factory()->create();
@@ -421,5 +425,234 @@ describe('pages', function (): void {
         Livewire::withQueryParams(['page' => 9])->test('pages::activity.index')
             ->assertSeeTextInOrder(['wiki__call_05', 'wiki__call_01'])
             ->assertDontSeeText('No matching activity');
+    });
+});
+
+describe('details', function (): void {
+    it('opens a call\'s details from its row, with the entry in the address bar, showing only what Nexus stores', function (): void {
+        $this->travelTo('2026-10-03 09:45:00');
+        $github = Connection::factory()->for($this->user)->create(['name' => 'GitHub', 'handle' => 'github', 'account_identity' => 'octocat']);
+        $star = Star::factory()->for($this->user)->including($github)->create(['name' => 'Work']);
+        $entry = ActivityEntry::factory()->through($star, $github, 'search_issues')
+            ->create(['client_name' => 'Cursor', 'via' => StarAccessMode::Token, 'duration_ms' => 412, 'created_at' => '2026-10-03 09:38:04']);
+
+        $page = Livewire::test('pages::activity.index')->call('selectEntry', $entry->id);
+
+        $page->assertSet('entry', (string) $entry->id)
+            ->assertSeeTextInOrder([
+                'OK', 'Today at 09:38:04', 'github__search_issues',
+                'Star', 'Work', 'Connection', 'GitHub', 'octocat', 'Client', 'Cursor', 'Via', 'Bearer token',
+                'Kind', 'Tool call', 'Server\'s name', 'search_issues', 'Duration', '412 ms',
+                'Nexus never stores a call\'s arguments or results.',
+            ])
+            ->assertSeeHtml('title="Saturday, October 3, 2026 09:38:04 UTC"')
+            ->assertSeeHtmlInOrder(['data-activity-detail="'.$entry->id.'"', route('stars.show', $star), route('connections.show', $github)])
+            ->assertDontSeeHtml('data-fix');
+    });
+
+    it('opens the entry a link names, even outside the range shown', function (): void {
+        $wiki = Connection::factory()->for($this->user)->create(['handle' => 'wiki']);
+        $star = Star::factory()->for($this->user)->create();
+        $entry = ActivityEntry::factory()->through($star, $wiki, 'search')->create(['created_at' => now()->subDays(3)]);
+
+        $this->get(route('activity.index', ['entry' => $entry->id]))
+            ->assertSeeText('No calls in the last 24 hours.')
+            ->assertSee('data-activity-detail="'.$entry->id.'"', escape: false)
+            ->assertSeeText('wiki__search');
+    });
+
+    it('ignores an entry that isn\'t one of the user\'s', function (Closure $entry): void {
+        Livewire::withQueryParams(['entry' => $entry()])->test('pages::activity.index')
+            ->assertSet('entry', '')
+            ->assertDontSeeHtml('data-activity-detail');
+    })->with([
+        'another user\'s' => [fn (): string => (string) ActivityEntry::factory()->create()->id],
+        'one that doesn\'t exist' => [fn (): string => '999999'],
+        'not an id' => [fn (): string => 'abc'],
+        'zero' => [fn (): string => '0'],
+        'too large for an id' => [fn (): string => '99999999999999999999'],
+    ]);
+
+    it('closes the details', function (): void {
+        $entry = ActivityEntry::factory()->for($this->user)->create();
+
+        Livewire::withQueryParams(['entry' => $entry->id])->test('pages::activity.index')
+            ->call('closeEntry')
+            ->assertSet('entry', '')
+            ->assertDontSeeHtml('data-activity-detail');
+    });
+
+    it('keeps the details open while the list updates live', function (): void {
+        $wiki = Connection::factory()->for($this->user)->create(['handle' => 'wiki']);
+        $star = Star::factory()->for($this->user)->create();
+        $entry = ActivityEntry::factory()->through($star, $wiki, 'search')->create(['created_at' => now()->subMinute()]);
+        $page = Livewire::withQueryParams(['entry' => $entry->id])->test('pages::activity.index');
+
+        ActivityEntry::factory()->through($star, $wiki, 'fetch')->create();
+        $page->call('$refresh');
+
+        $page->assertSet('entry', (string) $entry->id)
+            ->assertSeeText('wiki__fetch')
+            ->assertSeeHtml('data-activity-detail="'.$entry->id.'"');
+    });
+
+    it('switches on, through the Star\'s own switch, a tool that is off and was refused for it, then says it is on', function (): void {
+        $wiki = Connection::factory()->for($this->user)->create(['name' => 'DeepWiki', 'handle' => 'wiki']);
+        ConnectionTool::factory()->for($wiki)->create(['name' => 'write_page', 'read_only' => false]);
+        $star = Star::factory()->for($this->user)->including($wiki)->create(['name' => 'Work']);
+        $entry = ActivityEntry::factory()->through($star, $wiki, 'write_page')->withStatus(ActivityStatus::Denied)->create(['client_name' => 'Cursor']);
+        $page = Livewire::withQueryParams(['entry' => $entry->id])->test('pages::activity.index')
+            ->assertSeeTextInOrder(['Denied · tool off', 'This tool is off in Work', 'Writes', 'Cursor tried to call it.', 'Switch on in Work', 'Open Work\'s tools'])
+            ->assertSeeHtmlInOrder(['data-activity-detail', 'wire:click="switchOn"', route('stars.tools', $star)]);
+
+        $page->call('switchOn');
+
+        $page->assertSeeText(['Switched on in Work', 'Work\'s clients can call it from their next request.', 'Open Work\'s tools'])
+            ->assertDontSeeText('Switch on in Work')
+            ->assertDontSeeText('tool off');
+        expect(resolve(StarToolset::class)->tool($star, 'wiki__write_page'))
+            ->enabled->toBeTrue()
+            ->switch->toBeTrue();
+    });
+
+    it('switches on a prompt that is off and was refused for it', function (): void {
+        $wiki = Connection::factory()->for($this->user)->create(['handle' => 'wiki']);
+        ConnectionPrompt::factory()->for($wiki)->create(['name' => 'review']);
+        $star = Star::factory()->for($this->user)->including($wiki)->create(['name' => 'Work']);
+        resolve(SwitchStarPrompts::class)->handle($star, $wiki, false, ['review']);
+        $entry = ActivityEntry::factory()->through($star, $wiki, 'review')->withStatus(ActivityStatus::Denied)->create(['kind' => ActivityKind::Prompt]);
+        $page = Livewire::withQueryParams(['entry' => $entry->id])->test('pages::activity.index')
+            ->assertSeeTextInOrder(['This prompt is off in Work', 'Switch on in Work', 'Open Work\'s prompts'])
+            ->assertSeeHtmlInOrder(['data-activity-detail', route('stars.prompts', $star)]);
+
+        $page->call('switchOn');
+
+        $page->assertSeeText('Switched on in Work')->assertDontSeeText('prompt off');
+        expect(resolve(StarPrompts::class)->prompt($star, 'wiki__review'))->enabled->toBeTrue();
+    });
+
+    it('offers no switch for a refused call whose tool is on now', function (): void {
+        $wiki = Connection::factory()->for($this->user)->create(['handle' => 'wiki']);
+        ConnectionTool::factory()->for($wiki)->create(['name' => 'search', 'read_only' => true]);
+        $star = Star::factory()->for($this->user)->including($wiki)->create(['name' => 'Work']);
+        $entry = ActivityEntry::factory()->through($star, $wiki, 'search')->withStatus(ActivityStatus::Denied)->create();
+        $page = Livewire::withQueryParams(['entry' => $entry->id])->test('pages::activity.index')
+            ->assertSeeTextInOrder(['Nexus refused this call', 'The tool is on in Work now, or Work no longer has it.', 'Open Work\'s tools'])
+            ->assertDontSeeText('Switch on in Work');
+
+        $page->call('switchOn');
+
+        $page->assertDispatched('toast-show', fn (string $event, array $params): bool => $params['slots']['text'] === 'There is nothing to switch on: it isn\'t switched off now.'
+            && $params['dataset']['variant'] === 'warning');
+        $this->assertDatabaseEmpty('star_tool_switches');
+    });
+
+    it('explains refused calls that named no tool of the Star, or no name at all', function (?string $exposedName, array $explanation, bool $offersTools): void {
+        $star = Star::factory()->for($this->user)->create(['name' => 'Work']);
+        $entry = ActivityEntry::factory()->withStatus(ActivityStatus::Denied)->create([
+            'user_id' => $this->user->id, 'star_id' => $star->id, 'exposed_name' => $exposedName, 'downstream_name' => null, 'client_name' => 'Grok',
+        ]);
+
+        $page = Livewire::withQueryParams(['entry' => $entry->id])->test('pages::activity.index')
+            ->assertSeeTextInOrder($explanation)
+            ->assertDontSeeText('Switch on in Work');
+
+        $offersTools ? $page->assertSeeText('Open Work\'s tools') : $page->assertDontSeeText('Open Work\'s tools');
+    })->with([
+        'unknown tool' => ['nope__search', ['Work has no tool by this name', 'None of Work\'s Connections had a tool called this when the call was made.'], true],
+        'no name' => [null, ['The call named no tool', 'Grok sent it without a name, so there was nothing to run.'], false],
+    ]);
+
+    it('offers to reconnect a Connection that needed signing in again', function (): void {
+        $notion = Connection::factory()->for($this->user)->oauth()->create(['name' => 'Notion', 'handle' => 'notion']);
+        $star = Star::factory()->for($this->user)->including($notion)->create();
+        $entry = ActivityEntry::factory()->through($star, $notion, 'search')->withStatus(ActivityStatus::NeedsAuth)->create();
+
+        Livewire::withQueryParams(['entry' => $entry->id])->test('pages::activity.index')
+            ->assertSeeTextInOrder(['Needs sign-in', 'Sign in to Notion again', 'Its server refused Nexus\'s sign-in', 'Reconnect Notion'])
+            ->assertSeeHtmlInOrder(['data-activity-detail', 'href="'.route('connections.connect', $notion).'"']);
+    });
+
+    it('offers to open the Connection and refresh its tools after a call timed out or failed', function (ActivityStatus $status, string $explanation): void {
+        FakeMcpServer::at()->withTools([['name' => 'search'], ['name' => 'fetch']]);
+        $wiki = Connection::factory()->for($this->user)->failed()->create(['name' => 'DeepWiki', 'handle' => 'wiki']);
+        $star = Star::factory()->for($this->user)->including($wiki)->create();
+        $entry = ActivityEntry::factory()->through($star, $wiki, 'search')->withStatus($status)->create();
+        $page = Livewire::withQueryParams(['entry' => $entry->id])->test('pages::activity.index')
+            ->assertSeeTextInOrder([$explanation, 'Open DeepWiki', 'Refresh tools'])
+            ->assertSeeHtmlInOrder(['data-activity-detail', 'href="'.route('connections.show', $wiki).'"', 'wire:click="refreshTools"']);
+
+        $page->call('refreshTools');
+
+        $page->assertDispatched('toast-show', fn (string $event, array $params): bool => $params['slots']['text'] === 'DeepWiki: Nexus loaded 2 tools.'
+            && $params['dataset']['variant'] === 'success');
+        expect($wiki->refresh()->status)->toBe(ConnectionStatus::Connected);
+    })->with([
+        'timed out' => [ActivityStatus::Timeout, 'DeepWiki took too long to answer'],
+        'error' => [ActivityStatus::Error, 'The call to DeepWiki failed'],
+    ]);
+
+    it('never fixes another user\'s Star or Connection', function (string $fix): void {
+        $theirs = Connection::factory()->create(['handle' => 'wiki']);
+        ConnectionTool::factory()->for($theirs)->create(['name' => 'write_page', 'read_only' => false]);
+        $theirStar = Star::factory()->for($theirs->user)->including($theirs)->create();
+        $entry = ActivityEntry::factory()->through($theirStar, $theirs, 'write_page')->withStatus(ActivityStatus::Denied)->create();
+        $page = Livewire::test('pages::activity.index')
+            ->set('entry', (string) $entry->id)
+            ->assertSet('entry', '');
+
+        $page->call($fix)->assertNotFound();
+
+        $this->assertDatabaseEmpty('star_tool_switches');
+        expect($theirs->refresh()->status)->toBe(ConnectionStatus::Pending);
+    })->with(['switchOn', 'refreshTools']);
+
+    it('says a call\'s Star was deleted instead of linking it or offering to switch its tool on', function (): void {
+        $wiki = Connection::factory()->for($this->user)->create(['name' => 'DeepWiki', 'handle' => 'wiki']);
+        ConnectionTool::factory()->for($wiki)->create(['name' => 'write_page', 'read_only' => false]);
+        $star = Star::factory()->for($this->user)->including($wiki)->create(['name' => 'Work']);
+        $entry = ActivityEntry::factory()->through($star, $wiki, 'write_page')->withStatus(ActivityStatus::Denied)->create();
+        $starUrl = route('stars.show', $star);
+
+        $star->delete();
+
+        Livewire::withQueryParams(['entry' => $entry->id])->test('pages::activity.index')
+            ->assertSeeTextInOrder(['Nexus refused this call', 'Its Star has since been deleted, so there is nothing to switch on.', 'Star', 'Deleted Star', 'Connection', 'DeepWiki'])
+            ->assertDontSeeText('Switch on in')
+            ->assertDontSeeText('Open Work\'s tools')
+            ->assertDontSeeHtml($starUrl);
+    });
+
+    it('says a call\'s Connection was deleted instead of linking it or offering a fix', function (ActivityStatus $status): void {
+        $wiki = Connection::factory()->for($this->user)->create(['name' => 'DeepWiki', 'handle' => 'wiki']);
+        $star = Star::factory()->for($this->user)->including($wiki)->create(['name' => 'Work']);
+        $entry = ActivityEntry::factory()->through($star, $wiki, 'search')->withStatus($status)->create();
+        $connectionUrl = route('connections.show', $wiki);
+
+        $wiki->delete();
+
+        Livewire::withQueryParams(['entry' => $entry->id])->test('pages::activity.index')
+            ->assertSeeTextInOrder(['Its Connection has since been deleted, so there is nothing to fix.', 'Connection', 'Deleted Connection'])
+            ->assertDontSeeText('Reconnect')
+            ->assertDontSeeText('Refresh tools')
+            ->assertDontSeeHtml($connectionUrl)
+            ->call('refreshTools')
+            ->assertNotFound();
+    })->with([
+        'needs sign-in' => [ActivityStatus::NeedsAuth],
+        'timed out' => [ActivityStatus::Timeout],
+        'error' => [ActivityStatus::Error],
+    ]);
+
+    it('escapes the client names that appear in the details', function (): void {
+        $wiki = Connection::factory()->for($this->user)->create(['handle' => 'wiki']);
+        ConnectionTool::factory()->for($wiki)->create(['name' => 'write_page', 'read_only' => false]);
+        $star = Star::factory()->for($this->user)->including($wiki)->create();
+        $entry = ActivityEntry::factory()->through($star, $wiki, 'write_page')->withStatus(ActivityStatus::Denied)
+            ->create(['via' => StarAccessMode::OAuth, 'client_name' => '<script>alert(1)</script>']);
+
+        $this->get(route('activity.index', ['entry' => $entry->id]))
+            ->assertSee('&lt;script&gt;alert(1)&lt;/script&gt; tried to call it.', escape: false)
+            ->assertDontSee('<script>alert(1)</script>', escape: false);
     });
 });

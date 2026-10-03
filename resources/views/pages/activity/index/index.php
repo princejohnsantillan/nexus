@@ -2,19 +2,27 @@
 
 declare(strict_types=1);
 
+use App\Actions\RefreshCatalog;
+use App\Actions\SwitchStarPrompts;
+use App\Actions\SwitchStarTools;
 use App\Enums\ActivityKind;
 use App\Enums\ActivityRange;
 use App\Enums\ActivityStatus;
+use App\Enums\DenialReason;
 use App\Models\ActivityEntry;
 use App\Models\Connection;
 use App\Models\Star;
 use App\Models\User;
 use App\Stars\DenialReasons;
+use App\Stars\StarPrompt;
+use App\Stars\StarTool;
 use Carbon\CarbonImmutable;
+use Flux\Flux;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Auth;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Locked;
@@ -69,6 +77,20 @@ return new #[Title('Activity')] class extends Component
     public string $range = '24h';
 
     /**
+     * The id of the user's entry whose details the panel shows, or empty
+     * for none. Anything else, such as another user's entry, is ignored.
+     */
+    #[Url(as: 'entry', except: '')]
+    public string $entry = '';
+
+    /**
+     * The entry whose refused tool or prompt was just switched on from the
+     * panel, so the panel says it's on now.
+     */
+    #[Locked]
+    public ?int $switchedOn = null;
+
+    /**
      * Whether the viewer paused the live updates to read the list.
      */
     public bool $paused = false;
@@ -83,6 +105,7 @@ return new #[Title('Activity')] class extends Component
     public function mount(): void
     {
         $this->dropUnknownFilters();
+        $this->dropUnknownEntry();
 
         $remembered = session(self::TIMEZONE_KEY);
 
@@ -97,12 +120,93 @@ return new #[Title('Activity')] class extends Component
             $this->dropUnknownFilters();
             $this->resetPage();
         }
+
+        if ($property === 'entry') {
+            $this->switchedOn = null;
+            $this->dropUnknownEntry();
+        }
     }
 
     public function clearFilters(): void
     {
         $this->reset('starFilter', 'connectionFilter', 'statusFilter', 'kindFilter');
         $this->resetPage();
+    }
+
+    /**
+     * Show one of the user's entries in the panel.
+     */
+    public function selectEntry(int $entryId): void
+    {
+        if ($this->entry !== (string) $entryId) {
+            $this->entry = (string) $entryId;
+            $this->switchedOn = null;
+            $this->dropUnknownEntry();
+        }
+    }
+
+    public function closeEntry(): void
+    {
+        $this->entry = '';
+        $this->switchedOn = null;
+    }
+
+    /**
+     * Switch on, in its Star, the tool or prompt the selected entry's call
+     * was refused for, through the same action as the Star's own switches.
+     * Only one that is switched off now can be: a call refused for another
+     * reason has nothing to switch.
+     */
+    public function switchOn(SwitchStarTools $switchStarTools, SwitchStarPrompts $switchStarPrompts): void
+    {
+        $entry = $this->selectedEntry ?? abort(404);
+        $star = $this->user->stars()->find($entry->star_id);
+        $switchedOff = $this->selectedSwitchedOff;
+
+        if (! $star instanceof Star || $switchedOff === null) {
+            unset($this->days, $this->selectedSwitchedOff, $this->selectedDenialReason);
+
+            Flux::toast(variant: 'warning', text: __('There is nothing to switch on: it isn\'t switched off now.'));
+
+            return;
+        }
+
+        if ($switchedOff instanceof StarTool) {
+            $switchStarTools->handle($star, $switchedOff->connection, true, [$switchedOff->tool->name]);
+        } else {
+            $switchStarPrompts->handle($star, $switchedOff->connection, true, [$switchedOff->prompt->name]);
+        }
+
+        $this->switchedOn = $entry->id;
+
+        unset($this->days, $this->selectedSwitchedOff, $this->selectedDenialReason);
+    }
+
+    /**
+     * Reload the tools of the selected entry's Connection, as its page's
+     * "Refresh tools" does, and say how it went.
+     */
+    public function refreshTools(RefreshCatalog $refreshCatalog): void
+    {
+        $entry = $this->selectedEntry ?? abort(404);
+        $connection = $this->user->connections()->find($entry->connection_id) ?? abort(404);
+
+        $loaded = $refreshCatalog->handle($connection);
+
+        unset($this->selectedEntry);
+
+        $result = match (true) {
+            $loaded => trans_choice(':name: Nexus loaded :count tool.|:name: Nexus loaded :count tools.', $connection->tools()->count(), ['name' => $connection->name]),
+            filled($connection->last_error) => __(':name: Nexus couldn\'t load the tools: :error', ['name' => $connection->name, 'error' => $connection->last_error]),
+            default => __(':name: Nexus couldn\'t load the tools.', ['name' => $connection->name]),
+        };
+
+        $others = $connection->sameServiceConnections();
+        $note = $others->isEmpty() ? '' : __('Only this account was refreshed, not :names.', [
+            'names' => Arr::join($others->map(fn (Connection $other): string => $other->name)->all(), ', ', __(' and ')),
+        ]);
+
+        Flux::toast(variant: $loaded ? 'success' : 'danger', text: trim($result.' '.$note));
     }
 
     public function pause(): void
@@ -310,6 +414,70 @@ return new #[Title('Activity')] class extends Component
     }
 
     /**
+     * The user's entry the panel shows, with its Star and Connection, or
+     * null when none is selected.
+     */
+    #[Computed]
+    public function selectedEntry(): ?ActivityEntry
+    {
+        $id = filter_var($this->entry, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+
+        if ($id === false) {
+            return null;
+        }
+
+        return $this->user->activityEntries()->with(['star', 'connection'])->find($id);
+    }
+
+    /**
+     * When the selected entry's call was made, in the viewer's timezone:
+     * the day ("Today", "Yesterday" or the date) and the time to the
+     * second, and the full date with its UTC offset.
+     *
+     * @return array{label: string, full: string}|null
+     */
+    #[Computed]
+    public function selectedTime(): ?array
+    {
+        $entry = $this->selectedEntry;
+
+        if (! $entry instanceof ActivityEntry) {
+            return null;
+        }
+
+        $at = $entry->created_at->setTimezone($this->timezone);
+
+        return [
+            'label' => __(':day at :time', ['day' => $this->dayLabel($at->startOfDay()), 'time' => $at->format('H:i:s')]),
+            'full' => $at->isoFormat('dddd, MMMM D, YYYY HH:mm:ss').' '.$this->offsetLabel($at),
+        ];
+    }
+
+    /**
+     * Why the selected entry's call was refused, as far as the entry and
+     * its Star as it is now can tell, or null when it wasn't.
+     */
+    #[Computed]
+    public function selectedDenialReason(): ?DenialReason
+    {
+        $entry = $this->selectedEntry;
+
+        return $entry instanceof ActivityEntry ? resolve(DenialReasons::class)->reasonFor($entry) : null;
+    }
+
+    /**
+     * The tool or prompt the selected entry's call was refused for, while
+     * it is still switched off in its Star; otherwise null.
+     */
+    #[Computed]
+    public function selectedSwitchedOff(): StarTool|StarPrompt|null
+    {
+        $entry = $this->selectedEntry;
+
+        return $entry instanceof ActivityEntry ? resolve(DenialReasons::class)->switchedOff($entry) : null;
+    }
+
+    /**
      * When the list was last brought up to date, in the viewer's timezone.
      */
     #[Computed]
@@ -416,6 +584,19 @@ return new #[Title('Activity')] class extends Component
     private function isTimezone(string $timezone): bool
     {
         return in_array($timezone, DateTimeZone::listIdentifiers(DateTimeZone::ALL_WITH_BC), true);
+    }
+
+    /**
+     * Clear the selected entry when it isn't one of the user's, such as
+     * another user's entry or one since pruned.
+     */
+    private function dropUnknownEntry(): void
+    {
+        unset($this->selectedEntry, $this->selectedTime, $this->selectedDenialReason, $this->selectedSwitchedOff);
+
+        if (! $this->selectedEntry instanceof ActivityEntry) {
+            $this->entry = '';
+        }
     }
 
     /**

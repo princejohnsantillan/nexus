@@ -1,7 +1,16 @@
 <div
-    class="mx-auto w-full max-w-5xl"
-    x-data
-    x-init="const zone = Intl.DateTimeFormat().resolvedOptions().timeZone; if (zone && zone !== $wire.timezone) $wire.useTimezone(zone)"
+    class="mx-auto w-full max-w-6xl"
+    x-data="{ narrow: window.matchMedia('(max-width: 1279.98px)') }"
+    x-init="
+        const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        if (zone && zone !== $wire.timezone) $wire.useTimezone(zone);
+
+        {{-- Below xl the selected entry's details open in a flyout; from xl they sit beside the log. --}}
+        const showDetail = () => narrow.matches && $wire.entry !== '' ? $flux.modal('activity-entry').show() : $flux.modal('activity-entry').close();
+        $nextTick(showDetail);
+        $wire.$watch('entry', showDetail);
+        narrow.addEventListener('change', showDetail);
+    "
 >
     @unless ($paused)
         <div wire:poll.5s></div>
@@ -118,107 +127,153 @@
             </flux:radio.group>
         </div>
 
-        @if ($this->entries->isEmpty())
-            <x-empty-state icon="funnel" :heading="__('No matching activity')" class="mt-4">
-                @if ($this->isFiltered)
-                    {{ __('No calls match these filters in the last :range.', ['range' => $this->selectedRange->description()]) }}
-                @else
-                    {{ __('No calls in the last :range.', ['range' => $this->selectedRange->description()]) }}
-                @endif
-
-                @if ($this->hasEarlierMatches || $this->isFiltered)
-                    <x-slot:actions>
-                        @if ($this->hasEarlierMatches)
-                            <flux:button wire:click="$set('range', '{{ App\Enums\ActivityRange::LastMonth->value }}')">{{ __('Show the last 30 days') }}</flux:button>
-                        @endif
-
+        <div @class([
+            'mt-4',
+            'xl:grid xl:grid-cols-[minmax(0,1fr)_25rem] xl:items-start xl:gap-5' => $this->selectedEntry !== null,
+        ])>
+            <div class="min-w-0">
+                @if ($this->entries->isEmpty())
+                    <x-empty-state icon="funnel" :heading="__('No matching activity')">
                         @if ($this->isFiltered)
-                            <flux:button wire:click="clearFilters">{{ __('Clear filters') }}</flux:button>
+                            {{ __('No calls match these filters in the last :range.', ['range' => $this->selectedRange->description()]) }}
+                        @else
+                            {{ __('No calls in the last :range.', ['range' => $this->selectedRange->description()]) }}
                         @endif
-                    </x-slot:actions>
-                @endif
-            </x-empty-state>
-        @else
-            <div class="mt-4 overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-white/10 dark:bg-white/[4%]">
-                @foreach ($this->days as $day)
-                    <section class="not-first:border-t not-first:border-zinc-200 dark:not-first:border-white/10" aria-labelledby="day-{{ $day['date'] }}" wire:key="day-{{ $day['date'] }}">
-                        <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-b border-zinc-200 bg-zinc-50 px-4 py-2 text-xs font-medium text-zinc-600 dark:border-white/10 dark:bg-black/15 dark:text-zinc-400">
-                            <h2 id="day-{{ $day['date'] }}">
-                                <span class="uppercase tracking-wide">{{ $day['label'] }}</span>
-                                <span class="ms-1.5 font-normal text-zinc-500 dark:text-zinc-400">{{ $day['zone'] }}</span>
-                            </h2>
 
-                            <p class="font-normal">{{ $day['summary'] }}</p>
-                        </div>
+                        @if ($this->hasEarlierMatches || $this->isFiltered)
+                            <x-slot:actions>
+                                @if ($this->hasEarlierMatches)
+                                    <flux:button wire:click="$set('range', '{{ App\Enums\ActivityRange::LastMonth->value }}')">{{ __('Show the last 30 days') }}</flux:button>
+                                @endif
 
-                        <ul role="list" class="divide-y divide-zinc-200 dark:divide-white/10">
-                            @foreach ($day['rows'] as $row)
-                                <li
-                                    wire:key="entry-{{ $row['entry']->id }}"
-                                    data-entry="{{ $row['entry']->id }}"
-                                    @class([
-                                        'grid grid-cols-[18px_2.75rem_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 px-4 py-2.75 sm:grid-cols-[18px_2.75rem_minmax(0,1fr)_9rem_4.5rem] sm:gap-x-3.5',
-                                        'bg-danger-wash/50' => $row['entry']->status === App\Enums\ActivityStatus::Error,
-                                    ])
-                                >
-                                    <x-activity-status-icon :status="$row['entry']->status" />
+                                @if ($this->isFiltered)
+                                    <flux:button wire:click="clearFilters">{{ __('Clear filters') }}</flux:button>
+                                @endif
+                            </x-slot:actions>
+                        @endif
+                    </x-empty-state>
+                @else
+                    <div class="overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-white/10 dark:bg-white/[4%]">
+                        @foreach ($this->days as $day)
+                            <section class="not-first:border-t not-first:border-zinc-200 dark:not-first:border-white/10" aria-labelledby="day-{{ $day['date'] }}" wire:key="day-{{ $day['date'] }}">
+                                <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-b border-zinc-200 bg-zinc-50 px-4 py-2 text-xs font-medium text-zinc-600 dark:border-white/10 dark:bg-black/15 dark:text-zinc-400">
+                                    <h2 id="day-{{ $day['date'] }}">
+                                        <span class="uppercase tracking-wide">{{ $day['label'] }}</span>
+                                        <span class="ms-1.5 font-normal text-zinc-500 dark:text-zinc-400">{{ $day['zone'] }}</span>
+                                    </h2>
 
-                                    <time
-                                        datetime="{{ $row['entry']->created_at->toIso8601String() }}"
-                                        title="{{ $row['at']->isoFormat('dddd, MMMM D, YYYY HH:mm:ss') }} {{ $row['zone'] }}"
-                                        class="font-mono text-sm text-zinc-600 dark:text-zinc-400"
-                                    >{{ $row['at']->format('H:i') }}</time>
+                                    <p class="font-normal">{{ $day['summary'] }}</p>
+                                </div>
 
-                                    <div class="min-w-0">
-                                        @if ($row['entry']->exposed_name !== null)
-                                            <p class="font-mono text-sm/4 font-medium break-all text-zinc-950 sm:truncate dark:text-white" title="{{ $row['entry']->exposed_name }}">{{ $row['entry']->exposed_name }}</p>
-                                        @else
-                                            <p class="text-sm/4 text-zinc-500 italic dark:text-zinc-400">{{ __('No name') }}</p>
-                                        @endif
+                                <ul role="list" class="divide-y divide-zinc-200 dark:divide-white/10">
+                                    @foreach ($day['rows'] as $row)
+                                        @php($isSelected = $row['entry']->id === $this->selectedEntry?->id)
+                                        <li
+                                            wire:key="entry-{{ $row['entry']->id }}"
+                                            data-entry="{{ $row['entry']->id }}"
+                                            @if ($isSelected) data-selected @endif
+                                            @class([
+                                                'relative grid grid-cols-[18px_2.75rem_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 px-4 py-2.75 sm:grid-cols-[18px_2.75rem_minmax(0,1fr)_9rem_4.5rem] sm:gap-x-3.5',
+                                                'bg-accent-wash shadow-[inset_3px_0_0_var(--color-accent)]' => $isSelected,
+                                                'hover:bg-zinc-50 dark:hover:bg-white/[3%]' => ! $isSelected && $row['entry']->status !== App\Enums\ActivityStatus::Error,
+                                                'bg-danger-wash/50 hover:bg-danger-wash' => ! $isSelected && $row['entry']->status === App\Enums\ActivityStatus::Error,
+                                            ])
+                                        >
+                                            <x-activity-status-icon :status="$row['entry']->status" />
 
-                                        <p class="mt-0.5 text-xs text-zinc-600 sm:truncate dark:text-zinc-400">
-                                            @if ($row['entry']->star !== null)
-                                                <a href="{{ route('stars.show', $row['entry']->star) }}" wire:navigate class="hover:text-zinc-950 hover:underline dark:hover:text-white">{{ $row['entry']->star->name }}</a>
+                                            <time
+                                                datetime="{{ $row['entry']->created_at->toIso8601String() }}"
+                                                title="{{ $row['at']->isoFormat('dddd, MMMM D, YYYY HH:mm:ss') }} {{ $row['zone'] }}"
+                                                class="font-mono text-sm text-zinc-600 dark:text-zinc-400"
+                                            >{{ $row['at']->format('H:i') }}</time>
+
+                                            <div class="min-w-0">
+                                                {{-- The whole row selects the entry; the links in it stay links. --}}
+                                                <button
+                                                    type="button"
+                                                    wire:click="selectEntry({{ $row['entry']->id }})"
+                                                    @if ($isSelected) aria-current="true" @endif
+                                                    class="block w-full min-w-0 cursor-pointer text-start before:absolute before:inset-0"
+                                                >
+                                                    @if ($row['entry']->exposed_name !== null)
+                                                        <span class="block font-mono text-sm/4 font-medium break-all text-zinc-950 sm:truncate dark:text-white">{{ $row['entry']->exposed_name }}</span>
+                                                    @else
+                                                        <span class="block text-sm/4 text-zinc-500 italic dark:text-zinc-400">{{ __('No name') }}</span>
+                                                    @endif
+                                                </button>
+
+                                                <p class="mt-0.5 text-xs text-zinc-600 sm:truncate dark:text-zinc-400">
+                                                    @if ($row['entry']->star !== null)
+                                                        <a href="{{ route('stars.show', $row['entry']->star) }}" wire:navigate class="relative hover:text-zinc-950 hover:underline dark:hover:text-white">{{ $row['entry']->star->name }}</a>
+                                                    @else
+                                                        <span class="italic">{{ __('Deleted Star') }}</span>
+                                                    @endif
+
+                                                    @if ($row['entry']->connection !== null)
+                                                        · <a href="{{ route('connections.show', $row['entry']->connection) }}" wire:navigate class="relative hover:text-zinc-950 hover:underline dark:hover:text-white">{{ $row['entry']->connection->name }}</a>
+                                                    @elseif ($row['entry']->connectionWasDeleted())
+                                                        · <span class="italic">{{ __('Deleted Connection') }}</span>
+                                                    @endif
+
+                                                    · {{ $row['entry']->client_name ?? $row['entry']->via->label() }}
+
+                                                    @if ($row['entry']->kind === App\Enums\ActivityKind::Prompt)
+                                                        · {{ __('prompt') }}
+                                                    @endif
+                                                </p>
+                                            </div>
+
+                                            @if ($row['problem'] !== null)
+                                                <p @class([
+                                                    'col-span-2 col-start-3 row-start-2 text-xs font-medium sm:col-span-1 sm:col-start-4 sm:row-start-1',
+                                                    'text-zinc-950 dark:text-white' => $row['entry']->status === App\Enums\ActivityStatus::Denied,
+                                                    'text-warning' => in_array($row['entry']->status, [App\Enums\ActivityStatus::NeedsAuth, App\Enums\ActivityStatus::Timeout], true),
+                                                    'text-danger' => $row['entry']->status === App\Enums\ActivityStatus::Error,
+                                                ])>{{ $row['problem'] }}</p>
                                             @else
-                                                <span class="italic">{{ __('Deleted Star') }}</span>
+                                                <p class="sr-only">{{ App\Enums\ActivityStatus::Ok->label() }}</p>
                                             @endif
 
-                                            @if ($row['entry']->connection !== null)
-                                                · <a href="{{ route('connections.show', $row['entry']->connection) }}" wire:navigate class="hover:text-zinc-950 hover:underline dark:hover:text-white">{{ $row['entry']->connection->name }}</a>
-                                            @elseif ($row['entry']->connectionWasDeleted())
-                                                · <span class="italic">{{ __('Deleted Connection') }}</span>
-                                            @endif
+                                            <p class="col-start-4 row-start-1 text-right font-mono text-sm text-zinc-600 tabular-nums sm:col-start-5 dark:text-zinc-400">{{ $row['entry']->durationForHumans() }}</p>
+                                        </li>
+                                    @endforeach
+                                </ul>
+                            </section>
+                        @endforeach
+                    </div>
 
-                                            · {{ $row['entry']->client_name ?? $row['entry']->via->label() }}
-
-                                            @if ($row['entry']->kind === App\Enums\ActivityKind::Prompt)
-                                                · {{ __('prompt') }}
-                                            @endif
-                                        </p>
-                                    </div>
-
-                                    @if ($row['problem'] !== null)
-                                        <p @class([
-                                            'col-span-2 col-start-3 row-start-2 text-xs font-medium sm:col-span-1 sm:col-start-4 sm:row-start-1',
-                                            'text-zinc-950 dark:text-white' => $row['entry']->status === App\Enums\ActivityStatus::Denied,
-                                            'text-warning' => in_array($row['entry']->status, [App\Enums\ActivityStatus::NeedsAuth, App\Enums\ActivityStatus::Timeout], true),
-                                            'text-danger' => $row['entry']->status === App\Enums\ActivityStatus::Error,
-                                        ])>{{ $row['problem'] }}</p>
-                                    @else
-                                        <p class="sr-only">{{ App\Enums\ActivityStatus::Ok->label() }}</p>
-                                    @endif
-
-                                    <p class="col-start-4 row-start-1 text-right font-mono text-sm text-zinc-600 tabular-nums sm:col-start-5 dark:text-zinc-400">{{ $row['entry']->durationForHumans() }}</p>
-                                </li>
-                            @endforeach
-                        </ul>
-                    </section>
-                @endforeach
+                    @if ($this->entries->hasPages())
+                        <flux:pagination :paginator="$this->entries" class="mt-4" />
+                    @endif
+                @endif
             </div>
 
-            @if ($this->entries->hasPages())
-                <flux:pagination :paginator="$this->entries" class="mt-4" />
+            @if ($this->selectedEntry !== null)
+                <aside class="hidden xl:sticky xl:top-8 xl:block" wire:key="detail-{{ $this->selectedEntry->id }}">
+                    <x-activity-detail
+                        :entry="$this->selectedEntry"
+                        :time="$this->selectedTime"
+                        :denial-reason="$this->selectedDenialReason"
+                        :switched-off="$this->selectedSwitchedOff"
+                        :switched-on="$switchedOn === $this->selectedEntry->id"
+                        class="overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-[0_12px_32px_-12px_rgb(14_17_22/0.18)] dark:border-white/10 dark:bg-white/[4%]"
+                    />
+                </aside>
             @endif
-        @endif
+        </div>
     @endif
+
+    <flux:modal name="activity-entry" flyout :closable="false" @cancel="closeEntry" class="w-full max-w-md p-0!">
+        @if ($this->selectedEntry !== null)
+            <x-activity-detail
+                :entry="$this->selectedEntry"
+                :time="$this->selectedTime"
+                :denial-reason="$this->selectedDenialReason"
+                :switched-off="$this->selectedSwitchedOff"
+                :switched-on="$switchedOn === $this->selectedEntry->id"
+                class="min-h-dvh"
+                wire:key="flyout-detail-{{ $this->selectedEntry->id }}"
+            />
+        @endif
+    </flux:modal>
 </div>
