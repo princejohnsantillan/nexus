@@ -20,8 +20,11 @@ beforeEach(function (): void {
 });
 
 it('shows an empty state with a way to create the first Star', function (): void {
+    config(['nexus.limits.stars_per_user' => 10]);
+
     Livewire::test('pages::stars.index')
         ->assertOk()
+        ->assertSeeText('0 / 10 Stars')
         ->assertSeeText('No Stars yet')
         ->assertSeeText('Create a Star, choose the Connections it includes')
         ->assertSeeText('Create your first Star');

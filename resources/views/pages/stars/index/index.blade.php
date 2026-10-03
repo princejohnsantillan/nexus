@@ -5,19 +5,20 @@
             <flux:text class="mt-2">{{ __('Each Star is one MCP server endpoint that bundles some of your Connections.') }}</flux:text>
         </div>
 
-        @if ($this->stars->isNotEmpty())
-            <div class="flex items-center gap-4">
-                <span @class([
-                    'font-mono text-[13px] tabular-nums',
-                    'text-zinc-600 dark:text-zinc-400' => $this->limitMessage === null,
-                    'text-warning' => $this->limitMessage !== null,
-                ]) data-star-count>{{ trans_choice(':stars / :limit Star|:stars / :limit Stars', $this->starLimit, ['stars' => $this->stars->count(), 'limit' => $this->starLimit]) }}</span>
+        <div class="flex min-h-10 items-center gap-4">
+            <span @class([
+                'font-mono text-[13px] tabular-nums',
+                'text-zinc-600 dark:text-zinc-400' => $this->limitMessage === null,
+                'text-warning' => $this->limitMessage !== null,
+            ]) data-star-count>{{ trans_choice(':stars / :limit Star|:stars / :limit Stars', $this->starLimit, ['stars' => $this->stars->count(), 'limit' => $this->starLimit]) }}</span>
 
+            {{-- With no Stars yet, the empty state offers the button instead. --}}
+            @if ($this->stars->isNotEmpty())
                 <flux:modal.trigger name="create-star">
                     <flux:button variant="primary" icon="plus" :disabled="$this->limitMessage !== null">{{ __('Create Star') }}</flux:button>
                 </flux:modal.trigger>
-            </div>
-        @endif
+            @endif
+        </div>
     </div>
 
     @if ($this->limitMessage !== null)
