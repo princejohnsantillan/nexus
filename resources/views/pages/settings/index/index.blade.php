@@ -113,12 +113,19 @@
             @endif
 
             <x-slot:hint>{{ __('Each one signs in to this account. Nexus never joins accounts by matching email addresses.') }}</x-slot:hint>
+
             <x-slot:actions>
                 @if ($this->googleSignInIsEnabled)
                     <flux:button size="sm" :href="route('settings.add-google')">
                         <x-icons.google class="size-4" />
                         {{ __('Add Google') }}
                     </flux:button>
+                @endif
+
+                @if ($this->addingEmailIsEnabled)
+                    <flux:modal.trigger name="add-email">
+                        <flux:button size="sm" icon="envelope">{{ __('Add email') }}</flux:button>
+                    </flux:modal.trigger>
                 @endif
             </x-slot:actions>
         </x-section-card>
@@ -163,4 +170,56 @@
             </div>
         </form>
     </flux:modal>
+
+    @if ($this->addingEmailIsEnabled)
+        <flux:modal name="add-email" class="w-full max-w-md" @close="resetNewEmail">
+            @if ($newEmailSentTo === null)
+                <form wire:submit="sendNewEmailCode" class="space-y-6">
+                    <div>
+                        <flux:heading size="lg">{{ __('Add an email address') }}</flux:heading>
+                        <flux:text class="mt-2">{{ __('Nexus emails a 6-digit code to the address. Enter it, and you can sign in to this account with the address too.') }}</flux:text>
+                    </div>
+
+                    <flux:input
+                        wire:model="newEmail"
+                        type="email"
+                        :label="__('Email')"
+                        autocomplete="email"
+                        autocapitalize="off"
+                        spellcheck="false"
+                        required
+                    />
+
+                    <div class="flex justify-end gap-2">
+                        <flux:modal.close>
+                            <flux:button variant="ghost">{{ __('Cancel') }}</flux:button>
+                        </flux:modal.close>
+
+                        <flux:button type="submit" variant="primary" icon="envelope">{{ __('Send code') }}</flux:button>
+                    </div>
+                </form>
+            @else
+                <form wire:submit="addNewEmail" class="space-y-6">
+                    <div>
+                        <flux:heading size="lg">{{ __('Check your inbox') }}</flux:heading>
+                        <flux:text class="mt-2 break-words">{{ __('We sent a 6-digit code to :email. It expires in :minutes minutes.', ['email' => $newEmailSentTo, 'minutes' => App\Auth\EmailCodes::MINUTES_VALID]) }}</flux:text>
+                    </div>
+
+                    <x-code-input wire:model="newEmailCode" :label="__('Code')" :hint="__('Paste or type it. The address is added as soon as it\'s complete.')" />
+
+                    <x-code-resend :seconds="$this->secondsUntilNewEmailResend" action="resendNewEmailCode" :failed="$errors->has('newEmailCode')">
+                        <flux:link as="button" wire:click="changeNewEmail" :variant="$errors->has('newEmailCode') ? 'subtle' : 'ghost'">{{ __('Use another address') }}</flux:link>
+                    </x-code-resend>
+
+                    <div class="flex justify-end gap-2">
+                        <flux:modal.close>
+                            <flux:button variant="ghost">{{ __('Cancel') }}</flux:button>
+                        </flux:modal.close>
+
+                        <flux:button type="submit" variant="primary">{{ __('Add email') }}</flux:button>
+                    </div>
+                </form>
+            @endif
+        </flux:modal>
+    @endif
 </div>

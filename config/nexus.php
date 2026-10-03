@@ -66,7 +66,10 @@ return [
     | are limited per minute for each credential a client uses (each of its
     | tokens), so a runaway agent can't exhaust the user's downstream quotas.
     | Anyone may register an OAuth client with a Star in OAuth mode, so
-    | registrations are limited per hour for each IP address.
+    | registrations are limited per hour for each IP address. Anyone may ask
+    | for a sign-in code by email, so codes are limited per hour for each
+    | address and for each IP address, besides a minute's pause between two
+    | codes to the same address.
     |
     */
 
@@ -76,6 +79,8 @@ return [
         'tokens_per_star' => (int) env('NEXUS_TOKENS_PER_STAR', 10),
         'calls_per_minute' => (int) env('NEXUS_CALLS_PER_MINUTE', 120),
         'oauth_registrations_per_hour' => (int) env('NEXUS_OAUTH_REGISTRATIONS_PER_HOUR', 20),
+        'email_codes_per_address_per_hour' => (int) env('NEXUS_EMAIL_CODES_PER_ADDRESS_PER_HOUR', 5),
+        'email_codes_per_ip_per_hour' => (int) env('NEXUS_EMAIL_CODES_PER_IP_PER_HOUR', 20),
     ],
 
     /*
