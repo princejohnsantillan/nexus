@@ -30,9 +30,9 @@ function openStarThroughTheEdge(Star $star): TestResponse
 it('trusts Laravel Cloud\'s edge, so a Star\'s endpoint is the HTTPS address clients use', function (): void {
     $_SERVER['LARAVEL_CLOUD'] = '1';
 
-    openStarThroughTheEdge($this->star)->assertOk()->assertSeeHtml('value="https://nexus.example.com/mcp/'.$this->star->public_id.'"');
+    openStarThroughTheEdge($this->star)->assertOk()->assertSeeHtml('data-star-endpoint-url>https://nexus.example.com/mcp/'.$this->star->public_id.'</span>');
 });
 
 it('ignores forwarded headers anywhere but Laravel Cloud', function (): void {
-    openStarThroughTheEdge($this->star)->assertOk()->assertSeeHtml('value="http://nexus.example.com/mcp/'.$this->star->public_id.'"');
+    openStarThroughTheEdge($this->star)->assertOk()->assertSeeHtml('data-star-endpoint-url>http://nexus.example.com/mcp/'.$this->star->public_id.'</span>');
 });
