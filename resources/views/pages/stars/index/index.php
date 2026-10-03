@@ -114,12 +114,12 @@ return new #[Title('Stars')] class extends Component
     }
 
     /**
-     * How many Stars a user may have.
+     * How many Stars the user's plan allows, or null when it has no limit.
      */
     #[Computed]
-    public function starLimit(): int
+    public function starLimit(): ?int
     {
-        return config()->integer('nexus.limits.stars_per_user');
+        return $this->user->plan()->starLimit();
     }
 
     /**

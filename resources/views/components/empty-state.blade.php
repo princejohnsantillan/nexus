@@ -23,7 +23,7 @@
 
     <flux:heading :size="$compact ? 'base' : 'lg'" :level="$compact ? 3 : 2" :class="$compact ? 'mt-3' : 'mt-4'">{{ $heading }}</flux:heading>
 
-    <flux:text :class="'max-w-md '.($compact ? 'mt-1' : 'mt-2')">{{ $slot }}</flux:text>
+    <flux:text :class="$compact ? 'mt-1 max-w-xl' : 'mt-2 max-w-md'">{{ $slot }}</flux:text>
 
     @isset($actions)
         <div @class(['flex flex-wrap justify-center gap-2', 'mt-6' => ! $compact, 'mt-4' => $compact])>

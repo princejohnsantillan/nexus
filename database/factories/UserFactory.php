@@ -41,6 +41,36 @@ class UserFactory extends Factory
     }
 
     /**
+     * Indicate that the user is on Pro, with a year of it left.
+     */
+    public function pro(): static
+    {
+        return $this->state(fn (array $attributes): array => [
+            'pro_until' => now()->addYear(),
+        ]);
+    }
+
+    /**
+     * Indicate that the user's Pro ends in this many days.
+     */
+    public function proEndingIn(int $days): static
+    {
+        return $this->state(fn (array $attributes): array => [
+            'pro_until' => now()->addDays($days),
+        ]);
+    }
+
+    /**
+     * Indicate that the user had Pro, which has ended, so they are on Free.
+     */
+    public function proEnded(): static
+    {
+        return $this->state(fn (array $attributes): array => [
+            'pro_until' => now()->subDay(),
+        ]);
+    }
+
+    /**
      * Indicate that the user hides their email address on GitHub.
      */
     public function withHiddenEmail(): static

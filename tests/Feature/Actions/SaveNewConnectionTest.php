@@ -20,7 +20,7 @@ it('saves a new Connection for the user while they are below the limit', functio
 
 it('keeps to the limit when two saves for one user overlap', function (): void {
     Sleep::fake(syncWithCarbon: true);
-    config(['nexus.limits.connections_per_user' => 1]);
+    config(['nexus.plans.free.connections' => 1]);
     $user = User::factory()->create();
     $overlapped = false;
     $refused = null;

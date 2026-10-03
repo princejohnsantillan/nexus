@@ -20,7 +20,7 @@ beforeEach(function (): void {
 });
 
 it('shows an empty state with a way to create the first Star', function (): void {
-    config(['nexus.limits.stars_per_user' => 10]);
+    config(['nexus.plans.free.stars' => 10]);
 
     Livewire::test('pages::stars.index')
         ->assertOk()
@@ -99,7 +99,7 @@ it('draws a sparkline of a Star\'s calls over the last two weeks, only when it h
     expect(substr_count($response->getContent(), 'data-sparkline'))->toBe(1);
 });
 
-it('reads every Star\'s calls from Activity in one query, and counts the Stars once', function (): void {
+it('reads every Star\'s calls from Activity in one query, and counts the Stars once for the page and once for the sidebar\'s plan card', function (): void {
     $this->freezeTime();
     $this->user->forceFill(['getting_started_closed_at' => now()])->save();
     $connection = Connection::factory()->for($this->user)->create();
@@ -115,11 +115,11 @@ it('reads every Star\'s calls from Activity in one query, and counts the Stars o
 
     $queries = array_column(DB::getQueryLog(), 'query');
     expect(array_filter($queries, fn (string $query): bool => str_contains($query, 'activity_entries')))->toHaveCount(1)
-        ->and(array_filter($queries, fn (string $query): bool => str_starts_with($query, 'select count(*) as "aggregate" from "stars"')))->toHaveCount(1);
+        ->and(array_filter($queries, fn (string $query): bool => str_starts_with($query, 'select count(*) as "aggregate" from "stars"')))->toHaveCount(2);
 });
 
 it('counts the user\'s Stars against the limit next to Create Star', function (): void {
-    config(['nexus.limits.stars_per_user' => 5]);
+    config(['nexus.plans.free.stars' => 5]);
     Star::factory()->for($this->user)->count(2)->create();
     Star::factory()->create();
 
@@ -224,6 +224,7 @@ it('creates a Star without Connections, which can be added later', function (): 
 });
 
 it('gives each of the user\'s Stars its own slug', function (): void {
+    config(['nexus.plans.free.stars' => 10]);
     Star::factory()->for($this->user)->create(['name' => 'Work', 'slug' => 'work']);
     Star::factory()->create(['name' => 'Work', 'slug' => 'work']);
 
@@ -256,29 +257,29 @@ it('refuses another user\'s Connection', function (): void {
 });
 
 it('stops at the Stars limit with a friendly message', function (): void {
-    config(['nexus.limits.stars_per_user' => 2]);
+    config(['nexus.plans.free.stars' => 2]);
     Star::factory()->for($this->user)->count(2)->create();
 
     $page = Livewire::test('pages::stars.index')
         ->assertSeeTextInOrder(['2 / 2 Stars', 'Create Star'])
         ->assertSeeText('Star limit reached')
-        ->assertSeeText('You have 2 Stars, the most an account can have. Delete one to create another.');
+        ->assertSeeText('Free includes 2 Stars. Go Pro for more, or delete one you no longer use.');
 
     expect(createStarIsDisabled($page->html()))->toBeTrue();
 
     $page->set('name', 'One too many')
         ->call('create')
-        ->assertHasErrors(['limit' => 'You have 2 Stars, the most an account can have. Delete one to create another.']);
+        ->assertHasErrors(['limit' => 'Free includes 2 Stars. Go Pro for more, or delete one you no longer use.']);
 
     expect($this->user->stars()->count())->toBe(2);
 });
 
 it('says "1 Star" when the limit is one', function (): void {
-    config(['nexus.limits.stars_per_user' => 1]);
+    config(['nexus.plans.free.stars' => 1]);
     Star::factory()->for($this->user)->create();
 
     Livewire::test('pages::stars.index')
-        ->assertSeeText('You have 1 Star, the most an account can have. Delete it to create another.');
+        ->assertSeeText('Free includes 1 Star. Go Pro for more, or delete it if you no longer use it.');
 });
 
 it('escapes the names and descriptions users give their Stars', function (): void {

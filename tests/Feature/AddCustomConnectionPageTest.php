@@ -189,7 +189,7 @@ it('refuses a header value with a line break', function (): void {
 });
 
 it('refuses another Connection once the user has as many as an account may', function (): void {
-    config(['nexus.limits.connections_per_user' => 2]);
+    config(['nexus.plans.free.connections' => 2]);
     Connection::factory()->for($this->user)->count(2)->create();
     $server = FakeMcpServer::at();
 
@@ -199,7 +199,7 @@ it('refuses another Connection once the user has as many as an account may', fun
         ->set('handle', 'deepwiki')
         ->set('url', FakeMcpServer::DEFAULT_URL)
         ->call('save')
-        ->assertHasErrors(['limit' => 'You have 2 Connections, the most an account can have. Delete one to add another.']);
+        ->assertHasErrors(['limit' => 'Free includes 2 Connections. Go Pro for more, or delete one you no longer use.']);
 
     expect($this->user->connections()->count())->toBe(2)
         ->and($server->requests())->toBeEmpty();

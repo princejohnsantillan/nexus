@@ -58,6 +58,8 @@ Route::middleware('auth')->group(function (): void {
     Route::get('/connections/{connection}/connect', StartSignInController::class)->name('connections.connect');
     Route::get('/oauth/callback', SignInCallbackController::class)->name('oauth.callback');
     Route::livewire('/activity', 'pages::activity.index')->name('activity.index');
+    Route::livewire('/billing', 'pages::billing.index')->name('billing.index');
+    Route::livewire('/billing/upgrade', 'pages::billing.upgrade')->name('billing.upgrade');
     Route::livewire('/settings', 'pages::settings.index')->name('settings.index');
     Route::get('/settings/sign-in-methods/google', AddGoogleController::class)->name('settings.add-google');
 

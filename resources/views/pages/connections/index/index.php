@@ -111,12 +111,12 @@ return new #[Title('Connections')] class extends Component
     }
 
     /**
-     * The most Connections an account may have.
+     * How many Connections the user's plan allows, or null when it has no limit.
      */
     #[Computed]
-    public function limit(): int
+    public function limit(): ?int
     {
-        return config()->integer('nexus.limits.connections_per_user');
+        return $this->user->plan()->connectionLimit();
     }
 
     /**
@@ -125,7 +125,7 @@ return new #[Title('Connections')] class extends Component
     #[Computed]
     public function limitMessage(): ?string
     {
-        return $this->connections->count() >= $this->limit ? SaveNewConnection::limitMessage() : null;
+        return $this->limit !== null && $this->connections->count() >= $this->limit ? SaveNewConnection::limitMessage() : null;
     }
 
     /**

@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use App\Enums\BillingPeriod;
 use App\Enums\IdentityProvider;
+use App\Enums\Plan;
 use Carbon\CarbonImmutable;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -36,6 +38,10 @@ use Laravel\Passport\HasApiTokens;
  * the Stars page closed for good: the user dismissed it or did every step
  * (App\Stars\GettingStarted).
  *
+ * `pro_until` is when the user's prepaid Pro ends: they are on Pro while it
+ * is in the future, and on Free otherwise (plan()). Paying moves it forward
+ * from nextProStart(); nothing renews it on its own.
+ *
  * @property int $id
  * @property string $name
  * @property string|null $email
@@ -46,6 +52,7 @@ use Laravel\Passport\HasApiTokens;
  * @property CarbonImmutable|null $created_at
  * @property CarbonImmutable|null $updated_at
  * @property CarbonImmutable|null $getting_started_closed_at
+ * @property CarbonImmutable|null $pro_until
  * @property-read DatabaseNotificationCollection<int, DatabaseNotification> $notifications
  * @property-read int|null $notifications_count
  *
@@ -61,6 +68,7 @@ use Laravel\Passport\HasApiTokens;
  * @method static \Illuminate\Database\Eloquent\Builder<static>|User whereGithubLogin($value)
  * @method static \Illuminate\Database\Eloquent\Builder<static>|User whereId($value)
  * @method static \Illuminate\Database\Eloquent\Builder<static>|User whereName($value)
+ * @method static \Illuminate\Database\Eloquent\Builder<static>|User whereProUntil($value)
  * @method static \Illuminate\Database\Eloquent\Builder<static>|User whereRememberToken($value)
  * @method static \Illuminate\Database\Eloquent\Builder<static>|User whereUpdatedAt($value)
  *
@@ -83,6 +91,11 @@ class User extends Authenticatable implements OAuthenticatable
     use HasApiTokens, HasFactory, Notifiable;
 
     /**
+     * How many days before Pro ends the app starts warning that it will.
+     */
+    public const int PRO_ENDING_SOON_DAYS = 7;
+
+    /**
      * Get the attributes that should be cast.
      *
      * @return array<string, string>
@@ -92,6 +105,7 @@ class User extends Authenticatable implements OAuthenticatable
         return [
             'github_id' => 'integer',
             'getting_started_closed_at' => 'datetime',
+            'pro_until' => 'datetime',
         ];
     }
 
@@ -104,11 +118,13 @@ class User extends Authenticatable implements OAuthenticatable
     }
 
     /**
-     * Whether the user has as many Connections as `nexus.limits.connections_per_user` allows.
+     * Whether the user has as many Connections as their plan allows. Pro never does.
      */
     public function hasReachedConnectionLimit(): bool
     {
-        return $this->connections()->count() >= config()->integer('nexus.limits.connections_per_user');
+        $limit = $this->plan()->connectionLimit();
+
+        return $limit !== null && $this->connections()->count() >= $limit;
     }
 
     /**
@@ -120,11 +136,64 @@ class User extends Authenticatable implements OAuthenticatable
     }
 
     /**
-     * Whether the user has as many Stars as `nexus.limits.stars_per_user` allows.
+     * Whether the user has as many Stars as their plan allows. Pro never does.
      */
     public function hasReachedStarLimit(): bool
     {
-        return $this->stars()->count() >= config()->integer('nexus.limits.stars_per_user');
+        $limit = $this->plan()->starLimit();
+
+        return $limit !== null && $this->stars()->count() >= $limit;
+    }
+
+    /**
+     * Pro while `pro_until` is in the future, Free otherwise.
+     */
+    public function plan(): Plan
+    {
+        return $this->pro_until?->isFuture() === true ? Plan::Pro : Plan::Free;
+    }
+
+    /**
+     * How many days of Pro the user has left, counting a part of a day as a
+     * whole one, or null when they are on Free.
+     */
+    public function proDaysLeft(): ?int
+    {
+        if ($this->pro_until?->isFuture() !== true) {
+            return null;
+        }
+
+        return (int) ceil(CarbonImmutable::now()->diffInDays($this->pro_until));
+    }
+
+    /**
+     * Whether the user is in Pro's last PRO_ENDING_SOON_DAYS days.
+     */
+    public function isProEndingSoon(): bool
+    {
+        $daysLeft = $this->proDaysLeft();
+
+        return $daysLeft !== null && $daysLeft <= self::PRO_ENDING_SOON_DAYS;
+    }
+
+    /**
+     * When Pro paid for now starts: now, or when the user's current Pro
+     * ends if that is later, so paying early never loses days and months
+     * and years stack. Pro then lasts until `$period->after()` this.
+     */
+    public function nextProStart(): CarbonImmutable
+    {
+        $now = CarbonImmutable::now();
+
+        return $this->pro_until !== null && $this->pro_until->isAfter($now) ? $this->pro_until : $now;
+    }
+
+    /**
+     * When the user's Pro would end if they paid for one more period now.
+     */
+    public function proUntilAfterPaying(BillingPeriod $period): CarbonImmutable
+    {
+        return $period->after($this->nextProStart());
     }
 
     /**
