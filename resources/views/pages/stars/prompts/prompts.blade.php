@@ -53,11 +53,11 @@
                                     <x-permission-row wire:key="prompt-{{ $prompt->prompt->id }}" :title="$prompt->prompt->title" :description="$prompt->prompt->description">
                                         <x-slot:name>{{ $prompt->name }}</x-slot:name>
 
-                                        {{-- Keyed by its state, so a switch changed on the server is drawn afresh: Flux's switch keeps its own state otherwise. --}}
+                                        {{-- Keyed by its state, so a switch changed on the server is drawn afresh: Flux's switch keeps its own state otherwise. It reports a toggle by click, Enter or Space as a change event, never a keyboard click. --}}
                                         <flux:switch
                                             wire:key="switch-{{ $prompt->prompt->id }}-{{ $prompt->enabled ? 'on' : 'off' }}"
                                             :checked="$prompt->enabled"
-                                            wire:click="switchPrompt({{ $prompt->prompt->id }}, {{ $prompt->enabled ? 'false' : 'true' }})"
+                                            wire:change="switchPrompt({{ $prompt->prompt->id }}, {{ $prompt->enabled ? 'false' : 'true' }})"
                                             :aria-label="__('Switch :name on or off', ['name' => $prompt->name])"
                                         />
 
