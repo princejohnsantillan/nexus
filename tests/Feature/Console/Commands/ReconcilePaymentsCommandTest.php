@@ -182,6 +182,31 @@ it('closes at most 50 stale checkouts a run, oldest first, and leaves the rest f
         ->assertSuccessful();
 });
 
+it('gives every stale checkout its turn, behind none that PayMongo keeps failing on', function (): void {
+    $payMongo = FakePayMongo::fake();
+    $user = User::factory()->create();
+    $unknownToPayMongo = Payment::factory()->count(50)->create(['created_at' => now()->subDays(3)]);
+    $paid = Payment::factory()->for($user)->create(['created_at' => now()->subDays(2)]);
+    $payMongo->paid($paid);
+
+    $this->artisan('nexus:billing:reconcile')
+        ->expectsOutputToContain('Looked at 50 pending payments: 0 paid, 0 expired, 50 still pending.')
+        ->expectsOutputToContain('1 more is left for the next run.')
+        ->assertSuccessful();
+
+    expect($paid->fresh()->status)->toBe(PaymentStatus::Pending);
+
+    $this->travel(10)->minutes();
+    $this->artisan('nexus:billing:reconcile')
+        ->expectsOutputToContain('Looked at 50 pending payments: 1 paid, 0 expired, 49 still pending.')
+        ->expectsOutputToContain('1 more is left for the next run.')
+        ->assertSuccessful();
+
+    expect($paid->fresh()->status)->toBe(PaymentStatus::Paid)
+        ->and($user->fresh()->pro_until)->toEqual(CarbonImmutable::parse('2027-10-03 06:10:00', 'UTC'))
+        ->and($unknownToPayMongo->last()->fresh()->reconciled_at)->toEqual(CarbonImmutable::parse('2026-10-03 06:00:00', 'UTC'));
+});
+
 it('starts on no more payments after 5 minutes, and leaves them for the next run', function (): void {
     $payMongo = FakePayMongo::fake();
     $slow = Payment::factory()->create(['created_at' => now()->subMinutes(30)]);

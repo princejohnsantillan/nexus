@@ -27,7 +27,8 @@ use Illuminate\Support\Str;
  * last 4) and the Pro period it bought (`pro_from` to `pro_until`), or that
  * it expired, when nothing was charged. The amount and period are set by
  * Nexus from the plan, never by the client. Deleting the user deletes their
- * payments.
+ * payments. `reconciled_at` is when App\Actions\ReconcilePayments last
+ * asked PayMongo about it.
  *
  * @property int $id
  * @property int $user_id
@@ -47,6 +48,7 @@ use Illuminate\Support\Str;
  * @property CarbonImmutable|null $confirmed_at
  * @property CarbonImmutable|null $pro_from
  * @property CarbonImmutable|null $pro_until
+ * @property CarbonImmutable|null $reconciled_at
  * @property CarbonImmutable|null $created_at
  * @property CarbonImmutable|null $updated_at
  * @property-read User $user
@@ -105,6 +107,7 @@ class Payment extends Model
             'confirmed_at' => 'datetime',
             'pro_from' => 'datetime',
             'pro_until' => 'datetime',
+            'reconciled_at' => 'datetime',
         ];
     }
 

@@ -8,6 +8,7 @@ use App\Enums\PaymentStatus;
 use App\Exceptions\PayMongoRequestFailed;
 use App\Models\Payment;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Eloquent\Builder;
 
 /**
  * Settle the pending payments nothing else settled: a checkout paid by a
@@ -25,9 +26,14 @@ use Carbon\CarbonImmutable;
  * the actions itself rather than queueing them, so it can say how each
  * payment ended up.
  *
- * One run closes at most EXPIRES_PER_RUN stale checkouts, oldest first,
- * and starts on no payment once it has run for RUNS_FOR_AT_MOST seconds,
- * so a slow PayMongo can't stall it: what it leaves waits for the next run.
+ * One run closes at most EXPIRES_PER_RUN stale checkouts, and starts on
+ * no payment once it has run for RUNS_FOR_AT_MOST seconds, so a slow
+ * PayMongo can't stall it: what it leaves waits for the next run. Each
+ * payment it starts on gets `reconciled_at`, and each run takes first the
+ * payments it asked PayMongo about longest ago, counting one never asked
+ * about from when it was created. So payments PayMongo keeps failing on
+ * (such as a checkout it no longer knows) take their turn behind the
+ * others instead of filling every run.
  * When PayMongo can't be asked, the payment stays pending for the next run.
  * Every step goes through ConfirmPayment's locks, so running it again, or
  * while the return page or the webhook confirms the same payment, applies a
@@ -73,11 +79,11 @@ final readonly class ReconcilePayments
         $expireBefore = $now->subHours(self::EXPIRE_AFTER_HOURS);
         $outcomes = ['paid' => 0, 'expired' => 0, 'pending' => 0, 'deferred' => 0];
 
-        $recent = Payment::query()
+        $recent = $this->longestUnaskedFirst(Payment::query()
             ->where('status', PaymentStatus::Pending)
             ->where('created_at', '>', $expireBefore)
-            ->where('created_at', '<=', $now->subMinutes(self::CONFIRM_AFTER_MINUTES))
-            ->lazyById()
+            ->where('created_at', '<=', $now->subMinutes(self::CONFIRM_AFTER_MINUTES)))
+            ->get()
             ->map(fn (Payment $payment): array => [$payment, false]);
 
         $stale = Payment::query()
@@ -86,7 +92,7 @@ final readonly class ReconcilePayments
 
         $outcomes['deferred'] = max(0, $stale->count() - self::EXPIRES_PER_RUN);
 
-        $staleBatch = $stale->orderBy('id')->limit(self::EXPIRES_PER_RUN)->get()
+        $staleBatch = $this->longestUnaskedFirst($stale)->limit(self::EXPIRES_PER_RUN)->get()
             ->map(fn (Payment $payment): array => [$payment, true]);
 
         foreach ($recent->concat($staleBatch) as [$payment, $isStale]) {
@@ -96,10 +102,24 @@ final readonly class ReconcilePayments
                 continue;
             }
 
+            Payment::query()->whereKey($payment->id)->update(['reconciled_at' => CarbonImmutable::now()]);
+
             $outcomes[$this->reconcile($payment, $isStale)->status->value]++;
         }
 
         return $outcomes;
+    }
+
+    /**
+     * Order the payments by when PayMongo was last asked about them here,
+     * or else when they were created, longest ago first.
+     *
+     * @param  Builder<Payment>  $payments
+     * @return Builder<Payment>
+     */
+    private function longestUnaskedFirst(Builder $payments): Builder
+    {
+        return $payments->orderByRaw('coalesce(reconciled_at, created_at)')->orderBy('id');
     }
 
     private function reconcile(Payment $payment, bool $isStale): Payment
