@@ -5,42 +5,41 @@
         {{ __('Connect your MCP servers once, then use them in every AI client. New here? Signing in creates your account.') }}
     </flux:text>
 
-    {{-- Each way to sign in stacks here, GitHub first. --}}
-    <div class="mt-7 flex flex-col gap-2.5">
-        <flux:button
-            variant="primary"
-            :href="route('auth.github')"
-            class="w-full [--color-accent-foreground:var(--color-white)] [--color-accent:var(--color-zinc-950)] dark:[--color-accent-foreground:var(--color-zinc-950)] dark:[--color-accent:var(--color-white)]"
-        >
-            <x-icons.github class="size-4" />
-            {{ __('Continue with GitHub') }}
-        </flux:button>
-
-        @if ($this->googleSignInIsEnabled)
-            <flux:button :href="route('auth.google')" class="w-full">
-                <x-icons.google class="size-4" />
-                {{ __('Continue with Google') }}
-            </flux:button>
-        @endif
-    </div>
+    <flux:button
+        variant="primary"
+        :href="route('auth.github')"
+        class="mt-7 h-10.5! w-full gap-2.5! [--color-accent-foreground:var(--color-white)] [--color-accent:var(--color-zinc-950)] dark:[--color-accent-foreground:var(--color-zinc-950)] dark:[--color-accent:var(--color-white)]"
+    >
+        <x-icons.github class="size-4.25" />
+        {{ __('Continue with GitHub') }}
+    </flux:button>
 
     @if ($this->emailSignInIsEnabled)
-        <flux:separator variant="subtle" :text="__('or use your email')" class="mt-7 [&>span]:mx-3 [&>span]:font-normal dark:[&>span]:text-zinc-400" />
+        <flux:separator
+            :text="__('or use your email')"
+            class="mt-7 [&>div]:bg-zinc-200 dark:[&>div]:bg-white/10 [&>span]:mx-3 [&>span]:text-[0.8125rem] [&>span]:leading-4 [&>span]:font-normal dark:[&>span]:text-zinc-400"
+        />
 
-        <form wire:submit="sendCode" class="mt-6">
-            <flux:input
-                wire:model="email"
-                type="email"
-                :label="__('Email')"
-                autocomplete="email"
-                autocapitalize="off"
-                spellcheck="false"
-                required
-            />
+        <form wire:submit="sendCode" class="mt-7">
+            {{-- Board S1's field: a 13px label 6px above a 42px input with a strong rule. --}}
+            <flux:field class="*:data-flux-label:mb-1.5! [&>[data-flux-label]]:flex [&_input]:h-10.5 [&_input]:border-zinc-300 [&_input]:px-3.5 [&_input]:text-zinc-950 dark:[&_input]:border-white/10 dark:[&_input]:text-white">
+                <flux:label class="text-[0.8125rem]! leading-4 text-zinc-950 dark:text-white">{{ __('Email') }}</flux:label>
 
-            <flux:button type="submit" icon="envelope" icon:variant="outline" class="mt-3 w-full">{{ __('Email me a sign-in code') }}</flux:button>
+                <flux:input
+                    wire:model="email"
+                    type="email"
+                    autocomplete="email"
+                    autocapitalize="off"
+                    spellcheck="false"
+                    required
+                />
 
-            <flux:text size="sm" class="mt-3 text-zinc-500 dark:text-zinc-400">{{ __('We\'ll send a 6-digit code. No password to remember.') }}</flux:text>
+                <flux:error name="email" />
+            </flux:field>
+
+            <flux:button type="submit" icon="envelope" icon:variant="outline" class="mt-3 h-10.5! w-full border-zinc-300! ps-4! text-zinc-950! dark:border-zinc-600! dark:text-white!">{{ __('Email me a sign-in code') }}</flux:button>
+
+            <flux:text class="mt-3 text-[0.8125rem] leading-5 text-zinc-600 dark:text-zinc-400">{{ __('We\'ll send a 6-digit code. No password to remember.') }}</flux:text>
         </form>
     @endif
 

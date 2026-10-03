@@ -12,9 +12,6 @@ enum IdentityProvider: string
     /** GitHub's numeric user id; the login is the GitHub login. */
     case GitHub = 'github';
 
-    /** Google's subject id (`sub`); the login is the Google account's email address. */
-    case Google = 'google';
-
     /** A one-time code sent to an email address; the id and the login are the address, in lower case. */
     case Email = 'email';
 
@@ -22,7 +19,6 @@ enum IdentityProvider: string
     {
         return match ($this) {
             self::GitHub => __('GitHub'),
-            self::Google => __('Google'),
             self::Email => __('Email'),
         };
     }

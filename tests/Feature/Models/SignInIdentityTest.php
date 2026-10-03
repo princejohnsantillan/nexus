@@ -16,12 +16,3 @@ it('gives each provider\'s account to one user only', function (): void {
 
     expect($otherUser->signInIdentities()->count())->toBe(0);
 });
-
-it('lets the same email address sign in with Google and with a code as different identities', function (): void {
-    $user = User::factory()->create();
-
-    SignInIdentity::factory()->for($user)->google('ada@example.com')->create();
-    SignInIdentity::factory()->for($user)->email('ada@example.com')->create();
-
-    expect($user->signInIdentities()->count())->toBe(2);
-});

@@ -41,7 +41,7 @@ it('leaves the users\' GitHub columns as they were, but no longer required', fun
 
     $migration->up();
 
-    DB::table('users')->insert(['id' => 2, 'name' => 'Signed up with Google', 'github_id' => null, 'github_login' => null]);
+    DB::table('users')->insert(['id' => 2, 'name' => 'Signed up with an email code', 'github_id' => null, 'github_login' => null]);
 
     expect(DB::table('users')->orderBy('id')->get(['github_id', 'github_login'])->map(fn (stdClass $row): array => (array) $row)->all())->toBe([
         ['github_id' => 583231, 'github_login' => 'octocat'],

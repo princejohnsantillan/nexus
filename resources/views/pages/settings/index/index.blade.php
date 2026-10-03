@@ -50,16 +50,11 @@
                     @foreach ($this->identities as $identity)
                         <li class="flex items-center gap-3 py-3" wire:key="sign-in-identity-{{ $identity->id }}">
                             <div class="flex size-8 shrink-0 items-center justify-center rounded-lg bg-zinc-100 text-zinc-900 dark:bg-zinc-700 dark:text-white" aria-hidden="true">
-                                @switch($identity->provider)
-                                    @case(App\Enums\IdentityProvider::GitHub)
-                                        <x-icons.github class="size-4" />
-                                        @break
-                                    @case(App\Enums\IdentityProvider::Google)
-                                        <x-icons.google class="size-4" />
-                                        @break
-                                    @default
-                                        <flux:icon.envelope variant="micro" class="size-4 text-zinc-500 dark:text-zinc-300" />
-                                @endswitch
+                                @if ($identity->provider === App\Enums\IdentityProvider::GitHub)
+                                    <x-icons.github class="size-4" />
+                                @else
+                                    <flux:icon.envelope variant="micro" class="size-4 text-zinc-500 dark:text-zinc-300" />
+                                @endif
                             </div>
 
                             <div class="min-w-0 flex-1">
@@ -115,13 +110,6 @@
             <x-slot:hint>{{ __('Each one signs in to this account. Nexus never joins accounts by matching email addresses.') }}</x-slot:hint>
 
             <x-slot:actions>
-                @if ($this->googleSignInIsEnabled)
-                    <flux:button size="sm" :href="route('settings.add-google')">
-                        <x-icons.google class="size-4" />
-                        {{ __('Add Google') }}
-                    </flux:button>
-                @endif
-
                 @if ($this->addingEmailIsEnabled)
                     <flux:modal.trigger name="add-email">
                         <flux:button size="sm" icon="envelope">{{ __('Add email') }}</flux:button>

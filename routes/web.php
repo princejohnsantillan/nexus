@@ -2,12 +2,9 @@
 
 declare(strict_types=1);
 
-use App\Http\Controllers\Auth\AddGoogleController;
 use App\Http\Controllers\Auth\DevSignInController;
 use App\Http\Controllers\Auth\GitHubCallbackController;
 use App\Http\Controllers\Auth\GitHubRedirectController;
-use App\Http\Controllers\Auth\GoogleCallbackController;
-use App\Http\Controllers\Auth\GoogleRedirectController;
 use App\Http\Controllers\Auth\SignOutController;
 use App\Http\Controllers\ConnectionOAuth\ClientMetadataDocumentController;
 use App\Http\Controllers\ConnectionOAuth\SignInCallbackController;
@@ -25,7 +22,6 @@ Route::middleware('guest')->group(function (): void {
 
     Route::get('/auth/github', GitHubRedirectController::class)->name('auth.github');
     Route::get('/auth/github/callback', GitHubCallbackController::class)->name('auth.github.callback');
-    Route::get('/auth/google', GoogleRedirectController::class)->name('auth.google');
 });
 
 // The Pricing page, for guests and signed-in users alike.
@@ -35,9 +31,6 @@ Route::livewire('/pricing', 'pages::pricing')->name('pricing');
 Route::livewire('/terms', 'pages::legal.terms')->name('legal.terms');
 Route::livewire('/privacy', 'pages::legal.privacy')->name('legal.privacy');
 Route::livewire('/refunds', 'pages::legal.refunds')->name('legal.refunds');
-
-// Google's one callback, for guests signing in and for signed-in users adding Google from Settings.
-Route::get('/auth/google/callback', GoogleCallbackController::class)->name('auth.google.callback');
 
 Route::get('/dev/sign-in/{account}', DevSignInController::class)->name('dev.sign-in');
 
@@ -65,7 +58,6 @@ Route::middleware('auth')->group(function (): void {
     Route::livewire('/billing/upgrade', 'pages::billing.upgrade')->name('billing.upgrade');
     Route::livewire('/billing/payments/{payment}', 'pages::billing.payments.show')->name('billing.payments.show');
     Route::livewire('/settings', 'pages::settings.index')->name('settings.index');
-    Route::get('/settings/sign-in-methods/google', AddGoogleController::class)->name('settings.add-google');
 
     Route::post('/oauth/authorize', ApproveAuthorizationController::class)->name('passport.authorizations.approve');
     Route::delete('/oauth/authorize', [DenyAuthorizationController::class, 'deny'])->name('passport.authorizations.deny');
