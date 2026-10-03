@@ -6,6 +6,7 @@ use App\Actions\SignInWithEmail;
 use App\Auth\EmailCodes;
 use App\Auth\PendingEmailSignIn;
 use App\Enums\EmailCodePurpose;
+use App\Exceptions\EmailCodeNotSent;
 use App\Exceptions\EmailCodeRejected;
 use App\Exceptions\TooManyEmailCodes;
 use Flux\Flux;
@@ -83,6 +84,10 @@ return new #[Layout('layouts::public'), Title('Check your inbox')] class extends
             $codes->send($this->email, EmailCodePurpose::SignIn);
         } catch (TooManyEmailCodes $tooMany) {
             Flux::toast(variant: 'warning', text: $tooMany->getMessage());
+
+            return;
+        } catch (EmailCodeNotSent $notSent) {
+            Flux::toast(variant: 'danger', text: $notSent->getMessage());
 
             return;
         }

@@ -5,18 +5,21 @@ declare(strict_types=1);
 namespace App\Auth;
 
 use App\Enums\EmailCodePurpose;
+use App\Exceptions\EmailCodeNotSent;
 use App\Exceptions\EmailCodeRejected;
 use App\Exceptions\TooManyEmailCodes;
 use App\Models\EmailCode;
 use App\Models\User;
 use App\Notifications\EmailCodeNotification;
+use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Str;
 use SensitiveParameter;
+use Throwable;
 
 /**
  * One-time codes emailed to an address: to sign in with it, or to add it to
@@ -25,12 +28,14 @@ use SensitiveParameter;
  * A code is six digits and only its hash is stored. It works once, for ten
  * minutes and five tries, and only for the purpose (and the user) it was
  * sent for; sending a new one replaces it. Sending is limited per address,
- * with a pause between codes, and per IP address. What happens is the same
- * whether or not anyone signs in with the address, so sending reveals
- * nothing about accounts.
+ * with a pause between codes, and per IP address; the limits are counted
+ * atomically, so of two sends to one address at once only one gets through.
+ * What happens is the same whether or not anyone signs in with the address,
+ * so sending reveals nothing about accounts.
  *
  * The code is never logged and never part of an exception: parameters that
- * carry it are #[SensitiveParameter], so stack traces leave it out. The
+ * carry it are #[SensitiveParameter], so stack traces leave it out, and a
+ * failure to send the email is replaced by an exception of Nexus's own. The
  * email (EmailCodeNotification) is sent at once through the configured
  * mailer, never queued, so no job payload holds it either.
  */
@@ -47,7 +52,10 @@ class EmailCodes
      */
     public const int SECONDS_BETWEEN_SENDS = 60;
 
-    public function __construct(private readonly Request $request) {}
+    public function __construct(
+        private readonly Request $request,
+        private readonly Hasher $hasher,
+    ) {}
 
     /**
      * Whether codes can reach anyone. In production the log and array
@@ -82,6 +90,7 @@ class EmailCodes
      * @param  User|null  $user  The signed-in user adding the address, or null to sign in with it.
      *
      * @throws TooManyEmailCodes when the address or this IP address must wait
+     * @throws EmailCodeNotSent when the email couldn't be sent
      */
     public function send(string $email, EmailCodePurpose $purpose, ?User $user = null): void
     {
@@ -91,19 +100,19 @@ class EmailCodes
 
         $code = Str::padLeft((string) random_int(0, 10 ** self::LENGTH - 1), self::LENGTH, '0');
 
-        DB::transaction(function () use ($email, $purpose, $user, $code): void {
+        $issued = DB::transaction(function () use ($email, $purpose, $user, $code): EmailCode {
             EmailCode::sentTo($email, $purpose, $user)->delete();
 
-            EmailCode::query()->create([
+            return EmailCode::query()->create([
                 'purpose' => $purpose,
                 'email' => $email,
                 'user_id' => $user?->id,
-                'code_hash' => Hash::make($code),
+                'code_hash' => $this->hasher->make($code),
                 'expires_at' => now()->addMinutes(self::MINUTES_VALID),
             ]);
         });
 
-        Notification::route('mail', $email)->notify(new EmailCodeNotification($code, $purpose));
+        $this->deliver($issued, $code);
     }
 
     /**
@@ -113,7 +122,8 @@ class EmailCodes
      * Every try counts, right or wrong, and is counted before the code is
      * checked, in one statement, so tries made at once can't get past the
      * limit. A right code is deleted at once, and only the request that
-     * deletes it succeeds, so it works once even when sent twice at once.
+     * deletes it succeeds, so it works once even when sent twice at once;
+     * any other code for the same purpose and user goes with it.
      *
      * @param  User|null  $user  The signed-in user adding the address, or null to sign in with it.
      *
@@ -140,7 +150,7 @@ class EmailCodes
             throw EmailCodeRejected::triedTooOften();
         }
 
-        if (! Hash::check($code, $sent->code_hash)) {
+        if (! $this->hasher->check($code, $sent->code_hash)) {
             $attempts = EmailCode::query()->whereKey($sent->id)->value('attempts');
 
             throw EmailCodeRejected::wrong(self::MAX_TRIES - (is_numeric($attempts) ? (int) $attempts : self::MAX_TRIES));
@@ -149,6 +159,8 @@ class EmailCodes
         if (EmailCode::query()->whereKey($sent->id)->delete() === 0) {
             throw EmailCodeRejected::missing();
         }
+
+        EmailCode::sentTo($sent->email, $purpose, $user)->delete();
     }
 
     /**
@@ -169,18 +181,49 @@ class EmailCodes
     }
 
     /**
+     * Count a send against every limit, refusing it when one is used up. Each
+     * count is an atomic increment, checked afterwards, so sends at the same
+     * moment can't all slip under a limit; a refused send takes its counts
+     * back, so it costs nothing.
+     *
      * @throws TooManyEmailCodes
      */
     private function throttle(string $email): void
     {
-        $wait = $this->secondsUntilNextSend($email);
+        $counted = [];
 
-        if ($wait > 0) {
-            throw new TooManyEmailCodes($wait);
+        foreach ($this->limits($email) as $key => [$maxSends, $seconds]) {
+            $counted[$key] = $seconds;
+
+            if (RateLimiter::increment($key, $seconds) > $maxSends) {
+                foreach ($counted as $countedKey => $countedSeconds) {
+                    RateLimiter::decrement($countedKey, $countedSeconds);
+                }
+
+                throw new TooManyEmailCodes(max(1, $this->secondsUntilNextSend($email)));
+            }
         }
+    }
 
-        foreach ($this->limits($email) as $key => [, $seconds]) {
-            RateLimiter::hit($key, $seconds);
+    /**
+     * Send the email with the code. Whatever goes wrong while sending has the
+     * email, and so the code, in its stack trace, so it never leaves here:
+     * the code is deleted, the log names only the kind of failure, and an
+     * exception of Nexus's own, with nothing chained to it, goes instead.
+     * The email is made in here, so no frame outside holds it.
+     *
+     * @throws EmailCodeNotSent
+     */
+    private function deliver(EmailCode $issued, #[SensitiveParameter] string $code): void
+    {
+        try {
+            Notification::route('mail', $issued->email)->notify(new EmailCodeNotification($code, $issued->purpose));
+        } catch (Throwable $exception) {
+            $issued->delete();
+
+            Log::warning('An email code could not be sent.', ['reason' => $exception::class]);
+
+            throw new EmailCodeNotSent;
         }
     }
 

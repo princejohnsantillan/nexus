@@ -2,20 +2,27 @@
 
 declare(strict_types=1);
 
+use App\Auth\EmailCodes;
+use App\Enums\EmailCodePurpose;
 use App\Enums\IdentityProvider;
+use App\Exceptions\EmailCodeNotSent;
 use App\Models\EmailCode;
 use App\Models\SignInIdentity;
 use App\Models\User;
 use App\Notifications\EmailCodeNotification;
 use Illuminate\Console\Scheduling\Event as ScheduledEvent;
 use Illuminate\Console\Scheduling\Schedule;
+use Illuminate\Log\Events\MessageLogged;
 use Illuminate\Mail\Events\MessageSending;
+use Illuminate\Notifications\Events\NotificationSending;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Str;
 use Livewire\Livewire;
 use Tests\Support\SentEmailCodes;
+use Tests\Support\TraceArguments;
 
 /**
  * Ask for a sign-in code for the address on the sign-in page.
@@ -465,4 +472,88 @@ it('prunes codes once they expire, once a day', function (): void {
     expect(EmailCode::query()->pluck('email')->all())->toBe(['grace@example.com'])
         ->and(collect(resolve(Schedule::class)->events())->sole(fn (ScheduledEvent $event): bool => str_contains((string) $event->command, 'model:prune'))->command)
         ->toContain(EmailCode::class);
+});
+
+it('uses up every code for the address once one is used, so one sent at the same moment can\'t sign in afterwards', function (): void {
+    Notification::fake();
+    askForSignInCode('ada@example.com');
+    $first = SentEmailCodes::latest('ada@example.com');
+    $second = SentEmailCodes::wrong($first);
+    EmailCode::query()->create([
+        'purpose' => EmailCodePurpose::SignIn,
+        'email' => 'ada@example.com',
+        'code_hash' => Hash::make($second),
+        'expires_at' => now()->addMinutes(10),
+    ]);
+    $newestPage = Livewire::test('pages::auth.email-code');
+    $olderPage = Livewire::test('pages::auth.email-code');
+
+    $newestPage->set('code', $second)->call('signIn')->assertRedirect(route('stars.index'));
+    auth()->logout();
+
+    $olderPage->set('code', $first)
+        ->call('signIn')
+        ->assertSeeText('That code can\'t be used any more. Send a new code.');
+    $this->assertGuest();
+    expect(EmailCode::query()->count())->toBe(0);
+});
+
+it('takes back the counts of a send another limit refuses, so it costs nothing', function (): void {
+    Notification::fake();
+    $this->freezeSecond();
+    config(['nexus.limits.email_codes_per_address_per_hour' => 1, 'nexus.limits.email_codes_per_ip_per_hour' => 1]);
+    askForSignInCode('ada@example.com');
+
+    Livewire::test('pages::auth.sign-in')
+        ->set('email', 'grace@example.com')
+        ->call('sendCode')
+        ->assertSeeText('You can ask for another code in 1 hour.');
+
+    config(['nexus.limits.email_codes_per_ip_per_hour' => 2]);
+    askForSignInCode('grace@example.com');
+
+    expect(SentEmailCodes::all('grace@example.com'))->toHaveCount(1);
+});
+
+it('withdraws the code and says so when the email can\'t be sent, keeping the code out of every log and report', function (): void {
+    ini_set('zend.exception_ignore_args', '0');
+    Exceptions::fake();
+    config(['mail.default' => 'not-a-mailer']);
+    $codes = [];
+    Event::listen(NotificationSending::class, function (NotificationSending $event) use (&$codes): void {
+        $codes[] = $event->notification->code;
+    });
+    $logged = [];
+    Event::listen(MessageLogged::class, function (MessageLogged $event) use (&$logged): void {
+        $logged[] = $event->message.' '.json_encode($event->context, JSON_PARTIAL_OUTPUT_ON_ERROR);
+    });
+
+    Livewire::test('pages::auth.sign-in')
+        ->set('email', 'ada@example.com')
+        ->call('sendCode')
+        ->assertHasErrors(['email'])
+        ->assertSeeText('Nexus couldn\'t send the email just now. Try again in a minute.')
+        ->assertNoRedirect();
+
+    expect($codes)->toHaveCount(1)
+        ->and(EmailCode::query()->count())->toBe(0)
+        ->and(implode("\n", $logged))->toContain('An email code could not be sent.')->not->toContain($codes[0]);
+    Exceptions::assertNothingReported();
+});
+
+it('fails to send an email with an exception of its own, with no code anywhere in its trace', function (): void {
+    ini_set('zend.exception_ignore_args', '0');
+    config(['mail.default' => 'not-a-mailer']);
+    $codes = [];
+    Event::listen(NotificationSending::class, function (NotificationSending $event) use (&$codes): void {
+        $codes[] = $event->notification->code;
+    });
+
+    expect(fn () => resolve(EmailCodes::class)->send('ada@example.com', EmailCodePurpose::SignIn))
+        ->toThrow(function (EmailCodeNotSent $exception) use (&$codes): void {
+            expect($exception->getPrevious())->toBeNull()
+                ->and($exception->getMessage())->not->toContain($codes[0])
+                ->and(json_encode($exception->getTrace(), JSON_PARTIAL_OUTPUT_ON_ERROR))->not->toContain($codes[0])
+                ->and(TraceArguments::contain($exception, $codes[0]))->toBeFalse();
+        });
 });

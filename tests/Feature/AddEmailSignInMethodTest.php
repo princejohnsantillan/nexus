@@ -220,3 +220,24 @@ it('hides adding an email address in production until a mailer that delivers is 
         ->call('sendNewEmailCode')
         ->assertNotFound();
 });
+
+it('lets an added address be removed like any other sign-in method', function (): void {
+    Notification::fake();
+
+    $page = Livewire::test('pages::settings.index')
+        ->assertSeeText('This is your only way to sign in, so it can\'t be removed.')
+        ->set('newEmail', 'mona@example.com')
+        ->call('sendNewEmailCode');
+    $page->set('newEmailCode', SentEmailCodes::latest('mona@example.com', EmailCodePurpose::AddToAccount))
+        ->call('addNewEmail')
+        ->assertDontSeeText('This is your only way to sign in, so it can\'t be removed.')
+        ->assertSee('aria-label="Remove Email, mona@example.com"', escape: false)
+        ->assertSee('aria-label="Remove GitHub, @octocat"', escape: false);
+
+    $identity = $this->user->signInIdentities()->where('provider', IdentityProvider::Email)->sole();
+    $page->call('removeIdentity', $identity->id)
+        ->assertHasNoErrors()
+        ->assertSeeText('This is your only way to sign in, so it can\'t be removed.');
+
+    $this->assertModelMissing($identity);
+});

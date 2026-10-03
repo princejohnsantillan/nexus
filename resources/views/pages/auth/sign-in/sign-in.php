@@ -7,6 +7,7 @@ use App\Auth\GoogleSignInProvider;
 use App\Auth\PendingEmailSignIn;
 use App\Enums\DevAccount;
 use App\Enums\EmailCodePurpose;
+use App\Exceptions\EmailCodeNotSent;
 use App\Exceptions\TooManyEmailCodes;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Layout;
@@ -59,8 +60,8 @@ return new #[Layout('layouts::public'), Title('Sign in')] class extends Componen
 
         try {
             $codes->send($this->email, EmailCodePurpose::SignIn);
-        } catch (TooManyEmailCodes $tooMany) {
-            $this->addError('email', $tooMany->getMessage());
+        } catch (TooManyEmailCodes|EmailCodeNotSent $refused) {
+            $this->addError('email', $refused->getMessage());
 
             return;
         }

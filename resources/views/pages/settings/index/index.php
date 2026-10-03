@@ -9,6 +9,7 @@ use App\Auth\EmailCodes;
 use App\Auth\GoogleSignInProvider;
 use App\Enums\EmailCodePurpose;
 use App\Enums\IdentityProvider;
+use App\Exceptions\EmailCodeNotSent;
 use App\Exceptions\EmailCodeRejected;
 use App\Exceptions\IdentityBelongsToAnotherUser;
 use App\Exceptions\TooManyEmailCodes;
@@ -152,8 +153,8 @@ return new #[Title('Settings')] class extends Component
 
         try {
             $codes->send($email, EmailCodePurpose::AddToAccount, $this->user);
-        } catch (TooManyEmailCodes $tooMany) {
-            $this->addError('newEmail', $tooMany->getMessage());
+        } catch (TooManyEmailCodes|EmailCodeNotSent $refused) {
+            $this->addError('newEmail', $refused->getMessage());
 
             return;
         }
@@ -173,6 +174,10 @@ return new #[Title('Settings')] class extends Component
             $codes->send($this->newEmailSentTo, EmailCodePurpose::AddToAccount, $this->user);
         } catch (TooManyEmailCodes $tooMany) {
             Flux::toast(variant: 'warning', text: $tooMany->getMessage());
+
+            return;
+        } catch (EmailCodeNotSent $notSent) {
+            Flux::toast(variant: 'danger', text: $notSent->getMessage());
 
             return;
         }
