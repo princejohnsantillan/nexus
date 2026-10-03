@@ -54,6 +54,13 @@ it('ticks off creating a Star once the user has one, and links to the newest Sta
         ->assertSeeHtml('href="'.route('stars.show', $personal).'#setup"');
 });
 
+it('gives the Star\'s client setup the anchor the checklist links to', function (): void {
+    $star = Star::factory()->for($this->user)->create();
+
+    $this->get(route('stars.show', $star))
+        ->assertSeeInOrder(['id="setup"', 'Set up a client'], escape: false);
+});
+
 it('ticks off setting up a client once a Star has one, then listens on that Star for the first call', function (StarAccessMode $accessMode, Closure $setUp, string $client): void {
     Connection::factory()->for($this->user)->create();
     $personal = Star::factory()->for($this->user)->withAccessMode($accessMode)->create(['name' => 'Personal', 'created_at' => now()->subDay()]);
