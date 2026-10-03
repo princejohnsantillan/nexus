@@ -7,8 +7,8 @@ use App\Actions\UpdateStarConnections;
 use App\Models\Connection;
 use App\Models\Star;
 use App\Stars\ClientSetup;
-use App\Stars\StarTool;
-use App\Stars\StarToolset;
+use App\Stars\StarStats;
+use App\Stars\StarStatsCounter;
 use Flux\Flux;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Validation\Rule;
@@ -50,19 +50,12 @@ return new #[Title('Star')] class extends Component
     }
 
     /**
-     * How many of the Star's tools are on, and how many it has.
-     *
-     * @return array{enabled: int, total: int}
+     * Whether the Star is working: its tools that are on, and its calls.
      */
     #[Computed]
-    public function toolCounts(): array
+    public function stats(): StarStats
     {
-        $tools = resolve(StarToolset::class)->tools($this->star);
-
-        return [
-            'enabled' => count(array_filter($tools, fn (StarTool $tool): bool => $tool->enabled)),
-            'total' => count($tools),
-        ];
+        return resolve(StarStatsCounter::class)->for($this->star);
     }
 
     /**
@@ -97,7 +90,7 @@ return new #[Title('Star')] class extends Component
 
         $updateStarConnections->handle($this->star, array_map(intval(...), $this->connectionIds));
 
-        unset($this->toolCounts);
+        unset($this->stats);
         $this->resetConnections();
 
         Flux::toast(variant: 'success', text: __('Saved. The Star includes :count.', [

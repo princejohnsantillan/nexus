@@ -1,64 +1,42 @@
 <div class="mx-auto w-full max-w-5xl">
     <x-star-header :star="$star" current="overview" />
 
-    <div class="mt-8 space-y-10">
-        <section aria-labelledby="endpoint-heading">
-            <flux:heading size="lg" level="2" id="endpoint-heading">{{ __('Endpoint') }}</flux:heading>
+    <x-stat-strip class="mt-8">
+        <x-stat-tile :label="__('Tools on')" :value="number_format($this->stats->toolsOn)" :secondary="__('of :total', ['total' => number_format($this->stats->tools)])" />
+        <x-stat-tile :label="__('Calls · 24h')" :value="number_format($this->stats->calls)" :spark="$this->stats->calls > 0 ? $this->stats->callsByHour : null" />
+        <x-stat-tile :label="__('Errors · 24h')" :value="number_format($this->stats->errors)" :secondary="$this->stats->errorRate()" :tone="$this->stats->errors > 0 ? 'danger' : null" />
+
+        @if ($this->stats->lastCall === null)
+            <x-stat-tile :label="__('Last call')" :value="__('No calls yet')" />
+        @else
+            <x-stat-tile :label="__('Last call')" :value="$this->stats->lastCall->created_at->diffForHumans(['short' => true])" :secondary="$this->stats->lastCall->client_name ?? $this->stats->lastCall->via->label()" />
+        @endif
+    </x-stat-strip>
+
+    <div class="mt-6 grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_24rem]">
+        <x-section-card :heading="__('Set up a client')">
             @if ($star->access_mode === App\Enums\StarAccessMode::SignedUrl)
-                <flux:text class="mt-1">{{ __('Add this signed URL to your MCP client. It works by itself, so anyone who has it can use the Star: keep it private, and rotate it on the Access page if it leaks.') }}</flux:text>
-            @elseif ($star->access_mode === App\Enums\StarAccessMode::OAuth)
-                <flux:text class="mt-1">{{ __('Add this URL to your MCP client. When it connects, it sends you to Nexus to sign in and approve it for this Star. The URL stays the same when you rename the Star.') }}</flux:text>
-            @else
-                <flux:text class="mt-1">{{ __('Add this URL to your MCP client. It stays the same when you rename the Star.') }}</flux:text>
-            @endif
-
-            <div class="mt-4 max-w-xl">
-                <flux:input :value="$star->clientUrl()" readonly copyable class:input="font-mono" :aria-label="__('Endpoint URL')" />
-            </div>
-
-            <dl class="mt-4 max-w-xl divide-y divide-zinc-200 border-y border-zinc-200 dark:divide-zinc-700 dark:border-zinc-700">
-                <div class="grid gap-1 py-3 sm:grid-cols-3 sm:gap-4">
-                    <dt><flux:text>{{ __('Access') }}</flux:text></dt>
-                    <dd class="sm:col-span-2">
-                        <flux:link :href="route('stars.access', $star)" wire:navigate>{{ $star->access_mode->label() }}</flux:link>
-                    </dd>
-                </div>
-
-                <div class="grid gap-1 py-3 sm:grid-cols-3 sm:gap-4">
-                    <dt><flux:text>{{ __('Tools on') }}</flux:text></dt>
-                    <dd class="sm:col-span-2">
-                        <flux:link :href="route('stars.tools', $star)" wire:navigate>{{ __(':enabled of :total', $this->toolCounts) }}</flux:link>
-                    </dd>
-                </div>
-            </dl>
-        </section>
-
-        <section aria-labelledby="setup-heading">
-            <flux:heading size="lg" level="2" id="setup-heading">{{ __('Set up a client') }}</flux:heading>
-            @if ($star->access_mode === App\Enums\StarAccessMode::SignedUrl)
-                <flux:text class="mt-1">
+                <flux:text>
                     {{ __('Each snippet below holds the Star\'s signed URL and nothing else. Keep them out of shared or committed config files; if the URL leaks, rotate it on the') }}
                     <flux:link :href="route('stars.access', $star)" wire:navigate>{{ __('Access page') }}</flux:link>
                     {{ __('and set up your clients again.') }}
                 </flux:text>
             @elseif ($star->access_mode === App\Enums\StarAccessMode::OAuth)
-                <flux:text class="mt-1">
+                <flux:text>
                     {{ __('Each client below takes only the URL, then signs in to Nexus: you sign in too if you need to, and approve it for this Star. The apps you approved are listed on the') }}
                     <flux:link :href="route('stars.access', $star)" wire:navigate>{{ __('Access page') }}</flux:link>{{ __(', where you can revoke each of them.') }}
                 </flux:text>
             @else
-                <flux:text class="mt-1">
+                <flux:text class="wrap-anywhere">
                     {{ __('Create a token on the') }}
                     <flux:link :href="route('stars.access', $star)" wire:navigate>{{ __('Access page') }}</flux:link>
                     {{ __('and put it in the :variable environment variable, e.g. in your shell profile. Each snippet below reads it from there, so the token never sits in a config file.', ['variable' => $this->tokenVariable]) }}
                 </flux:text>
 
-                <div class="mt-4 max-w-3xl">
-                    <x-code-panel :code="'export '.$this->tokenVariable.'=nxs_…'" />
-                </div>
+                <x-code-panel :code="'export '.$this->tokenVariable.'=nxs_…'" class="mt-4" />
             @endif
 
-            <div class="mt-6 max-w-3xl space-y-6">
+            <div class="mt-6 space-y-6">
                 @foreach ($this->clientSetup as $setup)
                     <div wire:key="setup-{{ $loop->index }}">
                         <flux:heading level="3">{{ $setup['client'] }}</flux:heading>
@@ -84,55 +62,56 @@
                     </div>
                 @endforeach
             </div>
-        </section>
+        </x-section-card>
 
-        <section aria-labelledby="connections-heading">
-            <flux:heading size="lg" level="2" id="connections-heading">{{ __('Connections') }}</flux:heading>
-            <flux:text class="mt-1">{{ __('The Star includes the tools of the Connections you choose. Taking one out forgets the switches you set for its tools here.') }}</flux:text>
-
+        <div class="grid gap-6">
             @if ($this->connections->isEmpty())
-                <x-empty-state icon="link" :heading="__('No Connections yet')" class="mt-6">
-                    {{ __('Connect a remote MCP server, then come back to add it to this Star.') }}
+                <x-section-card :heading="__('Connections')" :description="__('The Star offers the tools of the Connections you tick.')">
+                    <x-empty-state icon="link" :heading="__('No Connections yet')">
+                        {{ __('Connect a remote MCP server, then come back to add it to this Star.') }}
 
-                    <x-slot:actions>
-                        <flux:button variant="primary" icon="plus" :href="route('connections.add')" wire:navigate>{{ __('Add connection') }}</flux:button>
-                    </x-slot:actions>
-                </x-empty-state>
+                        <x-slot:actions>
+                            <flux:button variant="primary" icon="plus" :href="route('connections.add')" wire:navigate>{{ __('Add connection') }}</flux:button>
+                        </x-slot:actions>
+                    </x-empty-state>
+                </x-section-card>
             @else
-                <form wire:submit="saveConnections" class="mt-6 max-w-xl space-y-6">
+                <x-section-card as="form" wire:submit="saveConnections" :heading="__('Connections')" :description="__('The Star offers the tools of the Connections you tick.')">
                     <x-connection-picker :connections="$this->connections" wire:model="connectionIds" :aria-label="__('Connections')" />
 
-                    <flux:button type="submit">{{ __('Save connections') }}</flux:button>
-                </form>
+                    <x-slot:hint>{{ __('Taking one out forgets the switches you set for its tools here.') }}</x-slot:hint>
+                    <x-slot:actions>
+                        <flux:button type="submit" variant="primary" size="sm">{{ __('Save connections') }}</flux:button>
+                    </x-slot:actions>
+                </x-section-card>
             @endif
-        </section>
 
-        <section aria-labelledby="details-heading">
-            <flux:heading size="lg" level="2" id="details-heading">{{ __('Details') }}</flux:heading>
-            <flux:text class="mt-1">{{ __('Renaming the Star keeps its endpoint URL, so clients keep working.') }}</flux:text>
+            <x-section-card as="form" wire:submit="saveDetails" :heading="__('Details')" :description="__('Agents see the description, so say what the Star is for.')">
+                <div class="space-y-6">
+                    <flux:input wire:model="name" :label="__('Name')" maxlength="100" />
+                    <flux:textarea wire:model="description" :label="__('Description')" :badge="__('Optional')" rows="2" maxlength="500" />
+                </div>
 
-            <form wire:submit="saveDetails" class="mt-6 max-w-xl space-y-6">
-                <flux:input wire:model="name" :label="__('Name')" maxlength="100" />
-                <flux:textarea wire:model="description" :label="__('Description')" :badge="__('Optional')" :description="__('Agents see this, so say what the Star is for.')" rows="2" maxlength="500" />
+                <x-slot:hint>{{ __('Renaming keeps the endpoint URL, so clients keep working.') }}</x-slot:hint>
+                <x-slot:actions>
+                    <flux:button type="submit" variant="primary" size="sm">{{ __('Save details') }}</flux:button>
+                </x-slot:actions>
+            </x-section-card>
 
-                <flux:button type="submit">{{ __('Save details') }}</flux:button>
-            </form>
-        </section>
-
-        <section aria-labelledby="delete-heading">
-            <flux:heading size="lg" level="2" id="delete-heading">{{ __('Delete Star') }}</flux:heading>
-            <flux:text class="mt-1">{{ __('Removes this Star and its switches. Your Connections stay.') }}</flux:text>
-
-            <flux:modal.trigger name="delete-star">
-                <flux:button variant="danger" class="mt-4">{{ __('Delete Star') }}</flux:button>
-            </flux:modal.trigger>
-        </section>
+            <x-danger-card :heading="__('Delete this Star')" :description="__('Clients using its endpoint stop working, and its tokens and connected apps are revoked. Your Connections stay.')">
+                <x-slot:actions>
+                    <flux:modal.trigger name="delete-star">
+                        <flux:button variant="danger" size="sm">{{ __('Delete Star') }}</flux:button>
+                    </flux:modal.trigger>
+                </x-slot:actions>
+            </x-danger-card>
+        </div>
     </div>
 
     <flux:modal name="delete-star" class="w-full max-w-lg">
         <div class="space-y-6">
             <div>
-                <flux:heading size="lg">{{ __('Delete :name?', ['name' => $star->name]) }}</flux:heading>
+                <flux:heading size="lg" class="wrap-anywhere">{{ __('Delete :name?', ['name' => $star->name]) }}</flux:heading>
                 <flux:text class="mt-2">{{ __('Clients using its endpoint stop working, its connected apps are revoked and its switches are removed. Your Connections stay. This can\'t be undone.') }}</flux:text>
             </div>
 
