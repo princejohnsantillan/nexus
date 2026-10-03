@@ -32,6 +32,10 @@ use Laravel\Passport\HasApiTokens;
  * MCP clients of the user's Stars in OAuth mode act as the user with the
  * Passport access tokens Nexus issues them (HasApiTokens).
  *
+ * `getting_started_closed_at` notes when the getting-started checklist on
+ * the Stars page closed for good: the user dismissed it or did every step
+ * (App\Stars\GettingStarted).
+ *
  * @property int $id
  * @property string $name
  * @property string|null $email
@@ -41,6 +45,7 @@ use Laravel\Passport\HasApiTokens;
  * @property string|null $remember_token
  * @property CarbonImmutable|null $created_at
  * @property CarbonImmutable|null $updated_at
+ * @property CarbonImmutable|null $getting_started_closed_at
  * @property-read DatabaseNotificationCollection<int, DatabaseNotification> $notifications
  * @property-read int|null $notifications_count
  *
@@ -51,6 +56,7 @@ use Laravel\Passport\HasApiTokens;
  * @method static \Illuminate\Database\Eloquent\Builder<static>|User whereAvatarUrl($value)
  * @method static \Illuminate\Database\Eloquent\Builder<static>|User whereCreatedAt($value)
  * @method static \Illuminate\Database\Eloquent\Builder<static>|User whereEmail($value)
+ * @method static \Illuminate\Database\Eloquent\Builder<static>|User whereGettingStartedClosedAt($value)
  * @method static \Illuminate\Database\Eloquent\Builder<static>|User whereGithubId($value)
  * @method static \Illuminate\Database\Eloquent\Builder<static>|User whereGithubLogin($value)
  * @method static \Illuminate\Database\Eloquent\Builder<static>|User whereId($value)
@@ -85,6 +91,7 @@ class User extends Authenticatable implements OAuthenticatable
     {
         return [
             'github_id' => 'integer',
+            'getting_started_closed_at' => 'datetime',
         ];
     }
 

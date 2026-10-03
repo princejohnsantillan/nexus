@@ -69,6 +69,8 @@ use Illuminate\Support\Facades\URL;
  *
  * @property-read Collection<int, StarPromptSwitch> $promptSwitches
  * @property-read int|null $prompt_switches_count
+ * @property-read Collection<int, ActivityEntry> $activityEntries
+ * @property-read int|null $activity_entries_count
  *
  * @mixin \Eloquent
  */
@@ -190,6 +192,16 @@ class Star extends Model
     public function oauthClients(): HasMany
     {
         return $this->hasMany(StarOAuthClient::class);
+    }
+
+    /**
+     * The calls clients made to the Star, as Activity recorded them.
+     *
+     * @return HasMany<ActivityEntry, $this>
+     */
+    public function activityEntries(): HasMany
+    {
+        return $this->hasMany(ActivityEntry::class);
     }
 
     /**

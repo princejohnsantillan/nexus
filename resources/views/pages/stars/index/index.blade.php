@@ -21,6 +21,103 @@
         </div>
     </div>
 
+    @php($checklist = $this->gettingStarted)
+
+    @if ($checklist !== null)
+        @php($doneCount = $checklist->doneCount())
+        @php($stepCount = count(App\Enums\GettingStartedStep::cases()))
+
+        <section class="@container mt-8 rounded-xl border border-zinc-200 bg-white px-4 py-5 sm:px-6 dark:border-white/10 dark:bg-white/[4%]" aria-labelledby="getting-started-heading" data-getting-started>
+            <div class="flex flex-wrap items-center gap-x-4 gap-y-3">
+                <h2 id="getting-started-heading" class="text-base font-semibold text-zinc-950 dark:text-white">{{ __('Getting started') }}</h2>
+
+                <p class="text-[13px] text-zinc-600 tabular-nums dark:text-zinc-400">{{ __(':done of :total done', ['done' => $doneCount, 'total' => $stepCount]) }}</p>
+
+                <div class="order-last h-1 basis-full overflow-hidden rounded-full bg-zinc-200 sm:order-none sm:basis-auto sm:flex-1 dark:bg-white/10" role="progressbar" aria-valuemin="0" aria-valuemax="{{ $stepCount }}" aria-valuenow="{{ $doneCount }}" aria-labelledby="getting-started-heading">
+                    <div @class([
+                        'h-full rounded-full bg-accent',
+                        'w-0' => $doneCount === 0,
+                        'w-1/4' => $doneCount === 1,
+                        'w-1/2' => $doneCount === 2,
+                        'w-3/4' => $doneCount === 3,
+                    ])></div>
+                </div>
+
+                <flux:button variant="ghost" size="sm" icon="x-mark" square class="-my-1 -me-2 ms-auto sm:ms-0" wire:click="dismissGettingStarted" :aria-label="__('Dismiss getting started')" />
+            </div>
+
+            <ol class="mt-4 grid gap-3 @xl:grid-cols-2 @4xl:grid-cols-4">
+                @foreach (App\Enums\GettingStartedStep::cases() as $step)
+                    @php($isDone = $checklist->isDone($step))
+                    @php($isNext = $checklist->nextStep() === $step)
+
+                    <li data-step="{{ $step->value }}" aria-current="{{ $isNext ? 'step' : 'false' }}" @class([
+                        'flex min-w-0 gap-2.5 rounded-lg border px-4 py-3.5',
+                        'border-transparent bg-zinc-50 dark:bg-white/5' => ! $isNext,
+                        'border-accent/30 bg-accent-wash' => $isNext,
+                    ]) wire:key="getting-started-{{ $step->value }}">
+                        @if ($isDone)
+                            <flux:icon.check-circle variant="mini" class="mt-0.5 size-4 shrink-0 text-success" />
+                        @elseif ($isNext)
+                            <span class="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full border-[1.5px] border-accent" aria-hidden="true"><span class="size-1.5 rounded-full bg-accent"></span></span>
+                        @else
+                            <span class="mt-0.5 size-4 shrink-0 rounded-full border-[1.5px] border-zinc-300 dark:border-white/25" aria-hidden="true"></span>
+                        @endif
+
+                        <div class="min-w-0 flex-1">
+                            <h3 @class([
+                                'text-sm',
+                                'font-medium text-zinc-950 dark:text-white' => ! $isNext,
+                                'font-semibold text-zinc-950 dark:text-white' => $isNext,
+                            ])>
+                                {{ $step->label() }}
+                                <span class="sr-only">{{ $isDone ? __('(done)') : __('(to do)') }}</span>
+                            </h3>
+
+                            <div class="mt-1 flex min-w-0 flex-wrap items-baseline gap-x-2 text-[13px] text-zinc-600 dark:text-zinc-400">
+                                @if ($isDone)
+                                    <p class="min-w-0 truncate" title="{{ $checklist->doneWith($step) }}">{{ $checklist->doneWith($step) }}</p>
+                                @else
+                                    @switch($step)
+                                        @case(App\Enums\GettingStartedStep::ConnectServer)
+                                            <a href="{{ route('connections.index') }}#add-more" class="shrink-0 font-medium text-accent-content hover:underline" wire:navigate>{{ __('Add connection') }} <span aria-hidden="true">&rarr;</span></a>
+                                            @break
+
+                                        @case(App\Enums\GettingStartedStep::CreateStar)
+                                            <flux:modal.trigger name="create-star">
+                                                <button type="button" class="shrink-0 cursor-pointer font-medium text-accent-content hover:underline">{{ __('Create Star') }} <span aria-hidden="true">&rarr;</span></button>
+                                            </flux:modal.trigger>
+                                            @break
+
+                                        @case(App\Enums\GettingStartedStep::SetUpClient)
+                                            @if ($checklist->star !== null)
+                                                <p class="min-w-0 truncate" title="{{ __('Add :star to a client', ['star' => $checklist->star->name]) }}">{{ __('Add :star to a client', ['star' => $checklist->star->name]) }}</p>
+                                                <a href="{{ route('stars.show', $checklist->star) }}#setup" class="shrink-0 font-medium text-accent-content hover:underline" wire:navigate>{{ __('Open setup') }} <span aria-hidden="true">&rarr;</span></a>
+                                            @else
+                                                <p class="min-w-0 truncate">{{ __('Once you have a Star') }}</p>
+                                            @endif
+                                            @break
+
+                                        @case(App\Enums\GettingStartedStep::ReceiveFirstCall)
+                                            @if ($checklist->star !== null)
+                                                @php($waiting = $checklist->client !== null ? __('Listening on :star…', ['star' => $checklist->star->name]) : __('No calls yet'))
+
+                                                <p class="min-w-0 truncate" title="{{ $waiting }}">{{ $waiting }}</p>
+                                                <a href="{{ route('stars.show', $checklist->star) }}#setup" class="shrink-0 font-medium text-accent-content hover:underline" wire:navigate>{{ __('Open setup') }} <span aria-hidden="true">&rarr;</span></a>
+                                            @else
+                                                <p class="min-w-0 truncate">{{ __('No calls yet') }}</p>
+                                            @endif
+                                            @break
+                                    @endswitch
+                                @endif
+                            </div>
+                        </div>
+                    </li>
+                @endforeach
+            </ol>
+        </section>
+    @endif
+
     @if ($this->isAtStarLimit)
         <flux:callout icon="exclamation-triangle" color="amber" class="mt-8" :heading="__('Star limit reached')">
             <flux:callout.text>{{ $this->limitMessage }}</flux:callout.text>

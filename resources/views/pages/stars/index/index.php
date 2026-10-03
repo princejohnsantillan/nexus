@@ -7,6 +7,8 @@ use App\Enums\StarAccessMode;
 use App\Models\Connection;
 use App\Models\Star;
 use App\Models\User;
+use App\Stars\GettingStarted;
+use App\Stars\GettingStartedChecklist;
 use App\Stars\StarCallHistory;
 use App\Stars\StarCalls;
 use App\Stars\StarTool;
@@ -89,6 +91,15 @@ return new #[Title('Stars')] class extends Component
     }
 
     /**
+     * The user's getting-started checklist, or null once it is closed.
+     */
+    #[Computed]
+    public function gettingStarted(): ?GettingStartedChecklist
+    {
+        return resolve(GettingStarted::class)->checklist($this->user);
+    }
+
+    /**
      * How many Stars a user may have.
      */
     #[Computed]
@@ -126,6 +137,13 @@ return new #[Title('Stars')] class extends Component
     public function limitMessage(): ?string
     {
         return $this->isAtStarLimit ? CreateStar::limitMessage() : null;
+    }
+
+    public function dismissGettingStarted(GettingStarted $gettingStarted): void
+    {
+        $gettingStarted->dismiss($this->user);
+
+        unset($this->gettingStarted);
     }
 
     public function create(CreateStar $createStar): void
