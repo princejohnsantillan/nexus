@@ -107,6 +107,14 @@ it('says a sign-in that was never finished needs finishing', function (): void {
         ->assertSee(route('connections.connect', $connection));
 });
 
+it('doesn\'t offer to reconnect a header sign-in the server refused, which is fixed on the Connection\'s page', function (): void {
+    $connection = Connection::factory()->for($this->user)->withHeader()->create(['name' => 'Linear', 'status' => ConnectionStatus::NeedsAuth, 'last_error' => 'The server refused the token.']);
+
+    Livewire::test('pages::connections.index')
+        ->assertSeeTextInOrder(['Linear', 'The server refused the token.', 'Needs sign-in'])
+        ->assertDontSee(route('connections.connect', $connection));
+});
+
 it('refreshes a Connection\'s tools from its menu', function (): void {
     FakeMcpServer::at()->withTools([['name' => 'search'], ['name' => 'fetch']]);
     $connection = Connection::factory()->for($this->user)->create(['name' => 'DeepWiki', 'handle' => 'deepwiki']);

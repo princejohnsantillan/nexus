@@ -58,14 +58,10 @@
                         @foreach ($this->connections as $connection)
                             @php
                                 $connector = $connection->connector();
-                                $problem = match ($connection->status) {
-                                    App\Enums\ConnectionStatus::NeedsAuth => $connection->last_error ?? __('Sign-in isn\'t finished. Reconnect to sign in and load its tools.'),
-                                    App\Enums\ConnectionStatus::Error => $connection->last_error ?? __('Nexus couldn\'t load its tools.'),
-                                    default => null,
-                                };
-                                $tint = match ($connection->status) {
-                                    App\Enums\ConnectionStatus::NeedsAuth => 'bg-warning-wash',
-                                    App\Enums\ConnectionStatus::Error => 'bg-danger-wash',
+                                $problem = App\Stars\ConnectionProblems::of($connection);
+                                $tint = match ($problem?->tone()) {
+                                    'warning' => 'bg-warning-wash',
+                                    'danger' => 'bg-danger-wash',
                                     default => '',
                                 };
                             @endphp
@@ -90,13 +86,13 @@
                                             @if ($problem !== null)
                                                 <div @class([
                                                     'mt-0.5 max-w-52 text-sm whitespace-normal',
-                                                    'text-warning' => $connection->status === App\Enums\ConnectionStatus::NeedsAuth,
-                                                    'text-danger' => $connection->status === App\Enums\ConnectionStatus::Error,
-                                                ]) data-connection-problem>{{ $problem }}</div>
+                                                    'text-warning' => $problem->tone() === 'warning',
+                                                    'text-danger' => $problem->tone() === 'danger',
+                                                ]) data-connection-problem>{{ $problem->reason() }}</div>
                                             @endif
 
-                                            @if ($connection->status === App\Enums\ConnectionStatus::NeedsAuth)
-                                                <flux:button size="sm" variant="primary" color="zinc" :href="route('connections.connect', $connection)" class="mt-2 md:hidden">{{ __('Reconnect') }}</flux:button>
+                                            @if ($problem?->canReconnect())
+                                                <flux:button size="sm" variant="primary" color="zinc" :href="$problem->fixUrl()" class="mt-2 md:hidden">{{ $problem->fixLabel() }}</flux:button>
                                             @endif
                                         </div>
                                     </div>
@@ -146,8 +142,8 @@
                                         <div class="flex items-center gap-1.5">
                                             <flux:icon.loading wire:loading wire:target="refreshTools({{ $connection->id }})" class="size-4 text-zinc-500 dark:text-zinc-400" />
 
-                                            @if ($connection->status === App\Enums\ConnectionStatus::NeedsAuth)
-                                                <flux:button size="sm" variant="primary" color="zinc" :href="route('connections.connect', $connection)" class="max-md:hidden">{{ __('Reconnect') }}</flux:button>
+                                            @if ($problem?->canReconnect())
+                                                <flux:button size="sm" variant="primary" color="zinc" :href="$problem->fixUrl()" class="max-md:hidden">{{ $problem->fixLabel() }}</flux:button>
                                             @endif
 
                                             <flux:dropdown position="bottom" align="end">

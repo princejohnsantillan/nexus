@@ -7,6 +7,8 @@ use App\Enums\StarAccessMode;
 use App\Models\Connection;
 use App\Models\Star;
 use App\Models\User;
+use App\Stars\ConnectionProblem;
+use App\Stars\ConnectionProblems;
 use App\Stars\GettingStarted;
 use App\Stars\GettingStartedChecklist;
 use App\Stars\StarCallHistory;
@@ -97,6 +99,18 @@ return new #[Title('Stars')] class extends Component
     public function gettingStarted(): ?GettingStartedChecklist
     {
         return resolve(GettingStarted::class)->checklist($this->user);
+    }
+
+    /**
+     * The user's Connections that need attention, by the id of each Star
+     * that includes them.
+     *
+     * @return array<int, list<ConnectionProblem>>
+     */
+    #[Computed]
+    public function problems(): array
+    {
+        return resolve(ConnectionProblems::class)->byStar($this->user);
     }
 
     /**

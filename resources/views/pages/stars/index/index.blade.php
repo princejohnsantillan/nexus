@@ -192,22 +192,45 @@
                             </div>
                         </div>
 
-                        <div class="flex min-h-11 items-center gap-2 border-t border-zinc-200 px-5 py-2.5 dark:border-white/10" data-star-card-footer>
-                            @if ($calls->lastCalledAt !== null)
-                                <span class="size-1.75 shrink-0 rounded-full bg-success" aria-hidden="true"></span>
-                                <p class="min-w-0 flex-1 truncate text-[13px] text-zinc-600 dark:text-zinc-400">
-                                    {{ __('Last call') }} <time datetime="{{ $calls->lastCalledAt->toIso8601String() }}" title="{{ $calls->lastCalledAt->toDayDateTimeString() }}">{{ $calls->lastCalledAt->diffForHumans() }}</time>
+                        {{-- A Connection that needs attention matters more than the last call, so it takes the footer. --}}
+                        @if (isset($this->problems[$star->id]))
+                            @php($problems = $this->problems[$star->id])
+                            @php($problem = $problems[0])
+
+                            <div @class([
+                                'flex min-h-11 items-center gap-2 border-t py-2 ps-5 pe-3',
+                                'border-warning-rule bg-warning-wash text-warning' => $problem->tone() === 'warning',
+                                'border-danger-rule bg-danger-wash text-danger' => $problem->tone() === 'danger',
+                            ]) data-star-card-footer data-star-card-problem="{{ $problem->connection->handle }}">
+                                <span class="size-1.75 shrink-0 rounded-full bg-current" aria-hidden="true"></span>
+                                <p class="min-w-0 flex-1 truncate text-[13px] font-medium">
+                                    {{ $problem->headline() }}
+
+                                    @if (count($problems) > 1)
+                                        <span class="font-normal">{{ __('and :count more', ['count' => count($problems) - 1]) }}</span>
+                                    @endif
                                 </p>
 
-                                @if ($calls->recentTotal() > 0)
-                                    <x-sparkline :values="$calls->daily" />
-                                    <span class="sr-only">{{ trans_choice(':count call in the last :days days|:count calls in the last :days days', $calls->recentTotal(), ['days' => count($calls->daily)]) }}</span>
+                                <flux:button size="sm" :href="$problem->fixUrl()" class="relative z-10 shrink-0" :aria-label="$problem->fixLabel(withName: true)">{{ $problem->fixLabel() }}</flux:button>
+                            </div>
+                        @else
+                            <div class="flex min-h-11 items-center gap-2 border-t border-zinc-200 px-5 py-2.5 dark:border-white/10" data-star-card-footer>
+                                @if ($calls->lastCalledAt !== null)
+                                    <span class="size-1.75 shrink-0 rounded-full bg-success" aria-hidden="true"></span>
+                                    <p class="min-w-0 flex-1 truncate text-[13px] text-zinc-600 dark:text-zinc-400">
+                                        {{ __('Last call') }} <time datetime="{{ $calls->lastCalledAt->toIso8601String() }}" title="{{ $calls->lastCalledAt->toDayDateTimeString() }}">{{ $calls->lastCalledAt->diffForHumans() }}</time>
+                                    </p>
+
+                                    @if ($calls->recentTotal() > 0)
+                                        <x-sparkline :values="$calls->daily" />
+                                        <span class="sr-only">{{ trans_choice(':count call in the last :days days|:count calls in the last :days days', $calls->recentTotal(), ['days' => count($calls->daily)]) }}</span>
+                                    @endif
+                                @else
+                                    <span class="size-1.75 shrink-0 rounded-full bg-accent" aria-hidden="true"></span>
+                                    <p class="min-w-0 flex-1 truncate text-[13px] text-zinc-600 dark:text-zinc-400">{{ __('Waiting for its first call…') }}</p>
                                 @endif
-                            @else
-                                <span class="size-1.75 shrink-0 rounded-full bg-accent" aria-hidden="true"></span>
-                                <p class="min-w-0 flex-1 truncate text-[13px] text-zinc-600 dark:text-zinc-400">{{ __('Waiting for its first call…') }}</p>
-                            @endif
-                        </div>
+                            </div>
+                        @endif
                     </article>
                 @endforeach
             </div>
