@@ -1,8 +1,9 @@
 {{--
     The top of every Star page: a breadcrumb back to the Stars, the Star's
     name with its access mode and its description, the URL clients add
-    (the signed URL in signed-URL mode) with a Copy button, and the row of
-    links to its sub-pages. `current` names the page being shown.
+    (the signed URL in signed-URL mode) with a Copy button, the row of
+    links to its sub-pages, and a banner for each of its Connections that
+    needs attention. `current` names the page being shown.
 --}}
 @props([
     'star',
@@ -55,4 +56,6 @@
         <flux:navbar.item :href="route('stars.prompts', $star)" :current="$current === 'prompts'" :aria-current="$current === 'prompts' ? 'page' : null" :accent="false" wire:navigate>{{ __('Prompts') }}</flux:navbar.item>
         <flux:navbar.item :href="route('stars.access', $star)" :current="$current === 'access'" :aria-current="$current === 'access' ? 'page' : null" :accent="false" wire:navigate>{{ __('Access') }}</flux:navbar.item>
     </flux:navbar>
+
+    <x-star-problems :star="$star" class="mt-6" />
 </div>

@@ -4,6 +4,8 @@
         @include('partials.head')
     </head>
     <body class="min-h-screen bg-white antialiased dark:bg-zinc-800">
+        @php($connectionProblems = app(App\Stars\ConnectionProblems::class)->forUser(auth()->user()))
+
         <flux:sidebar sticky collapsible="mobile" class="w-62 gap-6 px-3.5 py-5 border-e border-zinc-200 bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900">
             <flux:sidebar.header>
                 <x-app-logo sidebar :href="route('stars.index')" wire:navigate />
@@ -15,7 +17,17 @@
                     {{ __('Stars') }}
                 </flux:sidebar.item>
                 <flux:sidebar.item icon="link" :href="route('connections.index')" :current="request()->routeIs('connections.*')" :accent="false" wire:navigate>
-                    {{ __('Connections') }}
+                    <span class="flex items-center justify-between gap-2">
+                        {{ __('Connections') }}
+
+                        @if ($connectionProblems !== [])
+                            <span class="flex items-center gap-1.5 text-xs font-medium text-warning tabular-nums" data-connection-problems>
+                                <span class="size-1.5 rounded-full bg-current" aria-hidden="true"></span>
+                                {{ count($connectionProblems) }}
+                                <span class="sr-only">{{ trans_choice('needs attention|need attention', count($connectionProblems)) }}</span>
+                            </span>
+                        @endif
+                    </span>
                 </flux:sidebar.item>
                 <flux:sidebar.item icon="pulse" :href="route('activity.index')" :current="request()->routeIs('activity.*')" :accent="false" wire:navigate>
                     {{ __('Activity') }}
@@ -23,6 +35,8 @@
             </flux:sidebar.nav>
 
             <flux:sidebar.spacer />
+
+            <x-action-required :problems="$connectionProblems" />
 
             <flux:dropdown position="top" align="start" class="max-lg:hidden">
                 <button type="button" class="group flex w-full items-center gap-2.5 rounded-lg p-1.5 text-start hover:bg-zinc-800/5 dark:hover:bg-white/10" data-flux-sidebar-profile>

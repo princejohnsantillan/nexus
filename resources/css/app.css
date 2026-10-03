@@ -48,6 +48,7 @@
     --color-success-wash: #eaf6ee;
     --color-warning: #b45309;
     --color-warning-wash: #fdf3e2;
+    --color-warning-rule: #f0d9b5;
     --color-danger: #c8322b;
     --color-danger-wash: #fcedec;
     --color-danger-rule: #f1c9c6;
@@ -64,6 +65,7 @@
         --color-success-wash: color-mix(in oklab, #4ade80 12%, transparent);
         --color-warning: #fbbf24;
         --color-warning-wash: color-mix(in oklab, #fbbf24 12%, transparent);
+        --color-warning-rule: color-mix(in oklab, #fbbf24 30%, transparent);
         --color-danger: #fca5a5;
         --color-danger-wash: color-mix(in oklab, #f87171 12%, transparent);
         --color-danger-rule: color-mix(in oklab, #f87171 30%, transparent);
