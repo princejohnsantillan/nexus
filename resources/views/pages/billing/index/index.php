@@ -46,6 +46,16 @@ return new #[Title('Billing')] class extends Component
     }
 
     /**
+     * How many tool calls the user's Stars have forwarded this billing week,
+     * against their plan's weekly limit.
+     */
+    #[Computed]
+    public function toolCallsThisWeek(): int
+    {
+        return $this->user->toolCallsThisWeek();
+    }
+
+    /**
      * The user's paid payments, newest first. Pending and expired checkouts
      * charged nothing, so they aren't listed.
      *

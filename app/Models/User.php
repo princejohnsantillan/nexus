@@ -90,6 +90,8 @@ use Laravel\Passport\HasApiTokens;
  * @property-read int|null $sign_in_identities_count
  * @property-read Collection<int, Payment> $payments
  * @property-read int|null $payments_count
+ * @property-read Collection<int, ToolCallCount> $toolCallCounts
+ * @property-read int|null $tool_call_counts_count
  *
  * @mixin \Eloquent
  */
@@ -165,6 +167,23 @@ class User extends Authenticatable implements OAuthenticatable
         $limit = $this->plan()->starLimit();
 
         return $limit !== null && $this->stars()->count() >= $limit;
+    }
+
+    /**
+     * @return HasMany<ToolCallCount, $this>
+     */
+    public function toolCallCounts(): HasMany
+    {
+        return $this->hasMany(ToolCallCount::class);
+    }
+
+    /**
+     * How many tool calls the user's Stars have forwarded this billing week,
+     * on any plan.
+     */
+    public function toolCallsThisWeek(): int
+    {
+        return $this->toolCallCounts()->where('week_starts_on', ToolCallCount::weekOf(now()))->first()->calls ?? 0;
     }
 
     /**

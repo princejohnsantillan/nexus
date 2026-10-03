@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Mcp;
 
+use App\Actions\CountToolCall;
 use App\Actions\RecordActivity;
 use App\Downstream\DownstreamClient;
 use App\Downstream\RawJson;
@@ -11,6 +12,7 @@ use App\Enums\ActivityKind;
 use App\Enums\ActivityStatus;
 use App\Enums\DownstreamFailure;
 use App\Exceptions\DownstreamRequestFailed;
+use App\Exceptions\WeeklyToolCallLimitReached;
 use App\Jobs\RefreshCatalogInBackground;
 use App\Stars\StarTool;
 use Laravel\Mcp\Enums\ErrorCode;
@@ -28,6 +30,18 @@ use stdClass;
  * (`connections.connect`), which starts an OAuth sign-in or, for a header
  * or token, opens the Connection's page.
  *
+ * Every call it sends counts toward the account's weekly tool calls
+ * (CountToolCall), whether it then succeeds or not. It is counted as the
+ * `tools/call` request leaves, after the handshake and everything that can
+ * refuse it without reaching the server (the deadline, the Connection's
+ * sign-in, the request itself and the outbound guard), so a call that
+ * never reaches the server doesn't count. Once a Free account has used its
+ * calls for the week, the call isn't sent: a call that finds them used up
+ * is refused before anything is done for it, and one that loses the race
+ * for the last one is refused as it would have left. Either way the result
+ * is a tool error saying so, when they reset and where to upgrade, and the
+ * call is recorded as Limited.
+ *
  * When the server says it doesn't know the tool, the Connection's catalog
  * no longer matches the server, so a background refresh is queued once
  * the response has been sent.
@@ -36,6 +50,7 @@ final readonly class ToolProxy
 {
     public function __construct(
         private DownstreamClient $downstream,
+        private CountToolCall $countToolCall,
         private RecordActivity $recordActivity,
     ) {}
 
@@ -50,7 +65,7 @@ final readonly class ToolProxy
         $status = ActivityStatus::Error;
 
         try {
-            [$status, $result] = $this->forward($tool, $arguments);
+            [$status, $result] = $this->forward($caller, $tool, $arguments);
 
             return $result;
         } finally {
@@ -69,10 +84,17 @@ final readonly class ToolProxy
     /**
      * @return array{ActivityStatus, string}
      */
-    private function forward(StarTool $tool, string $arguments): array
+    private function forward(StarCaller $caller, StarTool $tool, string $arguments): array
     {
+        $user = $caller->star->user;
+
         try {
-            $result = $this->downstream->session($tool->connection)->callTool($tool->tool->name, $arguments);
+            $this->countToolCall->ensureCallsLeft($user);
+            $result = $this->downstream->session($tool->connection)->callTool($tool->tool->name, $arguments, function () use ($user): void {
+                $this->countToolCall->handle($user);
+            });
+        } catch (WeeklyToolCallLimitReached $limitReached) {
+            return [ActivityStatus::Limited, $this->limitReached($limitReached)];
         } catch (DownstreamRequestFailed $failed) {
             if ($this->refusedAsInvalidParams($failed)) {
                 $this->refreshCatalogLater($tool);
@@ -166,6 +188,17 @@ final readonly class ToolProxy
         }
 
         return $this->toolError($message);
+    }
+
+    /**
+     * Nexus's own message for a call refused by the weekly limit, with where
+     * to upgrade.
+     */
+    private function limitReached(WeeklyToolCallLimitReached $limitReached): string
+    {
+        return $this->toolError($limitReached->getMessage().' '.__('Upgrade to Pro for unlimited tool calls: :url', [
+            'url' => route('billing.upgrade'),
+        ]));
     }
 
     /**

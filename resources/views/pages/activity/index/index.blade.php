@@ -227,7 +227,7 @@
                                                 <p @class([
                                                     'col-span-2 col-start-3 row-start-2 text-xs font-medium sm:col-span-1 sm:col-start-4 sm:row-start-1',
                                                     'text-zinc-950 dark:text-white' => $row['entry']->status === App\Enums\ActivityStatus::Denied,
-                                                    'text-warning' => in_array($row['entry']->status, [App\Enums\ActivityStatus::NeedsAuth, App\Enums\ActivityStatus::Timeout], true),
+                                                    'text-warning' => in_array($row['entry']->status, [App\Enums\ActivityStatus::NeedsAuth, App\Enums\ActivityStatus::Timeout, App\Enums\ActivityStatus::Limited], true),
                                                     'text-danger' => $row['entry']->status === App\Enums\ActivityStatus::Error,
                                                 ])>{{ $row['problem'] }}</p>
                                             @else
@@ -256,6 +256,7 @@
                         :denial-reason="$this->selectedDenialReason"
                         :switched-off="$this->selectedSwitchedOff"
                         :switched-on="$switchedOn === $this->selectedEntry->id"
+                        :plan="$this->user->plan()"
                         class="overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-[0_12px_32px_-12px_rgb(14_17_22/0.18)] dark:border-white/10 dark:bg-white/[4%]"
                     />
                 </aside>
@@ -271,6 +272,7 @@
                 :denial-reason="$this->selectedDenialReason"
                 :switched-off="$this->selectedSwitchedOff"
                 :switched-on="$switchedOn === $this->selectedEntry->id"
+                :plan="$this->user->plan()"
                 class="min-h-dvh"
                 wire:key="flyout-detail-{{ $this->selectedEntry->id }}"
             />

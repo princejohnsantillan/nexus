@@ -4,12 +4,14 @@ declare(strict_types=1);
 
 use App\Models\Connection;
 use App\Models\Star;
+use App\Models\ToolCallCount;
 use App\Models\User;
+use Carbon\CarbonImmutable;
 use Dom\Element;
 use Dom\HTMLDocument;
 
 beforeEach(function (): void {
-    config(['nexus.plans.free.stars' => 2]);
+    config(['nexus.plans.free.stars' => 2, 'nexus.plans.free.tool_calls_per_week' => 3000]);
 });
 
 /**
@@ -51,6 +53,40 @@ it('shows a Free user at the Star limit in amber', function (): void {
 
     expect(textOf($card?->querySelector('[data-plan-card-usage]')))->toBe('2 / 2 Stars')
         ->and($card?->querySelector('[data-plan-card-usage]')?->hasAttribute('data-at-limit'))->toBeTrue();
+});
+
+it('tells a Free user whose tool calls are used up for the week that their Stars refuse calls until Monday', function (): void {
+    $user = User::factory()->create();
+    Star::factory()->for($user)->create();
+    ToolCallCount::factory()->for($user)->create(['calls' => 3000]);
+    $this->actingAs($user);
+
+    $card = planCard($this->get(route('stars.index'))->assertOk()->getContent());
+
+    expect($card?->getAttribute('data-plan-card'))->toBe('free-calls-used-up')
+        ->and(textOf($card))->toBe('Free plan 3,000 / 3,000 Your Stars are refusing tool calls until Monday. Go Pro to lift the limit now. Upgrade to Pro')
+        ->and($card?->querySelector('[data-plan-card-usage]')?->hasAttribute('data-at-limit'))->toBeTrue()
+        ->and($card?->querySelector('a')?->getAttribute('href'))->toBe(route('billing.upgrade'));
+});
+
+it('shows a Free user\'s Stars again while calls are left this week', function (int $calls, string $week): void {
+    $this->travelTo(CarbonImmutable::parse('2026-10-03 06:00:00', 'UTC'));
+    $user = User::factory()->create();
+    ToolCallCount::factory()->for($user)->create(['week_starts_on' => $week, 'calls' => $calls]);
+    $this->actingAs($user);
+
+    expect(planCard($this->get(route('stars.index'))->assertOk()->getContent())?->getAttribute('data-plan-card'))->toBe('free');
+})->with([
+    'one call left' => [2999, '2026-09-28'],
+    'last week\'s used up' => [3000, '2026-09-21'],
+]);
+
+it('shows Pro\'s own card, never the weekly limit, however many calls Pro made', function (): void {
+    $user = User::factory()->proEndingIn(3)->create();
+    ToolCallCount::factory()->for($user)->create(['calls' => 4860]);
+    $this->actingAs($user);
+
+    expect(planCard($this->get(route('stars.index'))->assertOk()->getContent())?->getAttribute('data-plan-card'))->toBe('pro-ending');
 });
 
 it('shows nothing on Pro until its last 7 days', function (): void {

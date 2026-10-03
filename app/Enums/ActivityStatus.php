@@ -24,6 +24,9 @@ enum ActivityStatus: string
     /** The server refused the Connection's sign-in. */
     case NeedsAuth = 'needs_auth';
 
+    /** Nexus didn't forward the call: the account had used its plan's tool calls for the week. */
+    case Limited = 'limited';
+
     public function label(): string
     {
         return match ($this) {
@@ -32,6 +35,7 @@ enum ActivityStatus: string
             self::Denied => __('Denied'),
             self::Timeout => __('Timed out'),
             self::NeedsAuth => __('Needs sign-in'),
+            self::Limited => __('Weekly limit'),
         };
     }
 
@@ -45,7 +49,7 @@ enum ActivityStatus: string
             self::Error => 'red',
             self::Denied => 'zinc',
             self::Timeout => 'orange',
-            self::NeedsAuth => 'amber',
+            self::NeedsAuth, self::Limited => 'amber',
         };
     }
 }

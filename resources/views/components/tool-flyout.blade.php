@@ -163,7 +163,7 @@ $neutralPill = 'bg-zinc-50 text-zinc-600 ring-1 ring-zinc-200 ring-inset dark:bg
                                                 'font-medium',
                                                 'text-success' => $call->status === App\Enums\ActivityStatus::Ok,
                                                 'text-zinc-950 dark:text-white' => $call->status === App\Enums\ActivityStatus::Denied,
-                                                'text-warning' => in_array($call->status, [App\Enums\ActivityStatus::NeedsAuth, App\Enums\ActivityStatus::Timeout], true),
+                                                'text-warning' => in_array($call->status, [App\Enums\ActivityStatus::NeedsAuth, App\Enums\ActivityStatus::Timeout, App\Enums\ActivityStatus::Limited], true),
                                                 'text-danger' => $call->status === App\Enums\ActivityStatus::Error,
                                             ])>{{ $call->status->label() }}</span>
                                         </p>

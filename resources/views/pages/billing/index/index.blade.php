@@ -57,10 +57,11 @@
             @endif
         </div>
 
-        {{-- The usage meters, side by side; a third meter (tool calls this week) slots in after these. --}}
+        {{-- The usage meters, side by side. --}}
         <div class="grid divide-y divide-zinc-200 border-t border-zinc-200 sm:auto-cols-fr sm:grid-flow-col sm:divide-x sm:divide-y-0 dark:divide-white/10 dark:border-white/10">
             <x-usage-meter :label="__('Stars')" :used="$this->starCount" :limit="$this->plan->starLimit()" />
             <x-usage-meter :label="__('Connections')" :used="$this->connectionCount" :limit="$this->plan->connectionLimit()" />
+            <x-usage-meter :label="__('Tool calls this week')" :used="$this->toolCallsThisWeek" :limit="$this->plan->toolCallsPerWeek()" />
         </div>
 
         <div @class([
