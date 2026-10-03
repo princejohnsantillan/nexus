@@ -13,8 +13,8 @@
         <div class="flex items-center gap-4">
             <span @class([
                 'text-sm tabular-nums',
-                'text-zinc-500 dark:text-zinc-400' => $this->limitMessage === null,
-                'font-medium text-warning' => $this->limitMessage !== null,
+                'text-zinc-500 dark:text-zinc-400' => ! $this->isAtConnectionLimit,
+                'font-medium text-warning' => $this->isAtConnectionLimit,
             ]) data-connection-count>
                 @if ($this->limit === null)
                     {{ trans_choice(':count Connection|:count Connections', $this->connections->count()) }}
@@ -24,10 +24,12 @@
             </span>
 
             @if ($this->connections->isNotEmpty())
-                @if ($this->limitMessage === null)
-                    <flux:button variant="primary" icon="plus" href="#add-more">{{ __('Add connection') }}</flux:button>
+                @if ($this->isAtConnectionLimit)
+                    <flux:modal.trigger name="connection-limit">
+                        <flux:button variant="primary" icon="plus" data-add-connection>{{ __('Add connection') }}</flux:button>
+                    </flux:modal.trigger>
                 @else
-                    <flux:button variant="primary" icon="plus" disabled>{{ __('Add connection') }}</flux:button>
+                    <flux:button variant="primary" icon="plus" href="#add-more" data-add-connection>{{ __('Add connection') }}</flux:button>
                 @endif
             @endif
         </div>
@@ -38,7 +40,13 @@
             {{ __('Connect GitHub, Notion, Linear or any remote MCP server once, then use it in as many Stars as you like.') }}
 
             <x-slot:actions>
-                <flux:button variant="primary" icon="arrow-down" href="#add-more">{{ __('Add your first connection') }}</flux:button>
+                @if ($this->isAtConnectionLimit)
+                    <flux:modal.trigger name="connection-limit">
+                        <flux:button variant="primary" icon="arrow-down">{{ __('Add your first connection') }}</flux:button>
+                    </flux:modal.trigger>
+                @else
+                    <flux:button variant="primary" icon="arrow-down" href="#add-more">{{ __('Add your first connection') }}</flux:button>
+                @endif
             </x-slot:actions>
         </x-empty-state>
     @else
@@ -203,12 +211,6 @@
             </div>
         </div>
 
-        @if ($this->limitMessage !== null)
-            <flux:callout icon="exclamation-triangle" color="amber" class="mt-4" :heading="__('Connection limit reached')">
-                <flux:callout.text>{{ $this->limitMessage }}</flux:callout.text>
-            </flux:callout>
-        @endif
-
         @if ($this->catalog === [])
             <x-empty-state icon="magnifying-glass" :heading="__('No server in the catalog matches “:search”', ['search' => trim($search)])" class="mt-4">
                 {{ __('Try another name, or connect it by its URL as a custom server.') }}
@@ -216,8 +218,12 @@
                 <x-slot:actions>
                     <flux:button wire:click="$set('search', '')">{{ __('Clear search') }}</flux:button>
 
-                    @if ($this->limitMessage === null)
-                        <flux:button variant="primary" :href="route('connections.add-custom', App\Stars\ReturnToStar::query($this->returnStar))" wire:navigate>{{ __('Connect by URL') }}</flux:button>
+                    @if ($this->isAtConnectionLimit)
+                        <flux:modal.trigger name="connection-limit">
+                            <flux:button variant="primary" data-connect-by-url>{{ __('Connect by URL') }}</flux:button>
+                        </flux:modal.trigger>
+                    @else
+                        <flux:button variant="primary" :href="route('connections.add-custom', App\Stars\ReturnToStar::query($this->returnStar))" wire:navigate data-connect-by-url>{{ __('Connect by URL') }}</flux:button>
                     @endif
                 </x-slot:actions>
             </x-empty-state>
@@ -261,10 +267,14 @@
                         @endif
 
                         <div class="mt-5">
-                            @if ($connector->isAvailable() && $this->limitMessage === null)
-                                <flux:button size="sm" wire:click="startConnecting('{{ $connector->key }}')">{{ $connected > 0 ? __('Add another account') : __('Connect') }}</flux:button>
-                            @else
+                            @if (! $connector->isAvailable())
                                 <flux:button size="sm" disabled>{{ $connected > 0 ? __('Add another account') : __('Connect') }}</flux:button>
+                            @elseif ($this->isAtConnectionLimit)
+                                <flux:modal.trigger name="connection-limit">
+                                    <flux:button size="sm">{{ $connected > 0 ? __('Add another account') : __('Connect') }}</flux:button>
+                                </flux:modal.trigger>
+                            @else
+                                <flux:button size="sm" wire:click="startConnecting('{{ $connector->key }}')">{{ $connected > 0 ? __('Add another account') : __('Connect') }}</flux:button>
                             @endif
                         </div>
                     </flux:card>
@@ -277,10 +287,12 @@
                     <flux:text class="mt-1 flex-1">{{ __('Any remote MCP server by URL: no sign-in, a header, or OAuth.') }}</flux:text>
 
                     <div class="mt-5">
-                        @if ($this->limitMessage === null)
-                            <flux:button size="sm" :href="route('connections.add-custom', App\Stars\ReturnToStar::query($this->returnStar))" wire:navigate>{{ __('Connect by URL') }}</flux:button>
+                        @if ($this->isAtConnectionLimit)
+                            <flux:modal.trigger name="connection-limit">
+                                <flux:button size="sm">{{ __('Connect by URL') }}</flux:button>
+                            </flux:modal.trigger>
                         @else
-                            <flux:button size="sm" disabled>{{ __('Connect by URL') }}</flux:button>
+                            <flux:button size="sm" :href="route('connections.add-custom', App\Stars\ReturnToStar::query($this->returnStar))" wire:navigate>{{ __('Connect by URL') }}</flux:button>
                         @endif
                     </div>
                 </flux:card>
@@ -415,4 +427,8 @@
             </form>
         @endif
     </flux:modal>
+
+    @if ($this->isAtConnectionLimit)
+        <x-limit-modal for="connections" />
+    @endif
 </div>

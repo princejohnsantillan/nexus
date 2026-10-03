@@ -10,13 +10,17 @@
         <x-adding-to-star :star="$this->returnStar" class="mb-6 rounded-lg border border-accent/20 px-4 py-3" />
     @endif
 
-    @if ($this->limitMessage !== null)
-        <flux:callout icon="exclamation-triangle" color="amber" class="mb-6" :heading="__('Connection limit reached')">
-            <flux:callout.text>{{ $this->limitMessage }}</flux:callout.text>
-        </flux:callout>
-    @endif
-
-    <form wire:submit="save" class="space-y-6">
+    {{-- At the limit, submitting opens the upgrade prompt instead of saving. The server refuses a save past the limit all the same. --}}
+    <form
+        @if ($this->isAtConnectionLimit)
+            x-data
+            x-on:submit.prevent="$flux.modal('connection-limit').show()"
+        @else
+            wire:submit="save"
+        @endif
+        class="space-y-6"
+        data-custom-connection-form
+    >
         <flux:input wire:model="name" :label="__('Name')" :description="__('What you call this server in Nexus.')" placeholder="DeepWiki" maxlength="100" />
 
         <div class="space-y-3">
@@ -78,4 +82,8 @@
             </div>
         </div>
     </form>
+
+    @if ($this->isAtConnectionLimit)
+        <x-limit-modal for="connections" />
+    @endif
 </div>

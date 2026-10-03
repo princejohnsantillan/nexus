@@ -69,7 +69,7 @@ it('lets a Pro user create Stars past the Free limit', function (): void {
     $this->actingAs($user);
 
     Livewire::test('pages::stars.index')
-        ->assertDontSeeText('Star limit reached')
+        ->assertDontSeeText('You\'ve used both Free Stars')
         ->set('name', 'Sixth')
         ->call('create')
         ->assertHasNoErrors();

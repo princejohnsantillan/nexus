@@ -1,4 +1,7 @@
 <div class="mx-auto w-full max-w-5xl">
+    {{-- At a limit, what would add a Star or a Connection opens the upgrade prompt instead. --}}
+    @php($createStarModal = $this->isAtStarLimit ? 'star-limit' : 'create-star')
+
     <div class="flex flex-wrap items-start justify-between gap-4">
         <div>
             <flux:heading size="xl" level="1">{{ __('Stars') }}</flux:heading>
@@ -20,8 +23,8 @@
 
             {{-- With no Stars yet, the empty state offers the button instead. --}}
             @if ($this->stars->isNotEmpty())
-                <flux:modal.trigger name="create-star">
-                    <flux:button variant="primary" icon="plus" :disabled="$this->isAtStarLimit">{{ __('Create Star') }}</flux:button>
+                <flux:modal.trigger :name="$createStarModal">
+                    <flux:button variant="primary" icon="plus" data-create-star>{{ __('Create Star') }}</flux:button>
                 </flux:modal.trigger>
             @endif
         </div>
@@ -86,11 +89,17 @@
                                 @else
                                     @switch($step)
                                         @case(App\Enums\GettingStartedStep::ConnectServer)
-                                            <a href="{{ route('connections.index') }}#add-more" class="shrink-0 font-medium text-accent-content hover:underline" wire:navigate>{{ __('Add connection') }} <span aria-hidden="true">&rarr;</span></a>
+                                            @if ($this->isAtConnectionLimit)
+                                                <flux:modal.trigger name="connection-limit">
+                                                    <button type="button" class="shrink-0 cursor-pointer font-medium text-accent-content hover:underline">{{ __('Add connection') }} <span aria-hidden="true">&rarr;</span></button>
+                                                </flux:modal.trigger>
+                                            @else
+                                                <a href="{{ route('connections.index') }}#add-more" class="shrink-0 font-medium text-accent-content hover:underline" wire:navigate>{{ __('Add connection') }} <span aria-hidden="true">&rarr;</span></a>
+                                            @endif
                                             @break
 
                                         @case(App\Enums\GettingStartedStep::CreateStar)
-                                            <flux:modal.trigger name="create-star">
+                                            <flux:modal.trigger :name="$createStarModal">
                                                 <button type="button" class="shrink-0 cursor-pointer font-medium text-accent-content hover:underline">{{ __('Create Star') }} <span aria-hidden="true">&rarr;</span></button>
                                             </flux:modal.trigger>
                                             @break
@@ -124,18 +133,12 @@
         </section>
     @endif
 
-    @if ($this->isAtStarLimit)
-        <flux:callout icon="exclamation-triangle" color="amber" class="mt-8" :heading="__('Star limit reached')">
-            <flux:callout.text>{{ $this->limitMessage }}</flux:callout.text>
-        </flux:callout>
-    @endif
-
     @if ($this->stars->isEmpty())
         <x-empty-state icon="star" :heading="__('No Stars yet')" class="mt-8">
             {{ __('Create a Star, choose the Connections it includes and switch each tool on or off. Then add it once to Claude Code, claude.ai, Codex, Cursor or Grok.') }}
 
             <x-slot:actions>
-                <flux:modal.trigger name="create-star">
+                <flux:modal.trigger :name="$createStarModal">
                     <flux:button variant="primary" icon="plus">{{ __('Create your first Star') }}</flux:button>
                 </flux:modal.trigger>
             </x-slot:actions>
@@ -265,7 +268,13 @@
                     <flux:callout.text>{{ __('You can create the Star now and add Connections to it later.') }}</flux:callout.text>
 
                     <x-slot name="actions">
-                        <flux:button size="sm" :href="route('connections.index').'#add-more'" wire:navigate>{{ __('Add connection') }}</flux:button>
+                        @if ($this->isAtConnectionLimit)
+                            <flux:modal.trigger name="connection-limit">
+                                <flux:button size="sm">{{ __('Add connection') }}</flux:button>
+                            </flux:modal.trigger>
+                        @else
+                            <flux:button size="sm" :href="route('connections.index').'#add-more'" wire:navigate>{{ __('Add connection') }}</flux:button>
+                        @endif
                     </x-slot>
                 </flux:callout>
             @else
@@ -283,4 +292,12 @@
             </div>
         </form>
     </flux:modal>
+
+    @if ($this->isAtStarLimit)
+        <x-limit-modal for="stars" />
+    @endif
+
+    @if ($this->isAtConnectionLimit)
+        <x-limit-modal for="connections" />
+    @endif
 </div>

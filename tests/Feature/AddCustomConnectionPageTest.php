@@ -194,7 +194,8 @@ it('refuses another Connection once the user has as many as an account may', fun
     $server = FakeMcpServer::at();
 
     Livewire::test('pages::connections.add-custom')
-        ->assertSeeText('Connection limit reached')
+        ->assertDontSeeText('Connection limit reached')
+        ->assertSeeText('You\'ve used both Free Connections')
         ->set('name', 'DeepWiki')
         ->set('handle', 'deepwiki')
         ->set('url', FakeMcpServer::DEFAULT_URL)

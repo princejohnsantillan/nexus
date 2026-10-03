@@ -5,7 +5,6 @@ declare(strict_types=1);
 use App\Actions\ConnectWithOAuth;
 use App\Actions\ConnectWithToken;
 use App\Actions\RefreshCatalog;
-use App\Actions\SaveNewConnection;
 use App\Actions\SuggestConnectionDetails;
 use App\ConnectionOAuth\NexusClient;
 use App\Connectors\Connector;
@@ -120,12 +119,13 @@ return new #[Title('Connections')] class extends Component
     }
 
     /**
-     * What to tell the user when they can't add another Connection, or null when they can.
+     * Whether the user has as many Connections as their plan allows, so
+     * adding one opens the upgrade prompt instead.
      */
     #[Computed]
-    public function limitMessage(): ?string
+    public function isAtConnectionLimit(): bool
     {
-        return $this->limit !== null && $this->connections->count() >= $this->limit ? SaveNewConnection::limitMessage() : null;
+        return $this->limit !== null && $this->connections->count() >= $this->limit;
     }
 
     /**

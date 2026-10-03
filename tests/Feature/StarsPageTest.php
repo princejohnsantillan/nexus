@@ -256,16 +256,15 @@ it('refuses another user\'s Connection', function (): void {
     expect(Star::query()->count())->toBe(0);
 });
 
-it('stops at the Stars limit with a friendly message', function (): void {
+it('keeps Create Star enabled at the Stars limit, and refuses another Star with a friendly message', function (): void {
     config(['nexus.plans.free.stars' => 2]);
     Star::factory()->for($this->user)->count(2)->create();
 
     $page = Livewire::test('pages::stars.index')
         ->assertSeeTextInOrder(['2 / 2 Stars', 'Create Star'])
-        ->assertSeeText('Star limit reached')
-        ->assertSeeText('Free includes 2 Stars. Go Pro for more, or delete one you no longer use.');
+        ->assertDontSeeText('Star limit reached');
 
-    expect(createStarIsDisabled($page->html()))->toBeTrue();
+    expect(createStarIsDisabled($page->html()))->toBeFalse();
 
     $page->set('name', 'One too many')
         ->call('create')
@@ -279,7 +278,9 @@ it('says "1 Star" when the limit is one', function (): void {
     Star::factory()->for($this->user)->create();
 
     Livewire::test('pages::stars.index')
-        ->assertSeeText('Free includes 1 Star. Go Pro for more, or delete it if you no longer use it.');
+        ->set('name', 'Second')
+        ->call('create')
+        ->assertHasErrors(['limit' => 'Free includes 1 Star. Go Pro for more, or delete it if you no longer use it.']);
 });
 
 it('escapes the names and descriptions users give their Stars', function (): void {
