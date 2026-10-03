@@ -36,12 +36,6 @@ return [
         'redirect' => '/auth/github/callback',
     ],
 
-    'google' => [
-        'client_id' => env('GOOGLE_CLIENT_ID'),
-        'client_secret' => env('GOOGLE_CLIENT_SECRET'),
-        'redirect' => '/auth/google/callback',
-    ],
-
     /*
     | PayMongo takes the payments for Pro (App\Billing\PayMongo). Payments are
     | set up only when the secret key is set. The payment methods are the

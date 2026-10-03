@@ -3,7 +3,6 @@
 declare(strict_types=1);
 
 use App\Auth\EmailCodes;
-use App\Auth\GoogleSignInProvider;
 use App\Auth\PendingEmailSignIn;
 use App\Enums\DevAccount;
 use App\Enums\EmailCodePurpose;
@@ -25,12 +24,6 @@ return new #[Layout('layouts::public'), Title('Sign in')] class extends Componen
     public function emailSignInIsEnabled(): bool
     {
         return EmailCodes::canBeSent();
-    }
-
-    #[Computed]
-    public function googleSignInIsEnabled(): bool
-    {
-        return GoogleSignInProvider::isConfigured();
     }
 
     #[Computed]

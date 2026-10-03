@@ -43,18 +43,6 @@ class SignInIdentityFactory extends Factory
     }
 
     /**
-     * Indicate that the identity is a Google account with this email address.
-     */
-    public function google(string $email): static
-    {
-        return $this->state(fn (array $attributes): array => [
-            'provider' => IdentityProvider::Google,
-            'provider_user_id' => (string) fake()->unique()->numerify('1####################'),
-            'login' => $email,
-        ]);
-    }
-
-    /**
      * Indicate that the identity is this email address, signed in with a code.
      */
     public function email(string $email): static

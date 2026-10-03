@@ -39,13 +39,13 @@ it('shows the GitHub profile, the sign-in methods and the appearance switch', fu
 });
 
 it('lists every sign-in method of the user, and only theirs', function (): void {
-    SignInIdentity::factory()->for($this->user)->google('mona@gmail.com')->create();
     SignInIdentity::factory()->for($this->user)->email('mona@example.com')->create();
     SignInIdentity::factory()->gitHub('hubot')->create();
 
     Livewire::test('pages::settings.index')
-        ->assertSeeTextInOrder(['Sign-in methods', 'GitHub', '@octocat', 'Google', 'mona@gmail.com', 'Email', 'mona@example.com'])
-        ->assertDontSeeText('hubot');
+        ->assertSeeTextInOrder(['Sign-in methods', 'GitHub', '@octocat', 'Email', 'mona@example.com'])
+        ->assertDontSeeText('hubot')
+        ->assertDontSee('Google');
 });
 
 it('says when GitHub does not share the email', function (): void {
@@ -173,20 +173,20 @@ it('keeps the account when the confirmation does not match the GitHub login', fu
 ]);
 
 it('removes a sign-in method after confirming, while another one remains', function (): void {
-    $google = SignInIdentity::factory()->for($this->user)->google('mona@gmail.com')->create();
+    $email = SignInIdentity::factory()->for($this->user)->email('mona@example.com')->create();
 
     Livewire::test('pages::settings.index')
-        ->assertSeeHtml('aria-label="Remove Google, mona@gmail.com"')
+        ->assertSeeHtml('aria-label="Remove Email, mona@example.com"')
         ->assertDontSeeText("This is your only way to sign in, so it can't be removed.")
-        ->assertSeeText(['Remove Google?', 'You will no longer sign in to this account with mona@gmail.com.'])
-        ->call('removeIdentity', $google->id)
+        ->assertSeeText(['Remove Email?', 'You will no longer sign in to this account with mona@example.com.'])
+        ->call('removeIdentity', $email->id)
         ->assertHasNoErrors()
-        ->assertDispatched('toast-show', fn (string $event, array $params): bool => $params['slots']['text'] === 'Removed Google. You can no longer sign in with mona@gmail.com.'
+        ->assertDispatched('toast-show', fn (string $event, array $params): bool => $params['slots']['text'] === 'Removed Email. You can no longer sign in with mona@example.com.'
             && $params['dataset']['variant'] === 'success')
         ->assertDontSeeHtml('aria-label="Remove GitHub, @octocat"')
         ->assertSeeText("This is your only way to sign in, so it can't be removed. To remove it, add another sign-in method first.");
 
-    $this->assertModelMissing($google);
+    $this->assertModelMissing($email);
     expect($this->user->signInIdentities()->pluck('login')->all())->toBe(['octocat']);
     $this->assertAuthenticatedAs($this->user);
 });
@@ -195,7 +195,7 @@ it('removes GitHub for good, so signing in with that GitHub account afterwards c
     $this->user->update(['github_id' => 583231, 'github_login' => 'octocat']);
     $gitHub = $this->user->signInIdentities()->sole();
     $gitHub->update(['provider_user_id' => '583231']);
-    SignInIdentity::factory()->for($this->user)->google('mona@gmail.com')->create();
+    SignInIdentity::factory()->for($this->user)->email('mona@example.com')->create();
 
     Livewire::test('pages::settings.index')
         ->call('removeIdentity', $gitHub->id)
@@ -214,7 +214,7 @@ it('removes GitHub for good, so signing in with that GitHub account afterwards c
 
     expect($newUser)->toBeInstanceOf(User::class)
         ->and($newUser?->is($this->user))->toBeFalse()
-        ->and($this->user->signInIdentities()->pluck('provider')->all())->toBe([IdentityProvider::Google]);
+        ->and($this->user->signInIdentities()->pluck('provider')->all())->toBe([IdentityProvider::Email]);
 });
 
 it('keeps the only sign-in method, so the account always has a way in', function (): void {
@@ -231,8 +231,8 @@ it('keeps the only sign-in method, so the account always has a way in', function
 });
 
 it('does not remove another user\'s sign-in method', function (): void {
-    SignInIdentity::factory()->for($this->user)->google('mona@gmail.com')->create();
-    $theirs = SignInIdentity::factory()->for(User::factory()->signsInWithGitHub('hubot'))->google('hubot@gmail.com')->create();
+    SignInIdentity::factory()->for($this->user)->email('mona@example.com')->create();
+    $theirs = SignInIdentity::factory()->for(User::factory()->signsInWithGitHub('hubot'))->email('hubot@example.com')->create();
 
     Livewire::test('pages::settings.index')
         ->call('removeIdentity', $theirs->id)

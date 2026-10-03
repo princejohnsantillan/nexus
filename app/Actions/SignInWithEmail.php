@@ -18,9 +18,8 @@ class SignInWithEmail
      * The user who signs in with this email address, once a code sent to it
      * was entered: the one with its email identity, or a new account when
      * nobody has it. Only an email identity ever matches. The same address
-     * on a GitHub or Google identity, or in someone's profile, doesn't, since
-     * it may be someone else's: an address joins an account only from
-     * Settings, while signed in.
+     * in someone's profile doesn't, since it may be someone else's: an
+     * address joins an account only from Settings, while signed in.
      */
     public function handle(string $email): User
     {

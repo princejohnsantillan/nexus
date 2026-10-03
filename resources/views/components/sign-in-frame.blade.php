@@ -1,13 +1,14 @@
 {{--
     The frame of the sign-in pages (boards S1–S3): the logo, the page's own
-    content in the middle of the left column with the open-source line under
-    it, and the star chart filling the right on wide screens. On a narrow
-    screen the chart hides and the column fills the page.
+    content in the middle of the left column with the legal line under it
+    (open source, and agreeing to the Terms and Privacy Policy), and the star
+    chart filling the right on wide screens. On a narrow screen the chart
+    hides and the column fills the page.
 --}}
 <div class="flex min-h-screen">
-    <div class="flex w-full flex-col px-6 py-8 sm:px-14 sm:py-10 lg:w-[44%] lg:max-w-160 lg:shrink-0">
+    <div class="flex w-full flex-col px-6 py-8 sm:px-14 sm:py-10 lg:w-4/9 lg:max-w-160 lg:shrink-0">
         <header>
-            <x-app-logo :href="route('home')" />
+            <x-app-logo :href="route('home')" class="h-7! gap-2.5! [&>div:last-child]:leading-[1.125rem] [&>div:last-child]:font-semibold [&>div:last-child]:tracking-[-0.011em] [&>div:last-child]:text-zinc-950 dark:[&>div:last-child]:text-white" />
         </header>
 
         <main class="flex flex-1 flex-col justify-center py-12">
@@ -17,10 +18,14 @@
         </main>
 
         <footer>
-            <flux:text class="text-zinc-600 dark:text-zinc-400">
-                {{ __('Nexus is open source.') }}
-                <flux:link href="https://github.com/princejohnsantillan/nexus" external>{{ __('View it on GitHub') }}</flux:link>
-            </flux:text>
+            <p class="text-[0.8125rem] leading-5 text-zinc-600 dark:text-zinc-400">
+                {{ __('Nexus is') }}
+                <a href="https://github.com/princejohnsantillan/nexus" target="_blank" rel="noopener noreferrer" class="hover:text-zinc-950 hover:underline dark:hover:text-white">{{ __('open source') }}</a>{{ __('.') }}
+                {{ __('By continuing you agree to the') }}
+                <a href="{{ route('legal.terms') }}" class="hover:text-zinc-950 hover:underline dark:hover:text-white">{{ __('Terms') }}</a>
+                {{ __('and') }}
+                <a href="{{ route('legal.privacy') }}" class="hover:text-zinc-950 hover:underline dark:hover:text-white">{{ __('Privacy Policy') }}</a>{{ __('.') }}
+            </p>
         </footer>
     </div>
 

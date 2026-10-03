@@ -6,7 +6,6 @@ use App\Actions\AddSignInIdentity;
 use App\Actions\DeleteAccount;
 use App\Actions\RemoveSignInIdentity;
 use App\Auth\EmailCodes;
-use App\Auth\GoogleSignInProvider;
 use App\Enums\EmailCodePurpose;
 use App\Enums\IdentityProvider;
 use App\Exceptions\EmailCodeNotSent;
@@ -60,12 +59,6 @@ return new #[Title('Settings')] class extends Component
     public function identities(): Collection
     {
         return $this->user->signInIdentities->sortBy('id')->values();
-    }
-
-    #[Computed]
-    public function googleSignInIsEnabled(): bool
-    {
-        return GoogleSignInProvider::isConfigured();
     }
 
     /**

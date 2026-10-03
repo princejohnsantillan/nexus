@@ -115,10 +115,9 @@ it('signs in the user who signs in with the address', function (): void {
     expect(User::query()->count())->toBe(2);
 });
 
-it('creates an account for an address nobody signs in with, even when another identity or a profile has it', function (): void {
+it('creates an account for an address nobody signs in with, even when another account\'s profile has it', function (): void {
     Notification::fake();
     $gitHubUser = User::factory()->signsInWithGitHub('ada')->create(['email' => 'ada@example.com']);
-    $googleUser = User::factory()->has(SignInIdentity::factory()->google('ada@example.com'), 'signInIdentities')->create(['email' => 'ada@example.com']);
 
     askForSignInCode('ada@example.com');
 
@@ -127,15 +126,14 @@ it('creates an account for an address nobody signs in with, even when another id
         ->call('signIn')
         ->assertRedirect(route('stars.index'));
 
-    $user = User::query()->whereKeyNot([$gitHubUser->id, $googleUser->id])->sole();
+    $user = User::query()->whereKeyNot($gitHubUser->id)->sole();
     $this->assertAuthenticatedAs($user);
     expect($user->name)->toBe('ada')
         ->and($user->email)->toBe('ada@example.com')
         ->and($user->signInIdentities->map->only('provider', 'provider_user_id', 'login')->all())->toBe([
             ['provider' => IdentityProvider::Email, 'provider_user_id' => 'ada@example.com', 'login' => 'ada@example.com'],
         ])
-        ->and($gitHubUser->signInIdentities()->count())->toBe(1)
-        ->and($googleUser->signInIdentities()->count())->toBe(1);
+        ->and($gitHubUser->signInIdentities()->count())->toBe(1);
 });
 
 it('signs in to the account the first sign-in created, the next time', function (): void {
