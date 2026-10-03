@@ -2,13 +2,8 @@
     {{-- At a limit, what would add a Star or a Connection opens the upgrade prompt instead. --}}
     @php($createStarModal = $this->isAtStarLimit ? 'star-limit' : 'create-star')
 
-    <div class="flex flex-wrap items-start justify-between gap-4">
-        <div>
-            <flux:heading size="xl" level="1">{{ __('Stars') }}</flux:heading>
-            <flux:text class="mt-2">{{ __('Each Star is one MCP server endpoint that bundles some of your Connections.') }}</flux:text>
-        </div>
-
-        <div class="flex min-h-10 items-center gap-4">
+    <x-page-header :heading="__('Stars')" :description="__('Each Star is one MCP server endpoint that bundles some of your Connections.')">
+        <x-slot:aside class="gap-4">
             <span @class([
                 'font-mono text-[13px] tabular-nums',
                 'text-zinc-600 dark:text-zinc-400' => ! $this->isAtStarLimit,
@@ -27,8 +22,8 @@
                     <flux:button variant="primary" icon="plus" data-create-star>{{ __('Create Star') }}</flux:button>
                 </flux:modal.trigger>
             @endif
-        </div>
-    </div>
+        </x-slot:aside>
+    </x-page-header>
 
     @php($checklist = $this->gettingStarted)
 

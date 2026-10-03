@@ -16,16 +16,13 @@
         <div wire:poll.5s></div>
     @endunless
 
-    <div class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <div class="min-w-0">
-            <flux:heading size="xl" level="1">{{ __('Activity') }}</flux:heading>
-            <flux:text class="mt-2">
-                {{ trans_choice('Every tool call and prompt fetch through your Stars, kept for :days day.|Every tool call and prompt fetch through your Stars, kept for :days days.', $this->retentionDays, ['days' => $this->retentionDays]) }}
-                {{ __('Arguments and results are never stored.') }}
-            </flux:text>
-        </div>
+    <x-page-header :heading="__('Activity')">
+        <x-slot:description>
+            {{ trans_choice('Every tool call and prompt fetch through your Stars, kept for :days day.|Every tool call and prompt fetch through your Stars, kept for :days days.', $this->retentionDays, ['days' => $this->retentionDays]) }}
+            {{ __('Arguments and results are never stored.') }}
+        </x-slot:description>
 
-        <div class="flex shrink-0 items-center gap-3">
+        <x-slot:aside class="gap-3">
             <p class="flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400">
                 <span @class([
                     'size-2 shrink-0 rounded-full',
@@ -40,8 +37,8 @@
             @else
                 <flux:button size="sm" icon="pause" wire:click="pause">{{ __('Pause') }}</flux:button>
             @endif
-        </div>
-    </div>
+        </x-slot:aside>
+    </x-page-header>
 
     @if (! $this->hasActivity)
         <x-empty-state icon="queue-list" :heading="__('No activity yet')" class="mt-8">
