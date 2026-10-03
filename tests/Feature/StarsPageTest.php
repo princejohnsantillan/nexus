@@ -99,7 +99,7 @@ it('draws a sparkline of a Star\'s calls over the last two weeks, only when it h
     expect(substr_count($response->getContent(), 'data-sparkline'))->toBe(1);
 });
 
-it('reads every Star\'s calls from Activity in one query', function (): void {
+it('reads every Star\'s calls from Activity in one query, and counts the Stars once', function (): void {
     $this->freezeTime();
     $connection = Connection::factory()->for($this->user)->create();
     $stars = Star::factory()->for($this->user)->including($connection)->count(3)->create();
@@ -112,8 +112,9 @@ it('reads every Star\'s calls from Activity in one query', function (): void {
     $this->get(route('stars.index'))->assertOk()->assertSeeText('Last call 1 minute ago');
     DB::disableQueryLog();
 
-    $activityQueries = array_filter(array_column(DB::getQueryLog(), 'query'), fn (string $query): bool => str_contains($query, 'activity_entries'));
-    expect($activityQueries)->toHaveCount(1);
+    $queries = array_column(DB::getQueryLog(), 'query');
+    expect(array_filter($queries, fn (string $query): bool => str_contains($query, 'activity_entries')))->toHaveCount(1)
+        ->and(array_filter($queries, fn (string $query): bool => str_starts_with($query, 'select count(*) as "aggregate" from "stars"')))->toHaveCount(1);
 });
 
 it('counts the user\'s Stars against the limit next to Create Star', function (): void {

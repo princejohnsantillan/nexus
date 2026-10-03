@@ -109,12 +109,23 @@ return new #[Title('Stars')] class extends Component
     }
 
     /**
+     * Whether the user has as many Stars as they may have. A boolean, so
+     * Livewire keeps it for the request: a null computed value, such as
+     * limitMessage's, is worked out again each time the view reads it.
+     */
+    #[Computed]
+    public function isAtStarLimit(): bool
+    {
+        return $this->user->hasReachedStarLimit();
+    }
+
+    /**
      * What to tell the user when they can't create another Star, or null when they can.
      */
     #[Computed]
     public function limitMessage(): ?string
     {
-        return $this->user->hasReachedStarLimit() ? CreateStar::limitMessage() : null;
+        return $this->isAtStarLimit ? CreateStar::limitMessage() : null;
     }
 
     public function create(CreateStar $createStar): void
