@@ -23,7 +23,7 @@ it('connects Notion in one click: the Connection is saved and the user sent to N
     $authorizationServer = FakeAuthorizationServer::at('https://mcp.notion.com')->acceptingMetadataDocuments();
     FakeMcpServer::at('https://mcp.notion.com/mcp')->requireOAuth($authorizationServer, scopesSupported: ['default'])->withTools([['name' => 'notion-search']]);
 
-    $component = Livewire::test('pages::connections.add')
+    $component = Livewire::test('pages::connections.index')
         ->call('startConnecting', 'notion')
         ->assertSet('method', 'oauth')
         ->assertDontSeeText('Your own token')
@@ -59,7 +59,7 @@ it('connects Notion in one click: the Connection is saved and the user sent to N
 });
 
 it('doesn\'t let Notion sign in with a token it doesn\'t take', function (): void {
-    Livewire::test('pages::connections.add')
+    Livewire::test('pages::connections.index')
         ->call('startConnecting', 'notion')
         ->set('method', 'token')
         ->set('token', 'secret_123')
@@ -72,7 +72,7 @@ it('doesn\'t let Notion sign in with a token it doesn\'t take', function (): voi
 it('offers Sign in with GitHub, chosen for the user, when the deployment has a GitHub app', function (): void {
     config(['nexus.connectors.github' => ['client_id' => 'deployment-app', 'client_secret' => 'deployment-secret']]);
 
-    $component = Livewire::test('pages::connections.add')
+    $component = Livewire::test('pages::connections.index')
         ->call('startConnecting', 'github')
         ->assertSet('method', 'oauth')
         ->assertSeeText('Sign in with GitHub')
@@ -90,7 +90,7 @@ it('offers Sign in with GitHub, chosen for the user, when the deployment has a G
 });
 
 it('signs GitHub in through the user\'s own OAuth app when the deployment has none, showing the callback URL to register', function (): void {
-    $component = Livewire::test('pages::connections.add')
+    $component = Livewire::test('pages::connections.index')
         ->call('startConnecting', 'github')
         ->assertSet('method', 'token')
         ->set('method', 'oauth')
@@ -122,7 +122,7 @@ it('signs GitHub in through the user\'s own OAuth app when the deployment has no
 });
 
 it('refuses a client ID with a space or a client secret with a line break', function (): void {
-    Livewire::test('pages::connections.add')
+    Livewire::test('pages::connections.index')
         ->call('startConnecting', 'github')
         ->set('method', 'oauth')
         ->set('clientId', 'my app')

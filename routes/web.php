@@ -35,7 +35,7 @@ Route::middleware('auth')->group(function (): void {
     Route::livewire('/stars/{star}/prompts', 'pages::stars.prompts')->name('stars.prompts');
     Route::livewire('/stars/{star}/access', 'pages::stars.access')->name('stars.access');
     Route::livewire('/connections', 'pages::connections.index')->name('connections.index');
-    Route::livewire('/connections/add', 'pages::connections.add')->name('connections.add');
+    Route::redirect('/connections/add', '/connections#add-more')->name('connections.add');
     Route::livewire('/connections/add/custom', 'pages::connections.add-custom')->name('connections.add-custom');
     Route::livewire('/connections/{connection}', 'pages::connections.show')->name('connections.show');
     Route::livewire('/connections/{connection}/tools', 'pages::connections.tools')->name('connections.tools');

@@ -1,5 +1,5 @@
 <div class="mx-auto w-full max-w-3xl">
-    <flux:link :href="route('connections.add')" variant="subtle" class="text-sm" wire:navigate>&larr; {{ __('Add connection') }}</flux:link>
+    <flux:link :href="route('connections.index').'#add-more'" variant="subtle" class="text-sm" wire:navigate>&larr; {{ __('Connections') }}</flux:link>
 
     <flux:heading size="xl" level="1" class="mt-3">{{ __('Custom MCP server') }}</flux:heading>
     <flux:text class="mt-2">{{ __('Connect any remote MCP server by its URL. Nexus loads its tools as soon as you save, or once you sign in.') }}</flux:text>
@@ -60,7 +60,7 @@
         <flux:error name="limit" />
 
         <div class="flex justify-end gap-2">
-            <flux:button variant="ghost" :href="route('connections.add')" wire:navigate>{{ __('Cancel') }}</flux:button>
+            <flux:button variant="ghost" :href="route('connections.index').'#add-more'" wire:navigate>{{ __('Cancel') }}</flux:button>
             <flux:button type="submit" variant="primary">{{ $authType === 'oauth' ? __('Save and sign in') : __('Save and load tools') }}</flux:button>
         </div>
     </form>

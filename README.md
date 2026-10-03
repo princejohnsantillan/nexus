@@ -368,7 +368,7 @@ A test that writes a catalog or switches straight to the database, instead of th
 
 ### Connectors
 
-The Add connection page is a gallery of **connectors**: services with an official remote MCP server, such as GitHub, Notion and Linear. [`App\Connectors\ConnectorCatalog`](app/Connectors/ConnectorCatalog.php) loads them from [`resources/connectors`](resources/connectors), and a Connection made from one keeps its key in `connector_key` (`$connection->connector()` returns it; custom servers have none).
+The Connections page lists the user's Connections first, then a gallery of **connectors** to add more (its "Add more" section, `/connections#add-more`, where the old `/connections/add` URL now leads): services with an official remote MCP server, such as GitHub, Notion and Linear. [`App\Connectors\ConnectorCatalog`](app/Connectors/ConnectorCatalog.php) loads them from [`resources/connectors`](resources/connectors), and a Connection made from one keeps its key in `connector_key` (`$connection->connector()` returns it; custom servers have none).
 
 To add a connector, add two files, named after its key (lowercase letters, digits and dashes, at most 20 characters, since the key is also the handle suggested for its first Connection):
 

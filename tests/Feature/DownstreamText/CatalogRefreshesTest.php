@@ -18,10 +18,10 @@ use Tests\Support\DownstreamCanary;
 use Tests\Support\FakeMcpServer;
 
 /*
- * A catalog refresh whose server fails (from the Connection page, when a
- * Connection is added, or on the queue) keeps the server's text
- * (DownstreamCanary::TEXT) out of the log, failed jobs and activity, and
- * records Nexus's own message on the Connection.
+ * A catalog refresh whose server fails (from the Connection page or the
+ * Connections list, when a Connection is added, or on the queue) keeps the
+ * server's text (DownstreamCanary::TEXT) out of the log, failed jobs and
+ * activity, and records Nexus's own message on the Connection.
  */
 
 beforeEach(function (): void {
@@ -44,6 +44,22 @@ it('says on the Connection page why "Refresh tools" failed, in Nexus\'s words', 
         ->and($connection->last_error)->not->toContain(DownstreamCanary::TEXT)
         ->and($this->canary->sightings())->toBe([]);
 })->with(['initialize', 'tools/list'])->with(DownstreamCanary::failures());
+
+it('says on the Connections list why "Refresh tools" failed, in Nexus\'s words', function (Closure $answer): void {
+    FakeMcpServer::at()->withTools([['name' => 'search']])->respondTo('tools/list', $answer);
+    $connection = Connection::factory()->for($this->user)->connected()->create(['name' => 'DeepWiki']);
+    $this->actingAs($this->user);
+
+    Livewire::test('pages::connections.index')
+        ->call('refreshTools', $connection->id)
+        ->assertDispatched('toast-show', fn (string $event, array $params): bool => str_starts_with($params['slots']['text'], 'DeepWiki: Nexus couldn\'t load the tools: ')
+            && ! str_contains($params['slots']['text'], DownstreamCanary::TEXT))
+        ->assertSeeText($connection->refresh()->last_error ?? '')
+        ->assertDontSee(DownstreamCanary::TEXT);
+
+    expect($connection->last_error)->not->toBeNull()->not->toContain(DownstreamCanary::TEXT)
+        ->and($this->canary->sightings())->toBe([]);
+})->with(DownstreamCanary::someFailures());
 
 it('keeps the prompts when listing them fails', function (Closure $answer): void {
     FakeMcpServer::at()->withTools([['name' => 'search']])->withPrompts([['name' => 'summarize']])->respondTo('prompts/list', $answer);
@@ -171,7 +187,7 @@ describe('adding a Connection', function (): void {
             'WWW-Authenticate' => 'Bearer error="invalid_token", error_description="'.DownstreamCanary::TEXT.'"',
         ]));
 
-        Livewire::test('pages::connections.add')
+        Livewire::test('pages::connections.index')
             ->call('startConnecting', 'github')
             ->set('token', 'github_pat_expired')
             ->call('connect')
