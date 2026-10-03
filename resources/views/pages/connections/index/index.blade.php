@@ -59,6 +59,10 @@
                             @php
                                 $connector = $connection->connector();
                                 $problem = App\Stars\ConnectionProblems::of($connection);
+                                // Adding to a Star, signing in a Connection that is in no Star yet (such as one whose first sign-in was refused) adds it there too.
+                                $fixUrl = $problem?->canReconnect() && $this->returnStar !== null && $connection->stars->isEmpty()
+                                    ? route('connections.connect', ['connection' => $connection, ...App\Stars\ReturnToStar::query($this->returnStar)])
+                                    : $problem?->fixUrl();
                                 $tint = match ($problem?->tone()) {
                                     'warning' => 'bg-warning-wash',
                                     'danger' => 'bg-danger-wash',
@@ -92,7 +96,7 @@
                                             @endif
 
                                             @if ($problem?->canReconnect())
-                                                <flux:button size="sm" variant="primary" color="zinc" :href="$problem->fixUrl()" class="mt-2 md:hidden">{{ $problem->fixLabel() }}</flux:button>
+                                                <flux:button size="sm" variant="primary" color="zinc" :href="$fixUrl" class="mt-2 md:hidden">{{ $problem->fixLabel() }}</flux:button>
                                             @endif
                                         </div>
                                     </div>
@@ -143,7 +147,7 @@
                                             <flux:icon.loading wire:loading wire:target="refreshTools({{ $connection->id }})" class="size-4 text-zinc-500 dark:text-zinc-400" />
 
                                             @if ($problem?->canReconnect())
-                                                <flux:button size="sm" variant="primary" color="zinc" :href="$problem->fixUrl()" class="max-md:hidden">{{ $problem->fixLabel() }}</flux:button>
+                                                <flux:button size="sm" variant="primary" color="zinc" :href="$fixUrl" class="max-md:hidden">{{ $problem->fixLabel() }}</flux:button>
                                             @endif
 
                                             <flux:dropdown position="bottom" align="end">
@@ -176,6 +180,10 @@
     @endif
 
     <section id="add-more" class="mt-12 scroll-mt-6" aria-labelledby="add-more-heading">
+        @if ($this->returnStar !== null)
+            <x-adding-to-star :star="$this->returnStar" cancel class="mb-6 rounded-lg border border-accent/20 px-4 py-3" />
+        @endif
+
         <div class="flex flex-wrap items-end justify-between gap-4">
             <div class="min-w-0">
                 <flux:heading size="lg" level="2" id="add-more-heading">{{ $this->connections->isEmpty() ? __('Connect a server') : __('Add more') }}</flux:heading>
@@ -205,7 +213,7 @@
                     <flux:button wire:click="$set('search', '')">{{ __('Clear search') }}</flux:button>
 
                     @if ($this->limitMessage === null)
-                        <flux:button variant="primary" :href="route('connections.add-custom')" wire:navigate>{{ __('Connect by URL') }}</flux:button>
+                        <flux:button variant="primary" :href="route('connections.add-custom', App\Stars\ReturnToStar::query($this->returnStar))" wire:navigate>{{ __('Connect by URL') }}</flux:button>
                     @endif
                 </x-slot:actions>
             </x-empty-state>
@@ -266,7 +274,7 @@
 
                     <div class="mt-5">
                         @if ($this->limitMessage === null)
-                            <flux:button size="sm" :href="route('connections.add-custom')" wire:navigate>{{ __('Connect by URL') }}</flux:button>
+                            <flux:button size="sm" :href="route('connections.add-custom', App\Stars\ReturnToStar::query($this->returnStar))" wire:navigate>{{ __('Connect by URL') }}</flux:button>
                         @else
                             <flux:button size="sm" disabled>{{ __('Connect by URL') }}</flux:button>
                         @endif
@@ -278,102 +286,123 @@
         <flux:text size="sm" class="mt-8 text-zinc-500 dark:text-zinc-400">{{ $this->attribution }}</flux:text>
     </section>
 
-    <flux:modal name="connect" class="w-full max-w-lg">
+    <flux:modal name="connect" class="w-full max-w-xl">
         @if ($this->connector !== null)
-            <form wire:submit="connect" class="space-y-6">
-                <div>
-                    <div class="flex items-center gap-3">
-                        <x-connector-logo :connector="$this->connector" size="sm" />
-                        <flux:heading size="lg">{{ __('Connect :name', ['name' => $this->connector->name]) }}</flux:heading>
-                    </div>
-
-                    <flux:text class="mt-2">{{ __('Already connected :name? Connecting it again adds another account.', ['name' => $this->connector->name]) }}</flux:text>
+            <form wire:submit="connect">
+                <div class="flex items-center gap-3 pe-8">
+                    <x-connector-logo :connector="$this->connector" size="sm" />
+                    <flux:heading size="lg">{{ __('Connect :name', ['name' => $this->connector->name]) }}</flux:heading>
                 </div>
 
-                <flux:input wire:model="name" :label="__('Name')" :description="__('What you call this account in Nexus.')" maxlength="100" />
-
-                <flux:input
-                    wire:model="handle"
-                    :label="__('Handle')"
-                    :description="__('Its tools appear in Stars as handle__tool, so the handle can\'t be changed later.')"
-                    :maxlength="\App\Models\Connection::HANDLE_MAX_LENGTH"
-                    class:input="font-mono"
-                    autocomplete="off"
-                    autocapitalize="off"
-                    spellcheck="false"
-                />
-
-                <flux:input wire:model="description" :label="__('Use this account for')" :badge="__('Optional')" :description="__('Helps agents pick the right account when you connect a service more than once, e.g. \'work repositories\'.')" maxlength="200" />
-
-                @if (count($this->connector->methods()) > 1)
-                    <flux:radio.group wire:model.live="method" :label="__('Sign in with')" variant="cards" class="max-sm:flex-col">
-                        @foreach ($this->connector->methods() as $option)
-                            <flux:radio
-                                :value="$option->value"
-                                :label="$option->label($this->connector->name, ownApp: $this->connector->needsUserApp())"
-                                :description="$this->connector->whyUnavailable($option) === null
-                                    ? $option->description($this->connector->name, ownApp: $this->connector->needsUserApp())
-                                    : __('Not available yet. :reason', ['reason' => $this->connector->whyUnavailable($option)])"
-                                :disabled="$this->connector->whyUnavailable($option) !== null"
-                            />
-                        @endforeach
-                    </flux:radio.group>
+                @if ($this->returnStar !== null)
+                    <x-adding-to-star :star="$this->returnStar" class="-mx-6 mt-5 border-y border-accent/15 px-6 py-2.5" />
                 @endif
 
-                <flux:error name="method" />
+                <div class="mt-5 space-y-6">
+                    <flux:text>{{ __('Already connected :name? Connecting it again adds another account.', ['name' => $this->connector->name]) }}</flux:text>
 
-                @if ($method === App\Enums\SignInMethod::Token->value && $this->connector->token !== null)
                     <div class="space-y-3">
-                        <flux:text>{{ $this->connector->token->instructions }}</flux:text>
+                        <div class="grid gap-x-4 gap-y-6 sm:grid-cols-2">
+                            <flux:input wire:model="name" :label="__('Name')" maxlength="100" />
 
-                        <flux:link :href="$this->connector->token->consoleUrl" external rel="noopener noreferrer" class="text-sm">{{ __('Create a token on :name', ['name' => $this->connector->name]) }} &nearr;</flux:link>
-                    </div>
-
-                    <flux:input
-                        wire:model="token"
-                        type="password"
-                        viewable
-                        :label="__('Token')"
-                        :description="__('Stored encrypted. Nexus sends it as :header and checks it by loading the tools.', ['header' => $this->connector->token->headerName.': '.$this->connector->token->valuePrefix.'…'])"
-                        autocomplete="off"
-                    />
-                @endif
-
-                @if ($method === App\Enums\SignInMethod::OAuth->value)
-                    @if ($this->connector->needsUserApp() && $this->connector->app !== null)
-                        <div class="space-y-3">
-                            <flux:text>{{ $this->connector->app->instructions }}</flux:text>
-
-                            <flux:link :href="$this->connector->app->consoleUrl" external rel="noopener noreferrer" class="text-sm">{{ __('Register an OAuth app on :name', ['name' => $this->connector->name]) }} &nearr;</flux:link>
+                            <flux:input
+                                wire:model="handle"
+                                :label="__('Handle')"
+                                :maxlength="\App\Models\Connection::HANDLE_MAX_LENGTH"
+                                class:input="font-mono"
+                                autocomplete="off"
+                                autocapitalize="off"
+                                spellcheck="false"
+                            />
                         </div>
 
-                        <flux:input :value="$this->callbackUrl" readonly copyable :label="__('Callback URL')" :description="__('Enter this as the app\'s callback URL.')" class:input="font-mono" />
+                        <x-handle-preview :handle="$handle" :tool="$this->exampleTool" />
+                    </div>
 
-                        <flux:input wire:model="clientId" :label="__('Client ID')" autocomplete="off" autocapitalize="off" spellcheck="false" class:input="font-mono" />
+                    <flux:input wire:model="description" :label="__('Use this account for')" :badge="__('Optional')" :description="__('Helps agents pick the right account when you connect a service more than once, e.g. \'work repositories\'.')" maxlength="200" />
+
+                    @if (count($this->connector->methods()) > 1)
+                        <flux:radio.group wire:model.live="method" :label="__('Sign in with')" variant="cards" class="max-sm:flex-col">
+                            @foreach ($this->connector->methods() as $option)
+                                <flux:radio
+                                    :value="$option->value"
+                                    :label="$option->label($this->connector->name, ownApp: $this->connector->needsUserApp())"
+                                    :description="$this->connector->whyUnavailable($option) === null
+                                        ? $option->description($this->connector->name, ownApp: $this->connector->needsUserApp())
+                                        : __('Not available yet. :reason', ['reason' => $this->connector->whyUnavailable($option)])"
+                                    :disabled="$this->connector->whyUnavailable($option) !== null"
+                                />
+                            @endforeach
+                        </flux:radio.group>
+                    @endif
+
+                    <flux:error name="method" />
+
+                    @if ($method === App\Enums\SignInMethod::Token->value && $this->connector->token !== null)
+                        <div class="space-y-3">
+                            <flux:text>{{ $this->connector->token->instructions }}</flux:text>
+
+                            <flux:link :href="$this->connector->token->consoleUrl" external rel="noopener noreferrer" class="text-sm">{{ __('Create a token on :name', ['name' => $this->connector->name]) }} &nearr;</flux:link>
+                        </div>
 
                         <flux:input
-                            wire:model="clientSecret"
+                            wire:model="token"
                             type="password"
                             viewable
-                            :label="__('Client secret')"
-                            :description="__('Stored encrypted.')"
+                            :label="__('Token')"
+                            :description="__('Stored encrypted. Nexus sends it as :header and checks it by loading the tools.', ['header' => $this->connector->token->headerName.': '.$this->connector->token->valuePrefix.'…'])"
                             autocomplete="off"
                         />
-                    @else
-                        <flux:text>{{ __('Nexus sends you to :name to approve access, then brings you back here and loads the tools.', ['name' => $this->connector->name]) }}</flux:text>
                     @endif
-                @endif
 
-                <flux:error name="limit" />
+                    @if ($method === App\Enums\SignInMethod::OAuth->value)
+                        @if ($this->connector->needsUserApp() && $this->connector->app !== null)
+                            <div class="space-y-3">
+                                <flux:text>{{ $this->connector->app->instructions }}</flux:text>
 
-                <div class="flex justify-end gap-2">
-                    <flux:modal.close>
-                        <flux:button variant="ghost">{{ __('Cancel') }}</flux:button>
-                    </flux:modal.close>
+                                <flux:link :href="$this->connector->app->consoleUrl" external rel="noopener noreferrer" class="text-sm">{{ __('Register an OAuth app on :name', ['name' => $this->connector->name]) }} &nearr;</flux:link>
+                            </div>
 
-                    <flux:button type="submit" variant="primary">
-                        {{ $method === App\Enums\SignInMethod::OAuth->value ? __('Continue to :name', ['name' => $this->connector->name]) : __('Connect and load tools') }}
-                    </flux:button>
+                            <flux:input :value="$this->callbackUrl" readonly copyable :label="__('Callback URL')" :description="__('Enter this as the app\'s callback URL.')" class:input="font-mono" />
+
+                            <flux:input wire:model="clientId" :label="__('Client ID')" autocomplete="off" autocapitalize="off" spellcheck="false" class:input="font-mono" />
+
+                            <flux:input
+                                wire:model="clientSecret"
+                                type="password"
+                                viewable
+                                :label="__('Client secret')"
+                                :description="__('Stored encrypted.')"
+                                autocomplete="off"
+                            />
+                        @else
+                            <flux:text>
+                                {{ $this->returnStar === null
+                                    ? __('Nexus sends you to :name to approve access, then brings you back here and loads the tools.', ['name' => $this->connector->name])
+                                    : __('Nexus sends you to :name to approve access, then loads the tools and brings you back to :star.', ['name' => $this->connector->name, 'star' => $this->returnStar->name]) }}
+                            </flux:text>
+                        @endif
+                    @endif
+
+                    <flux:error name="limit" />
+                </div>
+
+                <div class="-mx-6 mt-6 -mb-6 flex flex-wrap items-center justify-end gap-x-4 gap-y-3 rounded-b-xl border-t border-zinc-200 bg-zinc-50 px-6 py-4 dark:border-white/10 dark:bg-black/15">
+                    @if ($this->returnStar !== null)
+                        <flux:text class="me-auto min-w-0 wrap-anywhere" data-starts-on>{{ $this->returnStar->new_tool_policy->startsOnIn($this->returnStar->name) }}</flux:text>
+                    @endif
+
+                    <div class="flex gap-2">
+                        <flux:modal.close>
+                            <flux:button variant="ghost">{{ __('Cancel') }}</flux:button>
+                        </flux:modal.close>
+
+                        @if ($method === App\Enums\SignInMethod::OAuth->value)
+                            <flux:button type="submit" variant="primary" icon:trailing="arrow-up-right">{{ __('Continue to :name', ['name' => $this->connector->name]) }}</flux:button>
+                        @else
+                            <flux:button type="submit" variant="primary">{{ __('Connect and load tools') }}</flux:button>
+                        @endif
+                    </div>
                 </div>
             </form>
         @endif

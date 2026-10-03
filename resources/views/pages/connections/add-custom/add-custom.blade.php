@@ -1,10 +1,14 @@
 <div class="mx-auto w-full max-w-3xl">
-    <flux:link :href="route('connections.index').'#add-more'" variant="subtle" class="text-sm" wire:navigate>&larr; {{ __('Connections') }}</flux:link>
+    <flux:link :href="App\Stars\ReturnToStar::addMoreUrl($this->returnStar)" variant="subtle" class="text-sm" wire:navigate>&larr; {{ __('Connections') }}</flux:link>
 
     <flux:heading size="xl" level="1" class="mt-3">{{ __('Custom MCP server') }}</flux:heading>
     <flux:text class="mt-2">{{ __('Connect any remote MCP server by its URL. Nexus loads its tools as soon as you save, or once you sign in.') }}</flux:text>
 
     <flux:separator variant="subtle" class="my-6" />
+
+    @if ($this->returnStar !== null)
+        <x-adding-to-star :star="$this->returnStar" class="mb-6 rounded-lg border border-accent/20 px-4 py-3" />
+    @endif
 
     @if ($this->limitMessage !== null)
         <flux:callout icon="exclamation-triangle" color="amber" class="mb-6" :heading="__('Connection limit reached')">
@@ -15,17 +19,21 @@
     <form wire:submit="save" class="space-y-6">
         <flux:input wire:model="name" :label="__('Name')" :description="__('What you call this server in Nexus.')" placeholder="DeepWiki" maxlength="100" />
 
-        <flux:input
-            wire:model="handle"
-            :label="__('Handle')"
-            :description="__('Lowercase letters, digits and dashes, starting with a letter. Its tools appear in Stars as handle__tool, so the handle can\'t be changed later.')"
-            placeholder="deepwiki"
-            :maxlength="\App\Models\Connection::HANDLE_MAX_LENGTH"
-            class:input="font-mono"
-            autocomplete="off"
-            autocapitalize="off"
-            spellcheck="false"
-        />
+        <div class="space-y-3">
+            <flux:input
+                wire:model="handle"
+                :label="__('Handle')"
+                :description="__('Lowercase letters, digits and dashes, starting with a letter.')"
+                placeholder="deepwiki"
+                :maxlength="\App\Models\Connection::HANDLE_MAX_LENGTH"
+                class:input="font-mono"
+                autocomplete="off"
+                autocapitalize="off"
+                spellcheck="false"
+            />
+
+            <x-handle-preview :handle="$handle" />
+        </div>
 
         <flux:input wire:model="description" :label="__('Use this account for')" :badge="__('Optional')" :description="__('Helps agents pick the right account when you connect a service more than once, e.g. \'work repositories\'.')" maxlength="200" />
 
@@ -59,9 +67,15 @@
 
         <flux:error name="limit" />
 
-        <div class="flex justify-end gap-2">
-            <flux:button variant="ghost" :href="route('connections.index').'#add-more'" wire:navigate>{{ __('Cancel') }}</flux:button>
-            <flux:button type="submit" variant="primary">{{ $authType === 'oauth' ? __('Save and sign in') : __('Save and load tools') }}</flux:button>
+        <div class="flex flex-wrap items-center justify-end gap-x-4 gap-y-3">
+            @if ($this->returnStar !== null)
+                <flux:text class="me-auto min-w-0 wrap-anywhere" data-starts-on>{{ $this->returnStar->new_tool_policy->startsOnIn($this->returnStar->name) }}</flux:text>
+            @endif
+
+            <div class="flex gap-2">
+                <flux:button variant="ghost" :href="$this->returnStar === null ? route('connections.index').'#add-more' : route('stars.show', $this->returnStar)" wire:navigate>{{ __('Cancel') }}</flux:button>
+                <flux:button type="submit" variant="primary">{{ $authType === 'oauth' ? __('Save and sign in') : __('Save and load tools') }}</flux:button>
+            </div>
         </div>
     </form>
 </div>

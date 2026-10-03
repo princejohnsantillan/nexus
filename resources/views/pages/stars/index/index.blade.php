@@ -259,7 +259,7 @@
                     <flux:callout.text>{{ __('You can create the Star now and add Connections to it later.') }}</flux:callout.text>
 
                     <x-slot name="actions">
-                        <flux:button size="sm" :href="route('connections.add')" wire:navigate>{{ __('Add connection') }}</flux:button>
+                        <flux:button size="sm" :href="route('connections.index').'#add-more'" wire:navigate>{{ __('Add connection') }}</flux:button>
                     </x-slot>
                 </flux:callout>
             @else

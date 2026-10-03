@@ -126,7 +126,7 @@ it('shows the Star\'s Connections and settings in cards', function (): void {
     $this->get(route('stars.show', $star))
         ->assertSeeTextInOrder([
             'Set up a client',
-            'Connections', 'DeepWiki', 'deepwiki', '2 tools', 'Taking one out forgets the switches you set for its tools here.',
+            'Connections', 'DeepWiki', 'deepwiki', '2 tools', 'Add a connection', 'you\'ll come back here',
             'Details', 'Renaming keeps the endpoint URL, so clients keep working.',
             'Delete this Star', 'This can\'t be undone.', 'Delete Star',
         ])
@@ -276,12 +276,12 @@ it('refuses another user\'s Connection', function (): void {
         ->and($star->refresh()->name)->not->toBe('Office');
 });
 
-it('says when the user has no Connections to add', function (): void {
+it('says when the user has no Connections to add, leading to the catalog with the Star to come back to', function (): void {
     $star = Star::factory()->for($this->user)->create();
 
     Livewire::test('pages::stars.show', ['star' => $star])
         ->assertSeeText('No Connections yet')
-        ->assertSee(route('connections.add'));
+        ->assertSeeHtml('href="'.route('connections.index', ['star' => $star->public_id]).'#add-more"');
 });
 
 it('renames the Star and edits its description, keeping its URL', function (): void {

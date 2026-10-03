@@ -41,6 +41,19 @@ enum NewToolPolicy: string
     }
 
     /**
+     * Which tools of a Connection added to the Star start on, in words:
+     * "Read-only tools start on in Work."
+     */
+    public function startsOnIn(string $star): string
+    {
+        return match ($this) {
+            self::ReadOnly => __('Read-only tools start on in :star.', ['star' => $star]),
+            self::All => __('Every tool starts on in :star.', ['star' => $star]),
+            self::None => __('Every tool starts off in :star.', ['star' => $star]),
+        };
+    }
+
+    /**
      * Whether this policy turns the tool on. Under the read-only policy only a
      * tool whose server declares `readOnlyHint: true` is on, so a tool that
      * stops being read-only, or never says, is off.

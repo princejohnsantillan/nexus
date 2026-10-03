@@ -8,13 +8,16 @@ use App\ConnectionOAuth\NexusClient;
 use App\Enums\ConnectionAuthType;
 use App\Enums\ConnectionStatus;
 use App\Models\Connection;
+use App\Models\Star;
 use App\Models\User;
 use App\Rules\HeaderName;
 use App\Rules\McpServerUrl;
+use App\Stars\ReturnToStar;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\Rule;
 use Livewire\Attributes\Computed;
+use Livewire\Attributes\Locked;
 use Livewire\Attributes\Title;
 use Livewire\Component;
 
@@ -45,10 +48,31 @@ return new #[Title('Custom MCP server')] class extends Component
 
     public string $clientSecret = '';
 
+    /**
+     * The public id of the Star the user is adding a Connection to, from its
+     * overview: once it's connected, they go back to it (ReturnToStar).
+     */
+    #[Locked]
+    public ?string $returnTo = null;
+
+    public function mount(): void
+    {
+        $this->returnTo = ReturnToStar::find($this->user, request()->query(ReturnToStar::QUERY))?->public_id;
+    }
+
     #[Computed]
     public function user(): User
     {
         return Auth::user() ?? throw new AuthenticationException;
+    }
+
+    /**
+     * The Star the user is adding a Connection to, while it is still theirs.
+     */
+    #[Computed]
+    public function returnStar(): ?Star
+    {
+        return ReturnToStar::find($this->user, $this->returnTo);
     }
 
     /**
@@ -69,7 +93,12 @@ return new #[Title('Custom MCP server')] class extends Component
         return app(NexusClient::class)->callbackUrl();
     }
 
-    public function save(AddCustomConnection $addCustomConnection): void
+    /**
+     * Save the server and load its tools, or send the user on to sign in to
+     * it. Adding to a Star, the user goes back to it with the Connection
+     * added, once it's saved, or signed in for OAuth.
+     */
+    public function save(AddCustomConnection $addCustomConnection, ReturnToStar $returnToStar): void
     {
         $this->name = trim($this->name);
         $this->handle = trim($this->handle);
@@ -131,7 +160,15 @@ return new #[Title('Custom MCP server')] class extends Component
         );
 
         if ($usesOAuth) {
-            $this->redirectRoute('connections.connect', ['connection' => $connection]);
+            $this->redirectRoute('connections.connect', ['connection' => $connection, ...ReturnToStar::query($this->returnStar)]);
+
+            return;
+        }
+
+        if ($this->returnStar instanceof Star) {
+            session()->flash('toast', $returnToStar->add($this->returnStar, $connection));
+
+            $this->redirectRoute('stars.show', ['star' => $this->returnStar], navigate: true);
 
             return;
         }

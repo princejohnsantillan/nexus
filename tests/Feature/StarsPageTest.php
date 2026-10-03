@@ -215,7 +215,7 @@ it('refuses an access mode that does not exist', function (): void {
 it('creates a Star without Connections, which can be added later', function (): void {
     Livewire::test('pages::stars.index')
         ->assertSeeText('You can create the Star now and add Connections to it later.')
-        ->assertSee(route('connections.add'))
+        ->assertSeeHtml('href="'.route('connections.index').'#add-more"')
         ->set('name', 'Later')
         ->call('create')
         ->assertHasNoErrors();
