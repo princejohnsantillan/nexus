@@ -72,12 +72,55 @@
                                     {{ __('Added') }} <time datetime="{{ $identity->created_at->toIso8601String() }}" title="{{ $identity->created_at->toDayDateTimeString() }}">{{ $identity->created_at->diffForHumans() }}</time>
                                 </flux:text>
                             @endif
+
+                            @if ($this->identities->count() > 1)
+                                <flux:modal.trigger :name="'remove-sign-in-identity-'.$identity->id">
+                                    <flux:button size="sm" variant="ghost" class="shrink-0" :aria-label="__('Remove :provider, :name', ['provider' => $identity->provider->label(), 'name' => $identity->displayName()])">{{ __('Remove') }}</flux:button>
+                                </flux:modal.trigger>
+                            @endif
                         </li>
                     @endforeach
                 </ul>
+
+                @if ($this->identities->count() === 1)
+                    <div class="mt-6 flex items-start gap-2">
+                        <flux:icon.information-circle variant="micro" class="mt-0.5 shrink-0 text-zinc-500 dark:text-zinc-400" />
+                        <flux:text>{{ __("This is your only way to sign in, so it can't be removed. To remove it, add another sign-in method first.") }}</flux:text>
+                    </div>
+                @endif
+
+                {{-- Every row's confirmation stays on the page, so one refused because another method went first can still say why. --}}
+                @foreach ($this->identities as $identity)
+                    <flux:modal :name="'remove-sign-in-identity-'.$identity->id" class="w-full max-w-lg" wire:key="remove-sign-in-identity-{{ $identity->id }}">
+                        <div class="space-y-6">
+                            <div>
+                                <flux:heading size="lg">{{ __('Remove :provider?', ['provider' => $identity->provider->label()]) }}</flux:heading>
+                                <flux:text class="mt-2">{{ __('You will no longer sign in to this account with :name. Signing in with it later creates a new, empty Nexus account.', ['name' => $identity->displayName()]) }}</flux:text>
+                            </div>
+
+                            <flux:error name="identity" />
+
+                            <div class="flex justify-end gap-2">
+                                <flux:modal.close>
+                                    <flux:button variant="ghost">{{ __('Cancel') }}</flux:button>
+                                </flux:modal.close>
+
+                                <flux:button variant="danger" wire:click="removeIdentity({{ $identity->id }})">{{ __('Remove :provider', ['provider' => $identity->provider->label()]) }}</flux:button>
+                            </div>
+                        </div>
+                    </flux:modal>
+                @endforeach
             @endif
 
             <x-slot:hint>{{ __('Each one signs in to this account. Nexus never joins accounts by matching email addresses.') }}</x-slot:hint>
+            <x-slot:actions>
+                @if ($this->googleSignInIsEnabled)
+                    <flux:button size="sm" :href="route('settings.add-google')">
+                        <x-icons.google class="size-4" />
+                        {{ __('Add Google') }}
+                    </flux:button>
+                @endif
+            </x-slot:actions>
         </x-section-card>
 
         <x-section-card :heading="__('Appearance')" :description="__('Light, dark, or follow your system.')">

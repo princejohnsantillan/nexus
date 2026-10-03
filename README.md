@@ -42,6 +42,8 @@ Herd serves the site, so there is nothing to start. While working on the front e
 
 People sign in with GitHub; Nexus stores no passwords. To use GitHub sign-in, register an OAuth app at <https://github.com/settings/developers> with the callback URL `{APP_URL}/auth/github/callback` (e.g. `https://nexus.test/auth/github/callback`) and set `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` in `.env`.
 
+Google sign-in is optional, and hidden until it is set up. Create an OAuth client ID of the "Web application" type in the [Google Cloud console](https://console.cloud.google.com/apis/credentials) (configure the consent screen first if it asks), add the authorized redirect URI `{APP_URL}/auth/google/callback` (e.g. `https://nexus.test/auth/google/callback`), and set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in `.env`. The same callback serves signing in and adding Google from Settings. Nexus asks only for the `openid`, `profile` and `email` scopes. Without both values, the sign-in page shows no Google button and Settings offers no "Add Google".
+
 Locally you can skip the OAuth app with the dev sign-in. Set `NEXUS_DEV_SIGN_IN=true` in `.env` and seed the two dev users:
 
 ```bash
@@ -269,7 +271,10 @@ The pieces behind it (the transport, the lenient protocol, the raw request) live
 
 ### Users and sign-in identities
 
-A user signs in through one of their **sign-in identities** ([`App\Models\SignInIdentity`](app/Models/SignInIdentity.php)): an account on a provider (`App\Enums\IdentityProvider`: GitHub, Google, or an email address signed in with a code), named by the provider's own id for it (GitHub's numeric id, Google's `sub`, or the address), with a `login` to show (the GitHub login, or the email address). Each provider's account belongs to one user only. Signing in finds the user by the identity, and one nobody has creates a new account; [`App\Actions\SyncGitHubUser`](app/Actions/SyncGitHubUser.php) does this for GitHub and refreshes the profile. An identity is only ever added to an existing user from Settings while they're signed in, never by matching an email address. Deleting the account deletes its identities.
+A user signs in through one of their **sign-in identities** ([`App\Models\SignInIdentity`](app/Models/SignInIdentity.php)): an account on a provider (`App\Enums\IdentityProvider`: GitHub, Google, or an email address signed in with a code), named by the provider's own id for it (GitHub's numeric id, Google's `sub`, or the address), with a `login` to show (the GitHub login, or the email address). Each provider's account belongs to one user only. Signing in finds the user by the identity, and one nobody has creates a new account; [`App\Actions\SyncGitHubUser`](app/Actions/SyncGitHubUser.php) does this for GitHub and refreshes the profile, and [`App\Actions\SyncGoogleUser`](app/Actions/SyncGoogleUser.php) does it for Google, taking a new account's name, email address and avatar from Google. An identity is only ever added to an existing user from Settings while they're signed in, never by matching an email address. Deleting the account deletes its identities.
+
+- **Adding** goes through [`App\Actions\AddSignInIdentity`](app/Actions/AddSignInIdentity.php), for any provider. It refuses an identity another user has by throwing `App\Exceptions\IdentityBelongsToAnotherUser` (the caller words the message), and returns one the user already has with `wasRecentlyCreated` false. "Add Google" in Settings goes to `/settings/sign-in-methods/google`, which remembers in the session who is adding it, so Google's one callback (`/auth/google/callback`) adds the account to them instead of signing in with it.
+- **Removing** goes through [`App\Actions\RemoveSignInIdentity`](app/Actions/RemoveSignInIdentity.php), for any provider, and only while another identity remains: the last one can't be removed, so an account always has a way in. Removing GitHub also clears the user's old GitHub columns, so GitHub sign-in can't find the user by them and give the identity back. Afterwards, signing in with a removed identity creates a new account.
 
 Show who a user is with `$user->signInName()` (`@octocat`, or else an email address) and `$user->gitHubLogin()`, never the users table's `github_id` and `github_login`. Those are left from before identities and may be empty: GitHub sign-in still writes them, for code that reads them, and uses `github_id` only to give a user who signed up before identities existed their identity. A later migration drops them. In tests, `User::factory()` makes a user with no identities; give them one with `signsInWithGitHub('octocat')`, or with `SignInIdentity::factory()` and its `gitHub()`, `google()` and `email()` states.
 
@@ -561,6 +566,7 @@ These are Cloud Secrets linked to the environment, never custom variables, files
 | `APP_KEY` | A new key from `php artisan key:generate --show` |
 | `NEXUS_MASTER_KEY` | A new key from `php artisan nexus:master-key` (the `base64:…` value after `=`) |
 | `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | The GitHub sign-in app |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | The Google sign-in OAuth client (optional: without it, Google sign-in is hidden) |
 | `NEXUS_GITHUB_CLIENT_ID`, `NEXUS_GITHUB_CLIENT_SECRET` | The GitHub connector app (optional: without it, users connect GitHub with their own token or OAuth app) |
 | `PASSPORT_PRIVATE_KEY`, `PASSPORT_PUBLIC_KEY` | A new RSA key pair for signing OAuth-to-Nexus access tokens, each the whole PEM text (see below) |
 
@@ -599,6 +605,8 @@ Steps marked **owner** need the owner's own accounts. Anyone signed in to the Cl
     - **Nexus GitHub connector**, for connecting GitHub, with the callback URL `{APP_URL}/oauth/callback`: `NEXUS_GITHUB_CLIENT_ID` and `NEXUS_GITHUB_CLIENT_SECRET`.
 
     Store the four values as secrets (`pbpaste | cloud secret:create --name=GITHUB_CLIENT_SECRET --json -n`, and so on) and link them.
+
+    For Google sign-in (optional), create an OAuth client ID of the "Web application" type at <https://console.cloud.google.com/apis/credentials>, with the authorized redirect URI `{APP_URL}/auth/google/callback`, and store its client ID and secret as `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` the same way.
 6. Redeploy and monitor it, then check what the app sees:
 
     ```bash

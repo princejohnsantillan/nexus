@@ -22,6 +22,13 @@
                         <x-icons.github class="size-4" />
                         {{ __('Continue with GitHub') }}
                     </flux:button>
+
+                    @if ($this->googleSignInIsEnabled)
+                        <flux:button :href="route('auth.google')" class="w-full">
+                            <x-icons.google class="size-4" />
+                            {{ __('Continue with Google') }}
+                        </flux:button>
+                    @endif
                 </div>
 
                 @if ($this->devSignInIsEnabled)
