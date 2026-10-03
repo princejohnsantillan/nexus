@@ -1,4 +1,4 @@
-<div @class(['mx-auto w-full max-w-5xl', 'pb-32 sm:pb-24' => ! $this->changes->isEmpty()]) x-data="unsavedChangesGuard('leave-star')" x-bind="guard">
+<div class="mx-auto w-full max-w-5xl" x-data="unsavedChangesGuard('leave-star')" x-bind="guard">
     <x-star-header :star="$star" current="overview" />
 
     <x-stat-strip class="mt-8">
@@ -196,10 +196,6 @@
 
                     <x-slot:hint>{{ __('Renaming keeps the endpoint URL, so clients keep working.') }}</x-slot:hint>
                 </x-section-card>
-
-                @unless ($this->changes->isEmpty())
-                    <x-unsaved-changes-bar :consequences="$this->changes->consequences" />
-                @endunless
             </form>
 
             <x-danger-card :heading="__('Delete this Star')" :description="__('Clients using its endpoint stop working, and its tokens and connected apps are revoked. Your Connections stay.')">
@@ -211,6 +207,8 @@
             </x-danger-card>
         </div>
     </div>
+
+    <x-unsaved-changes-bar :unsaved="! $this->changes->isEmpty()" :consequences="$this->changes->consequences" />
 
     <flux:modal name="leave-star" class="w-full max-w-lg">
         <div class="space-y-6">

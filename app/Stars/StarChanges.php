@@ -49,7 +49,8 @@ final readonly class StarChanges
         $stored = $star->connections()->get(['connections.id'])->map(fn (Connection $connection): int => $connection->id)->all();
         $ticked = array_map(intval(...), $connectionIds);
 
-        $changed = [...array_diff($ticked, $stored), ...array_diff($stored, $ticked)];
+        $removed = array_values(array_diff($stored, $ticked));
+        $changed = [...array_diff($ticked, $stored), ...$removed];
 
         $connections = $changed === [] ? new Collection : Connection::query()
             ->where('user_id', $star->user_id)
@@ -59,8 +60,10 @@ final readonly class StarChanges
             ->orderBy('id')
             ->get();
 
-        $consequences = array_values($connections->map(fn (Connection $connection): string => in_array($connection->id, $stored, true)
-            ? self::removing($star, $connection)
+        $switches = self::switchCounts($star, $removed);
+
+        $consequences = array_values($connections->map(fn (Connection $connection): string => in_array($connection->id, $removed, true)
+            ? self::removing($star->new_tool_policy, $connection, $switches[$connection->id] ?? 0)
             : self::adding($star->new_tool_policy, $connection))->all());
 
         $renamed = trim($name) !== $star->name;
@@ -100,20 +103,44 @@ final readonly class StarChanges
         };
     }
 
-    private static function removing(Star $star, Connection $connection): string
+    /**
+     * How many switches the user set in the Star for the tools and prompts
+     * of each of these Connections, by Connection id: one query for each
+     * kind of switch, however many Connections.
+     *
+     * @param  list<int>  $connectionIds
+     * @return array<int, int>
+     */
+    private static function switchCounts(Star $star, array $connectionIds): array
     {
-        $switches = $star->toolSwitches()->where('connection_id', $connection->id)->count()
-            + $star->promptSwitches()->where('connection_id', $connection->id)->count();
+        if ($connectionIds === []) {
+            return [];
+        }
 
+        $counts = [];
+
+        foreach ($star->toolSwitches()->whereIn('connection_id', $connectionIds)->get(['connection_id']) as $switch) {
+            $counts[$switch->connection_id] = ($counts[$switch->connection_id] ?? 0) + 1;
+        }
+
+        foreach ($star->promptSwitches()->whereIn('connection_id', $connectionIds)->get(['connection_id']) as $switch) {
+            $counts[$switch->connection_id] = ($counts[$switch->connection_id] ?? 0) + 1;
+        }
+
+        return $counts;
+    }
+
+    private static function removing(NewToolPolicy $policy, Connection $connection, int $switches): string
+    {
         if ($switches > 0) {
             return trans_choice('Removing :name forgets :count switch|Removing :name forgets :count switches', $switches, ['name' => $connection->name]);
         }
 
-        $on = self::toolsOn($star->new_tool_policy, $connection);
+        $on = self::toolsOn($policy, $connection);
 
         return match (true) {
             $on === 0 => __('Removing :name turns off none of its tools', ['name' => $connection->name]),
-            $star->new_tool_policy === NewToolPolicy::ReadOnly => trans_choice('Removing :name turns off its :count read-only tool|Removing :name turns off its :count read-only tools', $on, ['name' => $connection->name]),
+            $policy === NewToolPolicy::ReadOnly => trans_choice('Removing :name turns off its :count read-only tool|Removing :name turns off its :count read-only tools', $on, ['name' => $connection->name]),
             default => trans_choice('Removing :name turns off its :count tool|Removing :name turns off its :count tools', $on, ['name' => $connection->name]),
         };
     }

@@ -354,6 +354,18 @@ it('shows the unsaved-changes bar only while the Connections or details differ f
         ->assertSeeText(['Unsaved changes', 'Agents see the new description']);
 });
 
+it('keeps a status line that tells screen readers what is unsaved', function (): void {
+    $star = Star::factory()->for($this->user)->create(['name' => 'Work']);
+    $status = fn (string $html): ?string => HTMLDocument::createFromString($html, LIBXML_NOERROR)->querySelector('[role="status"][data-unsaved-changes-status]')?->textContent;
+
+    $page = Livewire::test('pages::stars.show', ['star' => $star]);
+    $clean = $status($page->html());
+    $page->set('name', 'Office');
+
+    expect($clean)->toBe('')
+        ->and($status($page->html()))->toBe('Unsaved changes. Renaming the Star keeps its URL');
+});
+
 it('asks before leaving the page with unsaved changes', function (): void {
     $star = Star::factory()->for($this->user)->create();
 
@@ -390,17 +402,20 @@ it('says how many tools adding a Connection turns on under the Star\'s new-tool 
     'all tools off' => [NewToolPolicy::None, 'Adding DeepWiki turns on none of its tools'],
 ]);
 
-it('says how many switches taking a Connection out forgets', function (): void {
+it('says how many switches taking each Connection out forgets', function (): void {
     $linear = Connection::factory()->for($this->user)->create(['name' => 'Linear']);
     $docs = Connection::factory()->for($this->user)->create(['name' => 'Docs']);
-    $star = Star::factory()->for($this->user)->including($linear, $docs)->create();
+    $kept = Connection::factory()->for($this->user)->create(['name' => 'Kept']);
+    $star = Star::factory()->for($this->user)->including($linear, $docs, $kept)->create();
     StarToolSwitch::factory()->for($star)->for($linear)->count(3)->sequence(fn (Sequence $sequence): array => ['tool_name' => 'tool_'.$sequence->index])->create();
     StarPromptSwitch::factory()->for($star)->for($linear)->create();
-    StarToolSwitch::factory()->for($star)->for($docs)->create();
+    StarPromptSwitch::factory()->for($star)->for($docs)->create();
+    StarToolSwitch::factory()->for($star)->for($kept)->create();
+    StarToolSwitch::factory()->for(Star::factory()->for($this->user)->including($docs))->for($docs)->create();
 
     Livewire::test('pages::stars.show', ['star' => $star])
-        ->set('connectionIds', [(string) $docs->id])
-        ->assertSeeText('Removing Linear forgets 4 switches');
+        ->set('connectionIds', [(string) $kept->id])
+        ->assertSeeText('Removing Docs forgets 1 switch · Removing Linear forgets 4 switches');
 });
 
 it('says how many tools taking out a Connection without switches turns off', function (): void {

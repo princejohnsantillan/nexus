@@ -1,4 +1,27 @@
 /**
+ * Where the current session history entry sits, counting the entries this
+ * page load has visited. Each entry is stamped with its place in its state
+ * the first time it is current, so a back or forward between pages
+ * reached with wire:navigate can tell how far it moved, in either direction.
+ */
+let lastHistoryPosition = 0
+
+function historyPosition() {
+    let position = window.history.state?.nexusHistoryPosition
+
+    if (! Number.isInteger(position)) {
+        position = lastHistoryPosition + 1
+        window.history.replaceState({ ...window.history.state, nexusHistoryPosition: position }, '')
+    }
+
+    lastHistoryPosition = position
+
+    return position
+}
+
+document.addEventListener('livewire:navigated', historyPosition)
+
+/**
  * Asks before leaving a page that has unsaved changes. Put it on a Livewire
  * page's root with the name of the Flux modal that asks, and give the
  * component a `hasUnsavedChanges` property that is true while something is
@@ -20,11 +43,15 @@ document.addEventListener('alpine:init', () => {
         // Set once the person chose to leave, so the navigation goes ahead.
         leaving: false,
 
-        // Set while stepping back to this page after a back or forward the person chose to stay for.
+        // Set while stepping back to this page's entry after a back or forward the person chose to stay for.
         returning: false,
 
-        // This page's place in the session history, where the browser tells it (the Navigation API).
-        position: window.navigation?.currentEntry?.index ?? null,
+        // This page's place in the session history (historyPosition()).
+        position: null,
+
+        init() {
+            this.position = historyPosition()
+        },
 
         guard: {
             ['x-on:livewire:navigate.document'](event) {
@@ -50,9 +77,12 @@ document.addEventListener('alpine:init', () => {
 
             if (this.returning) {
                 this.returning = false
-                event.preventDefault()
 
-                return
+                if (event.detail.history && this.stepsAway() === 0) {
+                    event.preventDefault()
+
+                    return
+                }
             }
 
             if (! this.unsaved()) {
@@ -89,14 +119,15 @@ document.addEventListener('alpine:init', () => {
         },
 
         /**
-         * How far the browser has moved from this page's history entry: -1
-         * for back, 1 for forward. Without the Navigation API, it takes the
-         * move to be back, by far the more common.
+         * How far the current history entry is from this page's: -1 for one
+         * back, 1 for one forward, 0 for this page's own. An entry without a
+         * place, which this page load never made current, is taken to be one
+         * back.
          */
         stepsAway() {
-            let steps = (window.navigation?.currentEntry?.index ?? NaN) - this.position
+            let position = window.history.state?.nexusHistoryPosition
 
-            return this.position === null || ! Number.isInteger(steps) || steps === 0 ? -1 : steps
+            return Number.isInteger(position) ? position - this.position : -1
         },
     }))
 })
