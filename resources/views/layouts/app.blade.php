@@ -30,7 +30,7 @@
 
                     <span class="grid min-w-0 flex-1 leading-tight">
                         <span class="truncate text-[13px] font-medium text-zinc-950 dark:text-white">{{ auth()->user()->name }}</span>
-                        <span class="truncate text-xs text-zinc-600 dark:text-zinc-400">{{ '@'.auth()->user()->github_login }}</span>
+                        <span class="truncate text-xs text-zinc-600 dark:text-zinc-400">{{ auth()->user()->signInName() }}</span>
                     </span>
 
                     <flux:icon.chevron-up-down variant="micro" class="text-zinc-400 group-hover:text-zinc-800 dark:text-white/60 dark:group-hover:text-white" />

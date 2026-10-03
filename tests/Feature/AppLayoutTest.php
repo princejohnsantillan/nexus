@@ -2,10 +2,11 @@
 
 declare(strict_types=1);
 
+use App\Models\SignInIdentity;
 use App\Models\User;
 
 beforeEach(function (): void {
-    $this->user = User::factory()->create(['name' => 'Mona Lisa Octocat', 'github_login' => 'octocat']);
+    $this->user = User::factory()->signsInWithGitHub('octocat')->create(['name' => 'Mona Lisa Octocat']);
 
     $this->actingAs($this->user);
 });
@@ -46,4 +47,15 @@ it('shows the signed-in user with settings and sign out in the profile menu', fu
         ->assertSeeText(['Mona Lisa Octocat', '@octocat', 'Settings', 'Sign out'])
         ->assertSee(route('settings.index'))
         ->assertSee('action="'.route('logout').'"', escape: false);
+});
+
+it('shows the email address of a user who does not sign in with GitHub', function (): void {
+    $this->actingAs(User::factory()
+        ->has(SignInIdentity::factory()->email('ada@example.com'), 'signInIdentities')
+        ->create(['name' => 'Ada Lovelace', 'email' => 'ada@example.com']));
+
+    $this->get(route('stars.index'))
+        ->assertOk()
+        ->assertSeeText(['Ada Lovelace', 'ada@example.com'])
+        ->assertDontSeeText('@octocat');
 });

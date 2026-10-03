@@ -5,12 +5,14 @@ declare(strict_types=1);
 namespace Database\Seeders;
 
 use App\Enums\DevAccount;
+use App\Enums\IdentityProvider;
 use App\Models\User;
 use Illuminate\Database\Seeder;
 
 /**
- * Creates the users the local-only dev sign-in signs in as. Safe to run again:
- * it restores a deleted user and resets a changed profile.
+ * Creates the users the local-only dev sign-in signs in as, each with their
+ * GitHub identity. Safe to run again: it restores a deleted user and resets
+ * a changed profile.
  */
 class DevUserSeeder extends Seeder
 {
@@ -20,9 +22,13 @@ class DevUserSeeder extends Seeder
     public function run(): void
     {
         foreach (DevAccount::cases() as $account) {
-            User::query()->updateOrCreate(
-                ['github_id' => $account->githubId()],
-                $account->profile(),
+            $user = $account->user() ?? new User;
+
+            $user->fill($account->profile())->save();
+
+            $user->signInIdentities()->updateOrCreate(
+                ['provider' => IdentityProvider::GitHub, 'provider_user_id' => (string) $account->githubId()],
+                ['login' => $account->githubLogin()],
             );
         }
     }

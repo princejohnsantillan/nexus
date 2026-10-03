@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Enums\DevAccount;
+use App\Models\SignInIdentity;
 use App\Models\User;
 use Database\Seeders\DatabaseSeeder;
 
@@ -13,11 +14,24 @@ function enableDevSignIn(string $environment = 'local', bool $flag = true): void
     config(['nexus.dev_sign_in' => $flag]);
 }
 
-it('seeds Dev User and Second User', function (): void {
+it('seeds Dev User and Second User, each signing in with a GitHub identity no real account can have', function (): void {
     $this->seed(DatabaseSeeder::class);
     $this->seed(DatabaseSeeder::class);
 
-    expect(User::query()->orderBy('id')->pluck('name')->all())->toBe(['Dev User', 'Second User']);
+    expect(User::query()->orderBy('id')->pluck('name')->all())->toBe(['Dev User', 'Second User'])
+        ->and(SignInIdentity::query()->orderBy('id')->get(['provider', 'provider_user_id', 'login'])->toArray())->toBe([
+            ['provider' => 'github', 'provider_user_id' => '-1', 'login' => 'dev-user'],
+            ['provider' => 'github', 'provider_user_id' => '-2', 'login' => 'second-user'],
+        ]);
+});
+
+it('restores a deleted dev user when seeded again', function (): void {
+    $this->seed(DatabaseSeeder::class);
+    DevAccount::Dev->user()?->delete();
+
+    $this->seed(DatabaseSeeder::class);
+
+    expect(DevAccount::Dev->user())->name->toBe('Dev User');
 });
 
 it('signs in as a seeded user', function (DevAccount $account, string $name): void {

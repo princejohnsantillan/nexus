@@ -19,7 +19,7 @@ class DeleteAccount
 
     /**
      * Sign the user out and delete them. Everything a user owns cascades from the
-     * users table, including their data key.
+     * users table, including their data key and their sign-in identities.
      *
      * Passport's tables don't cascade from it, so the OAuth clients registered
      * with the user's Stars are revoked first, and so is every access and refresh

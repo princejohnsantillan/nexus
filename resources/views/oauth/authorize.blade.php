@@ -50,7 +50,7 @@
 
                         <div class="grid gap-1 py-3 sm:grid-cols-3 sm:gap-4">
                             <dt><flux:text>{{ __('Signed in as') }}</flux:text></dt>
-                            <dd class="break-all sm:col-span-2"><flux:text variant="strong">{{ $user->name }} ({{ '@'.$user->github_login }})</flux:text></dd>
+                            <dd class="break-all sm:col-span-2"><flux:text variant="strong">{{ filled($user->signInName()) ? $user->name.' ('.$user->signInName().')' : $user->name }}</flux:text></dd>
                         </div>
                     </dl>
 
@@ -58,7 +58,7 @@
                 @else
                     <div>
                         <flux:heading size="lg" level="1">{{ __(':client isn\'t asking for one of your Stars', ['client' => $client->name]) }}</flux:heading>
-                        <flux:text class="mt-2">{{ __('You\'re signed in as :name (:login).', ['name' => $user->name, 'login' => '@'.$user->github_login]) }}</flux:text>
+                        <flux:text class="mt-2">{{ filled($user->signInName()) ? __('You\'re signed in as :name (:login).', ['name' => $user->name, 'login' => $user->signInName()]) : __('You\'re signed in as :name.', ['name' => $user->name]) }}</flux:text>
                     </div>
 
                     <flux:callout icon="exclamation-triangle" color="amber">
