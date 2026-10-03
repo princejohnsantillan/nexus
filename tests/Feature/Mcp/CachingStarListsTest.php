@@ -320,6 +320,20 @@ describe('lists worked out afresh after', function (): void {
             ->and(instructionsOf($this->client))->toContain('- wiki-2: DeepWiki 2 — use for: public repos');
     });
 
+    it('adding a Connection to the Star from the Connection\'s page', function (): void {
+        $other = Star::factory()->for($this->user)->create(['new_tool_policy' => NewToolPolicy::All]);
+        $otherClient = clientOf($other);
+        expect(listedNames($otherClient->listTools(), 'tools'))->toBe([])
+            ->and(listedNames($otherClient->listPrompts(), 'prompts'))->toBe([])
+            ->and(instructionsOf($otherClient))->not->toContain('- wiki:');
+
+        Livewire::test('pages::connections.show', ['connection' => $this->wiki])->call('addToStar', $other->id);
+
+        expect(listedNames($otherClient->listTools(), 'tools'))->toBe(['wiki__ask'])
+            ->and(listedNames($otherClient->listPrompts(), 'prompts'))->toBe(['wiki__summarize'])
+            ->and(instructionsOf($otherClient))->toContain('- wiki:');
+    });
+
     it('refreshing a Connection\'s catalog with "Refresh tools", within the same second', function (): void {
         FakeMcpServer::at()
             ->withTools([['name' => 'ask'], ['name' => 'search']])

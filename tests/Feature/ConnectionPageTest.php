@@ -5,11 +5,13 @@ declare(strict_types=1);
 use App\Actions\SwitchStarTools;
 use App\Enums\ConnectionAuthType;
 use App\Enums\ConnectionStatus;
+use App\Enums\NewToolPolicy;
 use App\Models\Connection;
 use App\Models\ConnectionPrompt;
 use App\Models\ConnectionTool;
 use App\Models\Star;
 use App\Models\User;
+use Illuminate\Support\Str;
 use Livewire\Livewire;
 use Tests\Support\FakeMcpServer;
 
@@ -267,9 +269,10 @@ it('lists the Stars that use the Connection in its delete confirmation', functio
     Star::factory()->for($this->user)->including($connection)->create(['name' => 'Home']);
     Star::factory()->for($this->user)->create(['name' => 'Unrelated']);
 
-    Livewire::test('pages::connections.show', ['connection' => $connection])
-        ->assertSeeTextInOrder(['Delete DeepWiki?', 'It is removed from these Stars:', 'Home', 'Work'])
-        ->assertDontSeeText('Unrelated');
+    $page = Livewire::test('pages::connections.show', ['connection' => $connection])
+        ->assertSeeTextInOrder(['Delete DeepWiki?', 'It is removed from these Stars:', 'Home', 'Work']);
+
+    expect(Str::betweenFirst($page->html(), 'It is removed from these Stars:', 'Cancel'))->not->toContain('Unrelated');
 });
 
 it('says nothing about Stars when no Star uses the Connection', function (): void {
@@ -293,4 +296,91 @@ it('removes a deleted Connection from its Stars, with its switches', function ()
     $this->assertModelExists($star);
     expect($star->connections()->pluck('connections.id')->all())->toBe([$kept->id])
         ->and($star->toolSwitches()->pluck('tool_name')->all())->toBe(['write_doc']);
+});
+
+it('lists the Stars that include the Connection, each linked, with how many of its tools are on', function (): void {
+    $connection = Connection::factory()->for($this->user)->create(['name' => 'DeepWiki']);
+    ConnectionTool::factory()->for($connection)->create(['name' => 'ask', 'read_only' => true]);
+    ConnectionTool::factory()->for($connection)->create(['name' => 'write']);
+    $work = Star::factory()->for($this->user)->including($connection)->create(['name' => 'Work']);
+    $home = Star::factory()->for($this->user)->including($connection)->withPolicy(NewToolPolicy::None)->create(['name' => 'Home']);
+    Star::factory()->for($this->user)->create(['name' => 'Unrelated']);
+
+    $page = Livewire::test('pages::connections.show', ['connection' => $connection])
+        ->assertSeeTextInOrder(['Used in Stars', 'Home', '0 of 2 tools on', 'Work', '1 of 2 tools on'])
+        ->assertSee(route('stars.show', $work))
+        ->assertSee(route('stars.show', $home));
+
+    expect(Str::betweenFirst($page->html(), 'data-used-in-stars', '</ul>'))->not->toContain('Unrelated');
+});
+
+it('says when no Star includes the Connection', function (): void {
+    $connection = Connection::factory()->for($this->user)->create();
+
+    Livewire::test('pages::connections.show', ['connection' => $connection])
+        ->assertSeeTextInOrder(['Used in Stars', 'Not in a Star yet', 'Add it to a Star so agents can use its tools.', 'You have no Stars yet.', 'Create a Star'])
+        ->assertSee(route('stars.index'));
+});
+
+it('offers to add the Connection only to the user\'s own Stars that don\'t include it', function (): void {
+    $connection = Connection::factory()->for($this->user)->create();
+    $including = Star::factory()->for($this->user)->including($connection)->create();
+    $other = Star::factory()->for($this->user)->create();
+    $someoneElses = Star::factory()->create();
+
+    Livewire::test('pages::connections.show', ['connection' => $connection])
+        ->assertSeeText('Add to a Star')
+        ->assertSeeHtml('wire:click="addToStar('.$other->id.')"')
+        ->assertDontSeeHtml('wire:click="addToStar('.$including->id.')"')
+        ->assertDontSeeHtml('wire:click="addToStar('.$someoneElses->id.')"');
+});
+
+it('doesn\'t offer to add the Connection when every Star includes it', function (): void {
+    $connection = Connection::factory()->for($this->user)->create();
+    Star::factory()->for($this->user)->including($connection)->create();
+
+    Livewire::test('pages::connections.show', ['connection' => $connection])
+        ->assertSeeText('Every one of your Stars includes it.')
+        ->assertDontSeeText('Add to a Star');
+});
+
+it('adds the Connection to another of the user\'s Stars, where its tools follow the policy', function (): void {
+    $connection = Connection::factory()->for($this->user)->create(['name' => 'DeepWiki']);
+    ConnectionTool::factory()->for($connection)->create(['name' => 'ask', 'read_only' => true]);
+    ConnectionTool::factory()->for($connection)->create(['name' => 'write']);
+    $kept = Connection::factory()->for($this->user)->create();
+    $star = Star::factory()->for($this->user)->including($kept)->create(['name' => 'Work']);
+
+    Livewire::test('pages::connections.show', ['connection' => $connection])
+        ->call('addToStar', $star->id)
+        ->assertDispatched('toast-show', toastSaying('DeepWiki added to Work.', 'success'))
+        ->assertSeeTextInOrder(['Used in Stars', 'Work', '1 of 2 tools on'])
+        ->assertDontSeeHtml('wire:click="addToStar(');
+
+    expect($star->connections()->pluck('connections.id')->all())->toEqualCanonicalizing([$kept->id, $connection->id]);
+});
+
+it('changes nothing when the Star already includes the Connection', function (): void {
+    $connection = Connection::factory()->for($this->user)->create(['name' => 'DeepWiki']);
+    ConnectionTool::factory()->for($connection)->create(['name' => 'write']);
+    $star = Star::factory()->for($this->user)->including($connection)->create(['name' => 'Work']);
+    resolve(SwitchStarTools::class)->handle($star, $connection, true);
+
+    Livewire::test('pages::connections.show', ['connection' => $connection])
+        ->call('addToStar', $star->id)
+        ->assertDispatched('toast-show', toastSaying('Work already includes DeepWiki.', 'warning'));
+
+    expect($star->connections()->pluck('connections.id')->all())->toBe([$connection->id])
+        ->and($star->toolSwitches()->pluck('tool_name')->all())->toBe(['write']);
+});
+
+it('does not find another user\'s Star to add the Connection to', function (): void {
+    $connection = Connection::factory()->for($this->user)->create();
+    $someoneElses = Star::factory()->create();
+
+    Livewire::test('pages::connections.show', ['connection' => $connection])
+        ->call('addToStar', $someoneElses->id)
+        ->assertNotFound();
+
+    expect($someoneElses->connections()->count())->toBe(0);
 });

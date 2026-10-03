@@ -17,35 +17,39 @@
         @else
             <flux:text>{{ __('The tools the server listed at the last refresh, with the behaviour hints it declared for each.') }}</flux:text>
 
-            <flux:table class="mt-4">
-                <flux:table.columns>
-                    <flux:table.column>{{ __('Tool') }}</flux:table.column>
-                    <flux:table.column>{{ __('Read-only') }}</flux:table.column>
-                    <flux:table.column>{{ __('Destructive') }}</flux:table.column>
-                    <flux:table.column>{{ __('Idempotent') }}</flux:table.column>
-                    <flux:table.column>{{ __('Open-world') }}</flux:table.column>
-                </flux:table.columns>
+            <div class="mt-4 overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-white/10 dark:bg-white/[4%]">
+                <flux:table class="[&_td]:border-zinc-200! [&_td]:px-5! dark:[&_td]:border-white/10! [&_th]:border-zinc-200! [&_th]:bg-zinc-50 [&_th]:px-5! [&_th]:text-xs! [&_th]:text-zinc-600! dark:[&_th]:border-white/10! dark:[&_th]:bg-black/15 dark:[&_th]:text-zinc-300!">
+                    <flux:table.columns>
+                        <flux:table.column>{{ __('Tool') }}</flux:table.column>
+                        <flux:table.column>{{ __('Read-only') }}</flux:table.column>
+                        <flux:table.column>{{ __('Destructive') }}</flux:table.column>
+                        <flux:table.column>{{ __('Idempotent') }}</flux:table.column>
+                        <flux:table.column>{{ __('Open-world') }}</flux:table.column>
+                    </flux:table.columns>
 
-                <flux:table.rows>
-                    @foreach ($this->tools as $tool)
-                        <flux:table.row :key="$tool->id">
-                            <flux:table.cell class="max-w-md whitespace-normal!">
-                                <div class="font-medium text-zinc-800 dark:text-white">{{ $tool->title ?? $tool->name }}</div>
-                                @if ($tool->title !== null)
-                                    <div class="font-mono text-xs text-zinc-500 dark:text-zinc-400">{{ $tool->name }}</div>
-                                @endif
-                                @if ($tool->description !== null)
-                                    <flux:text size="sm" class="mt-1 line-clamp-3">{{ $tool->description }}</flux:text>
-                                @endif
-                            </flux:table.cell>
-                            <flux:table.cell><x-tool-hint :value="$tool->read_only" tone="success" /></flux:table.cell>
-                            <flux:table.cell><x-tool-hint :value="$tool->destructive" tone="danger" /></flux:table.cell>
-                            <flux:table.cell><x-tool-hint :value="$tool->idempotent" /></flux:table.cell>
-                            <flux:table.cell><x-tool-hint :value="$tool->open_world" tone="warning" /></flux:table.cell>
-                        </flux:table.row>
-                    @endforeach
-                </flux:table.rows>
-            </flux:table>
+                    <flux:table.rows>
+                        @foreach ($this->tools as $tool)
+                            <flux:table.row :key="$tool->id">
+                                <flux:table.cell class="max-w-md min-w-64 whitespace-normal!">
+                                    @if ($tool->title !== null)
+                                        <div class="font-medium text-zinc-950 dark:text-white">{{ $tool->title }}</div>
+                                        <div class="font-mono text-xs text-zinc-500 dark:text-zinc-400">{{ $tool->name }}</div>
+                                    @else
+                                        <div class="font-mono font-medium text-zinc-950 dark:text-white">{{ $tool->name }}</div>
+                                    @endif
+                                    @if ($tool->description !== null)
+                                        <p class="mt-1 line-clamp-3 text-sm text-zinc-500 dark:text-zinc-400">{{ $tool->description }}</p>
+                                    @endif
+                                </flux:table.cell>
+                                <flux:table.cell><x-tool-hint :value="$tool->read_only" tone="success" /></flux:table.cell>
+                                <flux:table.cell><x-tool-hint :value="$tool->destructive" tone="danger" /></flux:table.cell>
+                                <flux:table.cell><x-tool-hint :value="$tool->idempotent" /></flux:table.cell>
+                                <flux:table.cell><x-tool-hint :value="$tool->open_world" tone="warning" /></flux:table.cell>
+                            </flux:table.row>
+                        @endforeach
+                    </flux:table.rows>
+                </flux:table>
+            </div>
         @endif
     </div>
 </div>
