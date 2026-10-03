@@ -192,7 +192,7 @@ it('sends the queued email from the queue', function (): void {
     Event::fake([NotificationSent::class]);
     $this->artisan('nexus:billing:remind')->assertSuccessful();
 
-    $this->artisan('queue:work', ['--once' => true])->assertSuccessful();
+    $this->artisan('queue:work', ['--once' => true, '--memory' => 2048])->assertSuccessful();
 
     Event::assertDispatched(NotificationSent::class, fn (NotificationSent $sent): bool => $sent->notification instanceof ProReminderNotification);
     $this->assertDatabaseEmpty('jobs');
@@ -205,7 +205,7 @@ it('drops a queued email once Pro has been extended', function (): void {
     $this->artisan('nexus:billing:remind')->assertSuccessful();
     $user->forceFill(['pro_until' => $user->proUntilAfterPaying(BillingPeriod::Month)])->save();
 
-    $this->artisan('queue:work', ['--once' => true])->assertSuccessful();
+    $this->artisan('queue:work', ['--once' => true, '--memory' => 2048])->assertSuccessful();
 
     Event::assertNotDispatched(NotificationSent::class);
     $this->assertDatabaseEmpty('jobs');
@@ -220,7 +220,7 @@ it('sends a queued email late only while it is still due', function (string $pro
     $this->travelTo(CarbonImmutable::parse($workedAt, 'UTC'));
     $this->artisan('nexus:billing:remind')->assertSuccessful();
 
-    $this->artisan('queue:work', ['--stop-when-empty' => true, '--sleep' => 0])->assertSuccessful();
+    $this->artisan('queue:work', ['--stop-when-empty' => true, '--sleep' => 0, '--memory' => 2048])->assertSuccessful();
 
     expect(Event::dispatched(NotificationSent::class)
         ->map(fn (array $arguments): array => [$arguments[0]->notification->reminder, $arguments[0]->notification->proUntil->toDateTimeString()])
