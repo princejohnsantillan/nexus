@@ -30,14 +30,17 @@ use stdClass;
  * (`connections.connect`), which starts an OAuth sign-in or, for a header
  * or token, opens the Connection's page.
  *
- * Every call it forwards counts toward the account's weekly tool calls
- * (CountToolCall), whether it then succeeds or not. It is counted once the
- * session has checked it can sign in, and before anything is sent to the
- * server, so a call to a Connection that isn't signed in (or whose sign-in
- * can't be renewed) doesn't count. Once a Free account has used its calls
- * for the week, the call isn't forwarded: the result is a tool error saying
- * so, when they reset and where to upgrade, and the call is recorded as
- * Limited.
+ * Every call it sends counts toward the account's weekly tool calls
+ * (CountToolCall), whether it then succeeds or not. It is counted as the
+ * `tools/call` request leaves, after the handshake and everything that can
+ * refuse it without reaching the server (the deadline, the Connection's
+ * sign-in, the request itself and the outbound guard), so a call that
+ * never reaches the server doesn't count. Once a Free account has used its
+ * calls for the week, the call isn't sent: a call that finds them used up
+ * is refused before anything is done for it, and one that loses the race
+ * for the last one is refused as it would have left. Either way the result
+ * is a tool error saying so, when they reset and where to upgrade, and the
+ * call is recorded as Limited.
  *
  * When the server says it doesn't know the tool, the Connection's catalog
  * no longer matches the server, so a background refresh is queued once
@@ -83,12 +86,13 @@ final readonly class ToolProxy
      */
     private function forward(StarCaller $caller, StarTool $tool, string $arguments): array
     {
-        $session = $this->downstream->session($tool->connection);
+        $user = $caller->star->user;
 
         try {
-            $session->signIn();
-            $this->countToolCall->handle($caller->star->user);
-            $result = $session->callTool($tool->tool->name, $arguments);
+            $this->countToolCall->ensureCallsLeft($user);
+            $result = $this->downstream->session($tool->connection)->callTool($tool->tool->name, $arguments, function () use ($user): void {
+                $this->countToolCall->handle($user);
+            });
         } catch (WeeklyToolCallLimitReached $limitReached) {
             return [ActivityStatus::Limited, $this->limitReached($limitReached)];
         } catch (DownstreamRequestFailed $failed) {

@@ -31,29 +31,10 @@ final readonly class DownstreamSession
      */
     private const int MAX_PAGES = 100;
 
-    /**
-     * @param  (Closure(): string)|null  $accessToken  An OAuth Connection's access token for the server, renewed first when it has expired; null when the session signs in some other way, or not at all.
-     */
     public function __construct(
         private DownstreamMcpClient $client,
         private DownstreamTransport $transport,
-        private ?Closure $accessToken = null,
     ) {}
-
-    /**
-     * Make sure the session can sign in to its server, without sending the
-     * server anything: an OAuth Connection's access token is read, and renewed
-     * first when it has expired or is about to, as before any request. A
-     * session that signs in some other way, or not at all, has nothing to check.
-     *
-     * @throws DownstreamRequestFailed as needing sign-in when the Connection isn't signed in or its sign-in can't be renewed, or as the renewal failed
-     */
-    public function signIn(): void
-    {
-        if ($this->accessToken instanceof Closure) {
-            ($this->accessToken)();
-        }
-    }
 
     /**
      * Every tool the server lists, as the JSON object it sent for each,
@@ -142,16 +123,25 @@ final readonly class DownstreamSession
      * that reports a tool error with `isError`. A JSON-RPC error instead of a
      * result is a tool error.
      *
+     * The callback, if any, runs once right before the call itself leaves
+     * for the server, after the handshake and after everything that could
+     * refuse the call without reaching the server (see
+     * DownstreamTransport::beforeSendingToolCall()). An exception it throws
+     * stops the call unsent and comes out of this method as it was thrown.
+     *
+     * @param  (Closure(): void)|null  $beforeSending
+     *
      * @throws InvalidArgumentException when the arguments aren't a JSON object
      * @throws DownstreamRequestFailed
      */
-    public function callTool(string $name, string $arguments): string
+    public function callTool(string $name, string $arguments, ?Closure $beforeSending = null): string
     {
         if (! RawJson::isObject($arguments)) {
             throw new InvalidArgumentException('Tool arguments must be a JSON object.');
         }
 
         $this->connect();
+        $this->transport->beforeSendingToolCall($beforeSending);
 
         return $this->attempt(fn (): string => $this->transport->sendingArguments($arguments, function () use ($name): string {
             $this->client->send(new RawRequest('tools/call', ['name' => $name, 'arguments' => new stdClass]));

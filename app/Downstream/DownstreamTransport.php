@@ -11,6 +11,7 @@ use Closure;
 use GuzzleHttp\Exception\ConnectTimeoutException;
 use GuzzleHttp\Exception\NetworkTimeoutException;
 use GuzzleHttp\Exception\ResponseTimeoutException;
+use GuzzleHttp\Promise\PromiseInterface;
 use Illuminate\Http\Client\HttpClientException;
 use Illuminate\Http\Client\Response as ClientResponse;
 use Illuminate\Support\Facades\Date;
@@ -21,6 +22,7 @@ use Laravel\Mcp\Client\OAuth\WwwAuthenticateChallenge;
 use Laravel\Mcp\Client\Transport\HttpTransport;
 use Laravel\Mcp\Enums\ProtocolHandshake;
 use Laravel\Mcp\Exceptions\SessionExpiredException;
+use Psr\Http\Message\RequestInterface;
 use stdClass;
 use Throwable;
 
@@ -49,6 +51,11 @@ use Throwable;
  *   and never falls back to the older handshake.
  * - Server-sent events are read as the SSE format defines them: an event's
  *   `data:` lines are joined, and comments and other fields are skipped.
+ * - A callback can be run once, right before the next `tools/call` leaves
+ *   (beforeSendingToolCall()): after everything that can refuse it without
+ *   reaching the server (the deadline, its headers and OAuth token, the
+ *   request itself and the outbound guard), so nothing refused before
+ *   sending reaches it. An exception it throws stops the call, unsent.
  * - It keeps every raw message it receives, and can send the arguments of
  *   a tool call or a prompt as raw JSON. The protocol decodes and encodes
  *   JSON as PHP values, which turns `{}` into `[]` and rounds long numbers,
@@ -93,6 +100,13 @@ final class DownstreamTransport extends HttpTransport
     private int|string|null $lastRequestId = null;
 
     /**
+     * What to run right before the next `tools/call` leaves, once.
+     *
+     * @var (Closure(): void)|null
+     */
+    private ?Closure $beforeToolCall = null;
+
+    /**
      * @param  int  $deadline  When the session's time is up, in milliseconds since the epoch.
      */
     public function __construct(
@@ -102,6 +116,20 @@ final class DownstreamTransport extends HttpTransport
         private readonly int $deadline,
     ) {
         parent::__construct($url);
+    }
+
+    /**
+     * Run the callback once, right before the next `tools/call` request leaves
+     * for the server: after its deadline check, its headers (an OAuth token
+     * included), the request itself and the outbound guard. A call refused by
+     * any of those never reaches it. An exception it throws stops the call
+     * unsent, and leaves this transport unchanged.
+     *
+     * @param  (Closure(): void)|null  $callback
+     */
+    public function beforeSendingToolCall(?Closure $callback): void
+    {
+        $this->beforeToolCall = $callback;
     }
 
     /**
@@ -131,6 +159,11 @@ final class DownstreamTransport extends HttpTransport
         try {
             $this->timeLeft($limit);
             $request = Http::withHeaders($this->headers($headers))->withBody($message, 'application/json');
+
+            if ($method === 'tools/call' && $this->beforeToolCall instanceof Closure) {
+                $request->withMiddleware($this->runningBeforeSending($this->beforeToolCall));
+            }
+
             $timeout = $this->timeLeft($limit);
 
             $response = $request
@@ -284,6 +317,34 @@ final class DownstreamTransport extends HttpTransport
         } catch (Throwable) {
             //
         }
+    }
+
+    /**
+     * HTTP client middleware that runs the callback, and forgets it, as the
+     * request is handed on to be sent. It is added after the global
+     * middleware, the outbound guard among them, so it runs after them.
+     *
+     * @param  Closure(): void  $callback
+     * @return Closure(callable(RequestInterface, array<array-key, mixed>): PromiseInterface): (Closure(RequestInterface, array<array-key, mixed>): PromiseInterface)
+     */
+    private function runningBeforeSending(Closure $callback): Closure
+    {
+        return fn (callable $handler): Closure => $this->runBeforeHandingOn($callback, $handler);
+    }
+
+    /**
+     * @param  Closure(): void  $callback
+     * @param  callable(RequestInterface, array<array-key, mixed>): PromiseInterface  $handler
+     * @return Closure(RequestInterface, array<array-key, mixed>): PromiseInterface
+     */
+    private function runBeforeHandingOn(Closure $callback, callable $handler): Closure
+    {
+        return function (RequestInterface $request, array $options) use ($handler, $callback): PromiseInterface {
+            $callback();
+            $this->beforeToolCall = null;
+
+            return $handler($request, $options);
+        };
     }
 
     /**

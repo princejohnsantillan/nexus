@@ -12,7 +12,25 @@ use App\Models\User;
 class CountToolCall
 {
     /**
-     * Count one tool call that a Star of the user's is about to forward, in
+     * Refuse a call before anything is done for it when the user's week's
+     * calls are already used up, so a call past the limit costs the server
+     * nothing. It only reads the count: calls racing for the last one can
+     * all pass it, and handle(), run as the call leaves, decides which one
+     * goes. Pro has no limit, so nothing is read.
+     *
+     * @throws WeeklyToolCallLimitReached when the week's calls are used up
+     */
+    public function ensureCallsLeft(User $user): void
+    {
+        $limit = $user->plan()->toolCallsPerWeek();
+
+        if ($limit !== null && $user->toolCallsThisWeek() >= $limit) {
+            throw new WeeklyToolCallLimitReached($limit, BillingCalendar::nextWeekStart(now()));
+        }
+    }
+
+    /**
+     * Count one tool call that a Star of the user's is about to send, in
      * this billing week, unless the user's plan allows fewer a week than they
      * have already made. Pro has no weekly limit, but its calls are counted
      * too, for the Billing page's meter and for the rest of the week should

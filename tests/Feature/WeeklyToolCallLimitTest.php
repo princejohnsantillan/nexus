@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Actions\CreateStarToken;
 use App\Actions\SwitchStarTools;
 use App\Enums\ActivityStatus;
+use App\Enums\ConnectionAuthType;
 use App\Models\ActivityEntry;
 use App\Models\Connection;
 use App\Models\ConnectionPrompt;
@@ -100,6 +101,53 @@ it('counts no call it can\'t send because the Connection can\'t sign in', functi
         $test->travel(2)->hours();
     }],
 ]);
+
+it('counts no call the outbound guard refuses, as when the server\'s name now points into a private network', function (): void {
+    $server = FakeMcpServer::at()->onCall('search', fn (): array => ['content' => [['type' => 'text', 'text' => 'Found it']]]);
+    $this->fakeDns(['mcp.example.com' => ['10.0.0.7']]);
+
+    $this->client->callTool('wiki__search')->assertOk()->assertJsonPath('result.isError', true);
+
+    expect($server->requests())->toBe([])
+        ->and(ActivityEntry::query()->sole()->status)->toBe(ActivityStatus::Error);
+    $this->assertDatabaseEmpty('tool_call_counts');
+});
+
+it('counts no call whose request can\'t be built, as with a header value holding a line break', function (): void {
+    $server = FakeMcpServer::at()->onCall('search', fn (): array => ['content' => [['type' => 'text', 'text' => 'Found it']]]);
+    $this->wiki->forceFill(['auth_type' => ConnectionAuthType::Header, 'settings' => ['header_name' => 'Authorization']]);
+    $this->wiki->secrets->put(['header_value' => "Bearer sk-test\r\nX-Injected: 1"]);
+    $this->wiki->save();
+
+    $this->client->callTool('wiki__search')->assertOk()->assertJsonPath('result.isError', true);
+
+    expect($server->requests())->toBe([])
+        ->and(ActivityEntry::query()->sole()->status)->toBe(ActivityStatus::NeedsAuth);
+    $this->assertDatabaseEmpty('tool_call_counts');
+});
+
+it('counts no call whose handshake fails, since the call itself never leaves', function (): void {
+    $server = FakeMcpServer::at()->respondTo('initialize', FakeMcpServer::unreachable())->onCall('search', fn (): array => ['content' => [['type' => 'text', 'text' => 'Found it']]]);
+
+    $this->client->callTool('wiki__search')->assertOk()->assertJsonPath('result.isError', true);
+
+    expect($server->received('tools/call'))->toBe([]);
+    $this->assertDatabaseEmpty('tool_call_counts');
+});
+
+it('refuses a call that loses the last one of the week as it would have left, without sending it', function (): void {
+    ToolCallCount::factory()->for($this->user)->create(['calls' => 2999]);
+    $server = FakeMcpServer::at()
+        ->beforeAnswering('initialize', fn (): int => ToolCallCount::query()->where('user_id', $this->user->id)->update(['calls' => 3000]))
+        ->onCall('search', fn (): array => ['content' => [['type' => 'text', 'text' => 'Found it']]]);
+
+    $response = $this->client->callTool('wiki__search')->assertOk()->assertJsonPath('result.isError', true);
+
+    expect($response->json('result.content.0.text'))->toStartWith('This Nexus account has used its 3,000 free tool calls this week.')
+        ->and($server->received('tools/call'))->toBe([])
+        ->and(ActivityEntry::query()->sole()->status)->toBe(ActivityStatus::Limited);
+    $this->assertDatabaseHas('tool_call_counts', ['user_id' => $this->user->id, 'calls' => 3000]);
+});
 
 it('counts a call whose expired sign-in it renews first', function (): void {
     $server = FakeMcpServer::at()->requireOAuth()->withTools([['name' => 'search', 'annotations' => ['readOnlyHint' => true]]])->onCall('search', fn (): array => ['content' => [['type' => 'text', 'text' => 'Found it']]]);

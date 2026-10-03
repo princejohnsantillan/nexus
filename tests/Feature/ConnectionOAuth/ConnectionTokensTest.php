@@ -146,17 +146,6 @@ it('ends the sign-in when the server refuses to renew it, without the server\'s 
         ->and($this->auth->tokenRequests('refresh_token'))->toHaveCount(1);
 });
 
-it('renews an expired access token when a session checks it can sign in, sending the server nothing', function (): void {
-    $this->travel(2)->hours();
-    $requestsBefore = count($this->server->requests());
-
-    resolve(DownstreamClient::class)->session($this->connection)->signIn();
-
-    expect($this->auth->tokenRequests('refresh_token'))->toHaveCount(1)
-        ->and($this->connection->refresh()->secrets->get('access_token'))->toBe('access-token-2')
-        ->and(count($this->server->requests()))->toBe($requestsBefore);
-});
-
 it('ends the sign-in when the access token expired and there is no refresh token', function (): void {
     $this->auth->withoutRefreshTokens();
     $connection = Connection::factory()->for($this->user)->oauth()->create();
