@@ -28,6 +28,11 @@ it('links the Terms, Privacy and Refund pages from the footer', function (): voi
         ->assertSee('href="'.route('legal.refunds').'"', escape: false);
 });
 
+it('links the Pricing page from the header, next to Sign in', function (): void {
+    $this->get(route('home'))
+        ->assertSeeInOrder(['href="'.route('pricing').'"', 'Pricing', 'href="'.route('auth.sign-in').'"', 'Sign in'], escape: false);
+});
+
 it('uses the public layout without the app sidebar', function (): void {
     $this->get(route('home'))
         ->assertOk()
