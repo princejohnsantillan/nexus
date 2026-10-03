@@ -105,6 +105,19 @@ final class ActivityEntry extends Model
     }
 
     /**
+     * How long the call took, as the log shows it: in milliseconds under
+     * ten seconds ("1,204 ms"), then in seconds to a tenth ("55.0 s").
+     */
+    public function durationForHumans(): string
+    {
+        if ($this->duration_ms < 10_000) {
+            return __(':duration ms', ['duration' => number_format($this->duration_ms)]);
+        }
+
+        return __(':duration s', ['duration' => number_format($this->duration_ms / 1000, 1)]);
+    }
+
+    /**
      * Whether the call's Star has since been deleted. Every call is
      * recorded with its Star, so a missing one was deleted.
      */
