@@ -95,11 +95,11 @@
 
                                             <span class="text-sm whitespace-nowrap text-zinc-600 max-sm:hidden dark:text-zinc-300">{{ match (true) { $allOn => __('All on'), $risk['enabled'] === 0 => __('All off'), default => __('Some on') } }}</span>
 
-                                            {{-- Keyed by its state, so a switch changed on the server is drawn afresh: Flux's switch keeps its own state otherwise. --}}
+                                            {{-- Keyed by its state, so a switch changed on the server is drawn afresh: Flux's switch keeps its own state otherwise. It reports a toggle by click, Enter or Space as a change event, never a keyboard click. --}}
                                             <flux:switch
                                                 wire:key="group-switch-{{ $riskId }}-{{ $allOn ? 'on' : 'off' }}"
                                                 :checked="$allOn"
-                                                wire:click="switchGroup({{ $group['connection']->id }}, '{{ $risk['risk']->value }}', '{{ $allOn ? 'off' : 'on' }}')"
+                                                wire:change="switchGroup({{ $group['connection']->id }}, '{{ $risk['risk']->value }}', '{{ $allOn ? 'off' : 'on' }}')"
                                                 :aria-label="__('Switch every :risk tool of :connection on or off', $names)"
                                             />
                                         </div>
@@ -110,11 +110,11 @@
                                                     <x-slot:name><x-tool-flyout.trigger :tool="$tool->tool">{{ $tool->name }}</x-tool-flyout.trigger></x-slot:name>
                                                     <x-slot:hints><x-tool-hints :tool="$tool->tool" /></x-slot:hints>
 
-                                                    {{-- Keyed by its state, so a switch changed on the server is drawn afresh: Flux's switch keeps its own state otherwise. --}}
+                                                    {{-- Keyed by its state, so a switch changed on the server is drawn afresh: Flux's switch keeps its own state otherwise. It reports a toggle by click, Enter or Space as a change event, never a keyboard click. --}}
                                                     <flux:switch
                                                         wire:key="switch-{{ $tool->tool->id }}-{{ $tool->enabled ? 'on' : 'off' }}"
                                                         :checked="$tool->enabled"
-                                                        wire:click="switchTool({{ $tool->tool->id }}, {{ $tool->enabled ? 'false' : 'true' }})"
+                                                        wire:change="switchTool({{ $tool->tool->id }}, {{ $tool->enabled ? 'false' : 'true' }})"
                                                         :aria-label="__('Switch :name on or off', ['name' => $tool->name])"
                                                     />
 
@@ -159,11 +159,11 @@
                         </flux:text>
                     </div>
 
-                    {{-- Keyed by its state, so a switch changed on the server is drawn afresh: Flux's switch keeps its own state otherwise. --}}
+                    {{-- Keyed by its state, so a switch changed on the server is drawn afresh: Flux's switch keeps its own state otherwise. It reports a toggle by click, Enter or Space as a change event, never a keyboard click. --}}
                     <flux:switch
                         wire:key="details-switch-{{ $detailsTool->tool->id }}-{{ $detailsTool->enabled ? 'on' : 'off' }}"
                         :checked="$detailsTool->enabled"
-                        wire:click="switchTool({{ $detailsTool->tool->id }}, {{ $detailsTool->enabled ? 'false' : 'true' }})"
+                        wire:change="switchTool({{ $detailsTool->tool->id }}, {{ $detailsTool->enabled ? 'false' : 'true' }})"
                         :aria-label="__('Switch :name on or off in :star', ['name' => $detailsTool->name, 'star' => $star->name])"
                     />
                 </div>

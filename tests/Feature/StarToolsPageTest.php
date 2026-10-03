@@ -112,6 +112,14 @@ it('refuses details of a tool outside the Star', function (): void {
     }
 });
 
+it('switches a tool on its switch\'s change event, which Flux sends for a click, Enter or Space alike', function (): void {
+    Livewire::test('pages::stars.tools', ['star' => $this->star])
+        ->call('showToolDetails', $this->writePage->id)
+        ->assertSeeHtml('wire:key="switch-'.$this->readPage->id.'-on" wire:change="switchTool('.$this->readPage->id.', false)"')
+        ->assertSeeHtml('wire:key="details-switch-'.$this->writePage->id.'-off" wire:change="switchTool('.$this->writePage->id.', true)"')
+        ->assertDontSeeHtml('wire:click="switchTool(');
+});
+
 it('resets a tool to the policy', function (): void {
     resolve(SwitchStarTools::class)->handle($this->star, $this->wiki, false, ['read_page']);
 
@@ -203,7 +211,7 @@ it('turns a partly-on risk group all on with its switch', function (): void {
     Livewire::test('pages::stars.tools', ['star' => $this->star])
         ->assertSeeTextInOrder(['Destructive', '1 of 2 on', 'Some on'])
         ->assertSeeHtml('wire:key="group-switch-risk-'.$this->wiki->id.'-destructive-off"')
-        ->assertSeeHtml('wire:click="switchGroup('.$this->wiki->id.', \'destructive\', \'on\')"');
+        ->assertSeeHtml('wire:change="switchGroup('.$this->wiki->id.', \'destructive\', \'on\')"');
 });
 
 it('switches only the matching tools of a risk group while filtering', function (): void {
