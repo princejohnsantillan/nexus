@@ -177,12 +177,14 @@ it('removes a sign-in method after confirming, while another one remains', funct
 
     Livewire::test('pages::settings.index')
         ->assertSeeHtml('aria-label="Remove Google, mona@gmail.com"')
+        ->assertDontSeeText("This is your only way to sign in, so it can't be removed.")
         ->assertSeeText(['Remove Google?', 'You will no longer sign in to this account with mona@gmail.com.'])
         ->call('removeIdentity', $google->id)
         ->assertHasNoErrors()
         ->assertDispatched('toast-show', fn (string $event, array $params): bool => $params['slots']['text'] === 'Removed Google. You can no longer sign in with mona@gmail.com.'
             && $params['dataset']['variant'] === 'success')
-        ->assertDontSeeHtml('aria-label="Remove GitHub, @octocat"');
+        ->assertDontSeeHtml('aria-label="Remove GitHub, @octocat"')
+        ->assertSeeText("This is your only way to sign in, so it can't be removed. To remove it, add another sign-in method first.");
 
     $this->assertModelMissing($google);
     expect($this->user->signInIdentities()->pluck('login')->all())->toBe(['octocat']);
@@ -220,6 +222,7 @@ it('keeps the only sign-in method, so the account always has a way in', function
 
     Livewire::test('pages::settings.index')
         ->assertDontSeeHtml('aria-label="Remove GitHub, @octocat"')
+        ->assertSeeText("This is your only way to sign in, so it can't be removed. To remove it, add another sign-in method first.")
         ->call('removeIdentity', $gitHub->id)
         ->assertHasErrors('identity')
         ->assertSeeText("This is the only way you sign in, so it can't be removed. Add another sign-in method first.");

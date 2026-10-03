@@ -82,6 +82,13 @@
                     @endforeach
                 </ul>
 
+                @if ($this->identities->count() === 1)
+                    <div class="mt-6 flex items-start gap-2">
+                        <flux:icon.information-circle variant="micro" class="mt-0.5 shrink-0 text-zinc-500 dark:text-zinc-400" />
+                        <flux:text>{{ __("This is your only way to sign in, so it can't be removed. To remove it, add another sign-in method first.") }}</flux:text>
+                    </div>
+                @endif
+
                 {{-- Every row's confirmation stays on the page, so one refused because another method went first can still say why. --}}
                 @foreach ($this->identities as $identity)
                     <flux:modal :name="'remove-sign-in-identity-'.$identity->id" class="w-full max-w-lg" wire:key="remove-sign-in-identity-{{ $identity->id }}">

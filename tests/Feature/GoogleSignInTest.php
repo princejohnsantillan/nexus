@@ -6,13 +6,20 @@ use App\Enums\IdentityProvider;
 use App\Models\SignInIdentity;
 use App\Models\User;
 use GuzzleHttp\Exception\ConnectException;
+use GuzzleHttp\Handler\MockHandler;
+use GuzzleHttp\HandlerStack;
+use GuzzleHttp\Middleware;
 use GuzzleHttp\Psr7\Request as PsrRequest;
+use GuzzleHttp\Psr7\Response as PsrResponse;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Testing\TestResponse;
 use Laravel\Socialite\Facades\Socialite;
-use Laravel\Socialite\Two\InvalidStateException;
 use Laravel\Socialite\Two\User as SocialiteUser;
 use Livewire\Livewire;
+use Psr\Http\Message\RequestInterface;
+use Symfony\Component\HttpFoundation\Response;
+use Tests\TestCase;
 
 beforeEach(function (): void {
     config(['services.google.client_id' => 'nexus-google-client-id', 'services.google.client_secret' => 'nexus-google-client-secret']);
@@ -30,6 +37,77 @@ function fakeGoogleUser(array $attributes = []): void
         'avatar' => 'https://lh3.googleusercontent.com/a/mona=s96-c',
         ...$attributes,
     ]));
+}
+
+/**
+ * Answer the requests Socialite's real Google provider sends (the token
+ * exchange, then the profile) with these responses in turn, and record them.
+ * The provider talks to Google with its own Guzzle client, which the
+ * `guzzle` option configures.
+ *
+ * @param  list<PsrResponse>  $responses
+ * @return ArrayObject<int, array{request: RequestInterface}>
+ */
+function fakeGoogleEndpoints(array $responses): ArrayObject
+{
+    /** @var ArrayObject<int, array{request: RequestInterface}> $history */
+    $history = new ArrayObject;
+    $stack = HandlerStack::create(new MockHandler($responses));
+    $stack->push(Middleware::history($history));
+
+    config(['services.google.guzzle' => ['handler' => $stack]]);
+
+    return $history;
+}
+
+/**
+ * @return list<PsrResponse>
+ */
+function googleApproves(): array
+{
+    return [
+        new PsrResponse(200, ['Content-Type' => 'application/json'], (string) json_encode([
+            'access_token' => 'ya29.test-access-token',
+            'expires_in' => 3599,
+            'scope' => 'openid https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email',
+            'token_type' => 'Bearer',
+        ])),
+        new PsrResponse(200, ['Content-Type' => 'application/json'], (string) json_encode([
+            'sub' => '109876543210987654321',
+            'name' => 'Mona Lisa',
+            'email' => 'mona@gmail.com',
+            'email_verified' => true,
+            'picture' => 'https://lh3.googleusercontent.com/a/mona=s96-c',
+        ])),
+    ];
+}
+
+/**
+ * Open the route that sends the visitor to Google, and return the state it
+ * sent along.
+ */
+function startGoogle(TestCase $test, string $route = 'auth.google'): string
+{
+    $location = (string) $test->get(route($route))->headers->get('Location');
+
+    parse_str((string) parse_url($location, PHP_URL_QUERY), $query);
+
+    return is_string($query['state'] ?? null) ? $query['state'] : '';
+}
+
+/**
+ * Come back from Google with this query. Every real request builds its
+ * Google provider afresh; the test app would reuse the one the previous
+ * request built, along with that request's input, so it is forgotten first.
+ *
+ * @param  array<string, string>  $query
+ * @return TestResponse<Response>
+ */
+function returnFromGoogle(TestCase $test, array $query): TestResponse
+{
+    Socialite::forgetDrivers();
+
+    return $test->get(route('auth.google.callback', $query));
 }
 
 /**
@@ -217,13 +295,67 @@ it('returns to the sign-in page when the Google sign-in fails', function (Closur
 
     $this->get(route('auth.sign-in'))->assertSeeText("Google sign-in didn't complete. Please try again.");
 })->with([
-    'state mismatch' => [fn () => throw new InvalidStateException],
     'Google unreachable' => [fn () => throw new ConnectException(
         'Could not resolve host',
         new PsrRequest('POST', 'https://www.googleapis.com/oauth2/v4/token'),
     )],
     'no email address' => [fn (): SocialiteUser => SocialiteUser::fake(['id' => '109876543210987654321', 'email' => null])],
 ]);
+
+it('signs in through Google\'s endpoints when Google returns the state Nexus sent', function (): void {
+    $google = fakeGoogleEndpoints(googleApproves());
+
+    $state = startGoogle($this);
+
+    returnFromGoogle($this, ['state' => $state, 'code' => 'google-code'])->assertRedirect(route('stars.index'));
+
+    $user = SignInIdentity::findFor(IdentityProvider::Google, '109876543210987654321')?->user;
+
+    expect($user)->toBeInstanceOf(User::class)
+        ->and($user?->email)->toBe('mona@gmail.com')
+        ->and($google)->toHaveCount(2);
+
+    parse_str((string) $google[0]['request']->getBody(), $tokenRequest);
+
+    expect($tokenRequest)
+        ->code->toBe('google-code')
+        ->redirect_uri->toBe(route('auth.google.callback'));
+
+    $this->assertAuthenticatedAs($user);
+});
+
+it('refuses a return from Google without the state Nexus sent, before contacting Google', function (bool $started, array $query): void {
+    $google = fakeGoogleEndpoints(googleApproves());
+
+    if ($started) {
+        startGoogle($this);
+    }
+
+    returnFromGoogle($this, $query)->assertRedirect(route('auth.sign-in'));
+
+    $this->assertGuest();
+    expect(User::query()->count())->toBe(0)
+        ->and($google)->toHaveCount(0);
+
+    $this->get(route('auth.sign-in'))->assertSeeText("Google sign-in didn't complete. Please try again.");
+})->with([
+    'no state' => [true, ['code' => 'google-code']],
+    'another state' => [true, ['state' => 'forged-state', 'code' => 'google-code']],
+    'a sign-in never started here' => [false, ['state' => 'forged-state', 'code' => 'google-code']],
+]);
+
+it('accepts the state Nexus sent only once', function (): void {
+    $google = fakeGoogleEndpoints([new PsrResponse(400, ['Content-Type' => 'application/json'], '{"error":"invalid_grant"}')]);
+
+    $state = startGoogle($this);
+
+    returnFromGoogle($this, ['state' => $state, 'code' => 'google-code'])->assertRedirect(route('auth.sign-in'));
+    returnFromGoogle($this, ['state' => $state, 'code' => 'google-code'])->assertRedirect(route('auth.sign-in'));
+
+    $this->assertGuest();
+    expect(User::query()->count())->toBe(0)
+        ->and($google)->toHaveCount(1);
+});
 
 it('sends a signed-in user who opens the Google sign-in to the app', function (): void {
     $this->actingAs(User::factory()->signsInWithGitHub('octocat')->create());
@@ -348,16 +480,18 @@ it('returns to Settings without adding Google when the user cancels on Google', 
     $this->get(route('settings.index'))->assertSeeText('Adding Google was cancelled. Add it again whenever you like.');
 });
 
-it('returns to Settings without adding Google when adding it fails', function (): void {
+it('never adds a Google account from a return without the state Nexus sent, and contacts Google for none', function (): void {
     $user = User::factory()->signsInWithGitHub('octocat')->create();
     $this->actingAs($user);
+    $google = fakeGoogleEndpoints(googleApproves());
 
-    Socialite::fake('google', fn () => throw new InvalidStateException);
+    startGoogle($this, 'settings.add-google');
 
-    $this->get(route('settings.add-google'));
-    $this->get(route('auth.google.callback'))->assertRedirect(route('settings.index'));
+    returnFromGoogle($this, ['state' => 'forged-state', 'code' => 'google-code'])->assertRedirect(route('settings.index'));
 
-    expect($user->signInIdentities()->count())->toBe(1);
+    expect($user->signInIdentities()->count())->toBe(1)
+        ->and(SignInIdentity::query()->where('provider', IdentityProvider::Google)->exists())->toBeFalse()
+        ->and($google)->toHaveCount(0);
     $this->assertAuthenticatedAs($user);
     $this->get(route('settings.index'))->assertSeeText("Adding Google didn't complete. Please try again.");
 });
