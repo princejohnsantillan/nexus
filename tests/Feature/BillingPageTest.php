@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Models\Connection;
+use App\Models\Payment;
 use App\Models\Star;
 use App\Models\User;
 use Carbon\CarbonImmutable;
@@ -139,6 +140,64 @@ it('lists no payments yet', function (string $state, string $explanation): void 
     'on Free' => ['free', 'You\'re on Free, so there\'s nothing to pay. Receipts show up here once you go Pro.'],
     'on Pro' => ['pro', 'Receipts show up here once you pay for Pro.'],
 ]);
+
+/**
+ * Each row of the Payments table, as its cells' text.
+ *
+ * @return list<list<string>>
+ */
+function paymentRows(string $html): array
+{
+    $rows = HTMLDocument::createFromString($html, LIBXML_NOERROR)->querySelectorAll('[data-payment-row]');
+
+    return array_values(array_map(fn (Element $row): array => array_values(array_map(
+        fn (Element $cell): string => trim((string) preg_replace('/\s+/', ' ', $cell->textContent ?? '')),
+        iterator_to_array($row->querySelectorAll('td')),
+    )), iterator_to_array($rows)));
+}
+
+it('lists the user\'s paid payments, newest first, and says how Pro was last paid for', function (): void {
+    $user = User::factory()->pro()->create();
+    Payment::factory()->for($user)->monthly()->paidByCard('visa', '4242', CarbonImmutable::parse('2026-09-03 02:00:00', 'UTC'))->create();
+    Payment::factory()->for($user)->paid('gcash', CarbonImmutable::parse('2026-10-02 17:00:00', 'UTC'))->create();
+    Payment::factory()->for($user)->create();
+    Payment::factory()->for($user)->monthly()->expired()->create();
+    Payment::factory()->paid()->create();
+
+    $page = Livewire::actingAs($user)->test('pages::billing.index')
+        ->assertSeeTextInOrder(['Current plan', 'Pro', 'Paid yearly', 'Active'])
+        ->assertSeeTextInOrder(['Payments', 'Date', 'Description', 'Method', 'Amount', 'Status'])
+        ->assertDontSeeText('No payments yet');
+
+    expect(paymentRows($page->html()))->toBe([
+        ['Oct 3, 2026', 'Nexus Pro · Yearly Oct 3, 2026 · GCash', 'GCash', '₱4,999.00', 'Paid'],
+        ['Sep 3, 2026', 'Nexus Pro · Monthly Sep 3, 2026 · Visa ···· 4242', 'Visa ···· 4242', '₱499.00', 'Paid'],
+    ]);
+});
+
+it('says Pro was paid monthly when the latest payment was for a month', function (): void {
+    $user = User::factory()->pro()->create();
+    Payment::factory()->for($user)->paid('gcash', CarbonImmutable::parse('2026-08-03 06:00:00', 'UTC'))->create();
+    Payment::factory()->for($user)->monthly()->paid('qrph', CarbonImmutable::parse('2026-10-01 06:00:00', 'UTC'))->create();
+
+    Livewire::actingAs($user)->test('pages::billing.index')
+        ->assertSeeTextInOrder(['Pro', 'Paid monthly', 'Active'])
+        ->assertDontSeeText('Paid yearly')
+        ->assertSeeText('QR Ph');
+});
+
+it('lists past payments on Free too, without saying how a plan is paid for', function (): void {
+    $user = User::factory()->proEnded()->create();
+    Payment::factory()->for($user)->monthly()->paid('paymaya', CarbonImmutable::parse('2026-09-01 06:00:00', 'UTC'))->create();
+
+    $page = Livewire::actingAs($user)->test('pages::billing.index')
+        ->assertSeeTextInOrder(['Current plan', 'Free', '₱0 / month'])
+        ->assertDontSeeText('Paid monthly');
+
+    expect(paymentRows($page->html()))->toBe([
+        ['Sep 1, 2026', 'Nexus Pro · Monthly Sep 1, 2026 · Maya', 'Maya', '₱499.00', 'Paid'],
+    ]);
+});
 
 it('is linked from the profile menu, above Settings', function (): void {
     $this->actingAs(User::factory()->create());

@@ -2,9 +2,12 @@
 
 declare(strict_types=1);
 
+use App\Enums\PaymentStatus;
 use App\Enums\Plan;
+use App\Models\Payment;
 use App\Models\User;
 use Illuminate\Auth\AuthenticationException;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Auth;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Title;
@@ -40,5 +43,21 @@ return new #[Title('Billing')] class extends Component
     public function connectionCount(): int
     {
         return $this->user->connections()->count();
+    }
+
+    /**
+     * The user's paid payments, newest first. Pending and expired checkouts
+     * charged nothing, so they aren't listed.
+     *
+     * @return Collection<int, Payment>
+     */
+    #[Computed]
+    public function payments(): Collection
+    {
+        return $this->user->payments()
+            ->where('status', PaymentStatus::Paid)
+            ->latest('paid_at')
+            ->latest('id')
+            ->get();
     }
 };

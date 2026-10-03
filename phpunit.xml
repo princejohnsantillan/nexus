@@ -36,5 +36,9 @@
         <env name="PULSE_ENABLED" value="false"/>
         <env name="TELESCOPE_ENABLED" value="false"/>
         <env name="NIGHTWATCH_ENABLED" value="false"/>
+        <env name="PAYMONGO_SECRET_KEY" value=""/>
+        <env name="PAYMONGO_PUBLIC_KEY" value=""/>
+        <env name="PAYMONGO_WEBHOOK_SECRET" value=""/>
+        <env name="PAYMONGO_PAYMENT_METHODS" value="card,gcash,paymaya,qrph"/>
     </php>
 </phpunit>

@@ -28,13 +28,21 @@
         <x-billing-period-picker wire:model.live="period" class="shrink-0" />
     </div>
 
+    @if ($this->cancelled)
+        <flux:callout icon="information-circle" :heading="__('Payment cancelled. Nothing was charged.')" class="mt-7" data-payment-cancelled />
+    @endif
+
     <div class="mt-7 grid gap-5 md:grid-cols-2">
         <x-free-plan-card :current="! $this->isPro" />
 
         <x-pro-plan-card :period="$this->billingPeriod">
             <x-slot:action>
-                {{-- "Continue to payment" takes this callout's place once this Nexus takes payments through PayMongo. --}}
-                <flux:callout icon="information-circle" :heading="__('Payments aren\'t set up on this Nexus yet.')" data-payments-not-set-up />
+                @if ($this->paymentsAreSetUp)
+                    <flux:button variant="primary" icon:trailing="arrow-right" icon-trailing:variant="outline" class="h-10! w-full [&>[data-flux-icon]]:stroke-[2.4]" wire:click="continueToPayment" data-continue-to-payment>{{ __('Continue to payment') }}</flux:button>
+                    <flux:error name="checkout" class="mt-3" />
+                @else
+                    <flux:callout icon="information-circle" :heading="__('Payments aren\'t set up on this Nexus yet.')" data-payments-not-set-up />
+                @endif
             </x-slot:action>
         </x-pro-plan-card>
     </div>
