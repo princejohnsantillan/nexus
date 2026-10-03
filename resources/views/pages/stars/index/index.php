@@ -134,9 +134,8 @@ return new #[Title('Stars')] class extends Component
     }
 
     /**
-     * Whether the user has as many Stars as they may have. A boolean, so
-     * Livewire keeps it for the request: a null computed value, such as
-     * limitMessage's, is worked out again each time the view reads it.
+     * Whether the user has as many Stars as they may have, so Create Star
+     * opens the upgrade prompt instead of the form.
      */
     #[Computed]
     public function isAtStarLimit(): bool
@@ -145,12 +144,16 @@ return new #[Title('Stars')] class extends Component
     }
 
     /**
-     * What to tell the user when they can't create another Star, or null when they can.
+     * Whether the user has as many Connections as their plan allows, so
+     * adding one opens the upgrade prompt. It counts the Connections the
+     * create form lists, which the page loads anyway.
      */
     #[Computed]
-    public function limitMessage(): ?string
+    public function isAtConnectionLimit(): bool
     {
-        return $this->isAtStarLimit ? CreateStar::limitMessage() : null;
+        $limit = $this->user->plan()->connectionLimit();
+
+        return $limit !== null && $this->connections->count() >= $limit;
     }
 
     public function dismissGettingStarted(GettingStarted $gettingStarted): void

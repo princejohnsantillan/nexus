@@ -310,13 +310,14 @@ it('refuses a token with a line break inside it', function (): void {
         ->assertHasErrors(['token' => 'The token can\'t contain line breaks or other control characters.']);
 });
 
-it('explains the limit once the user has as many Connections as an account may', function (): void {
+it('offers Pro instead of the catalog once the user has as many Connections as an account may', function (): void {
     config(['nexus.plans.free.connections' => 2]);
     Connection::factory()->for($this->user)->count(2)->create();
 
     Livewire::test('pages::connections.index')
-        ->assertSeeText('Connection limit reached')
-        ->assertSeeText('Free includes 2 Connections. Go Pro for more, or delete one you no longer use.')
+        ->assertDontSeeText('Connection limit reached')
+        ->assertSeeText('You\'ve used both Free Connections')
+        ->assertSeeText('Free includes 2 Connections. Go Pro for as many as you need, or delete one you no longer use.')
         ->assertDontSee(route('connections.add-custom'))
         ->assertDontSeeHtml('wire:click="startConnecting(\'github\')"');
 });

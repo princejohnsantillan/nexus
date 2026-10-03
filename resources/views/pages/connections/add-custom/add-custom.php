@@ -3,7 +3,6 @@
 declare(strict_types=1);
 
 use App\Actions\AddCustomConnection;
-use App\Actions\SaveNewConnection;
 use App\ConnectionOAuth\NexusClient;
 use App\Enums\ConnectionAuthType;
 use App\Enums\ConnectionStatus;
@@ -76,12 +75,13 @@ return new #[Title('Custom MCP server')] class extends Component
     }
 
     /**
-     * What to tell the user when they can't add another Connection, or null when they can.
+     * Whether the user has as many Connections as their plan allows, so
+     * submitting the form opens the upgrade prompt instead of saving.
      */
     #[Computed]
-    public function limitMessage(): ?string
+    public function isAtConnectionLimit(): bool
     {
-        return $this->user->hasReachedConnectionLimit() ? SaveNewConnection::limitMessage() : null;
+        return $this->user->hasReachedConnectionLimit();
     }
 
     /**

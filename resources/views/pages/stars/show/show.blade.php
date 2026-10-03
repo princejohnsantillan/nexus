@@ -176,7 +176,13 @@
                             {{ __('Connect a remote MCP server, and you\'ll come back here with it added to this Star.') }}
 
                             <x-slot:actions>
-                                <flux:button variant="primary" icon="plus" :href="App\Stars\ReturnToStar::addMoreUrl($star)" wire:navigate data-add-connection>{{ __('Add a connection') }}</flux:button>
+                                @if ($this->isAtConnectionLimit)
+                                    <flux:modal.trigger name="connection-limit">
+                                        <flux:button variant="primary" icon="plus" data-add-connection>{{ __('Add a connection') }}</flux:button>
+                                    </flux:modal.trigger>
+                                @else
+                                    <flux:button variant="primary" icon="plus" :href="App\Stars\ReturnToStar::addMoreUrl($star)" wire:navigate data-add-connection>{{ __('Add a connection') }}</flux:button>
+                                @endif
                             </x-slot:actions>
                         </x-empty-state>
                     </x-section-card>
@@ -186,10 +192,19 @@
 
                         <x-slot:hint>
                             <span class="flex flex-wrap items-center gap-x-1.5">
-                                <a href="{{ App\Stars\ReturnToStar::addMoreUrl($star) }}" class="inline-flex items-center gap-1.5 font-medium text-accent-content hover:underline" wire:navigate data-add-connection>
-                                    <flux:icon.plus variant="micro" class="size-4" />
-                                    {{ __('Add a connection') }}
-                                </a>
+                                @if ($this->isAtConnectionLimit)
+                                    <flux:modal.trigger name="connection-limit">
+                                        <button type="button" class="inline-flex cursor-pointer items-center gap-1.5 font-medium text-accent-content hover:underline" data-add-connection>
+                                            <flux:icon.plus variant="micro" class="size-4" />
+                                            {{ __('Add a connection') }}
+                                        </button>
+                                    </flux:modal.trigger>
+                                @else
+                                    <a href="{{ App\Stars\ReturnToStar::addMoreUrl($star) }}" class="inline-flex items-center gap-1.5 font-medium text-accent-content hover:underline" wire:navigate data-add-connection>
+                                        <flux:icon.plus variant="micro" class="size-4" />
+                                        {{ __('Add a connection') }}
+                                    </a>
+                                @endif
                                 <span class="text-zinc-500 dark:text-zinc-400"><span aria-hidden="true">·</span> {{ __('you\'ll come back here') }}</span>
                             </span>
                         </x-slot:hint>
@@ -251,4 +266,8 @@
             </div>
         </div>
     </flux:modal>
+
+    @if ($this->isAtConnectionLimit)
+        <x-limit-modal for="connections" />
+    @endif
 </div>

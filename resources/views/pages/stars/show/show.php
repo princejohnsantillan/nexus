@@ -125,6 +125,18 @@ return new #[Title('Star')] class extends Component
     }
 
     /**
+     * Whether the user has as many Connections as their plan allows, so
+     * "Add a connection" opens the upgrade prompt instead of the catalog.
+     */
+    #[Computed]
+    public function isAtConnectionLimit(): bool
+    {
+        $limit = $this->star->user->plan()->connectionLimit();
+
+        return $limit !== null && $this->connections->count() >= $limit;
+    }
+
+    /**
      * What saving would change, and what each change does.
      */
     #[Computed]
