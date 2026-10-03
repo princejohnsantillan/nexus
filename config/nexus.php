@@ -70,7 +70,8 @@ return [
     | registrations are limited per hour for each IP address. Anyone may ask
     | for a sign-in code by email, so codes are limited per hour for each
     | address and for each IP address, besides a minute's pause between two
-    | codes to the same address.
+    | codes to the same address. Anyone can reach PayMongo's webhook, so its
+    | deliveries are limited per minute for each IP address.
     |
     */
 
@@ -80,6 +81,7 @@ return [
         'oauth_registrations_per_hour' => (int) env('NEXUS_OAUTH_REGISTRATIONS_PER_HOUR', 20),
         'email_codes_per_address_per_hour' => (int) env('NEXUS_EMAIL_CODES_PER_ADDRESS_PER_HOUR', 5),
         'email_codes_per_ip_per_hour' => (int) env('NEXUS_EMAIL_CODES_PER_IP_PER_HOUR', 20),
+        'paymongo_webhooks_per_minute' => (int) env('NEXUS_PAYMONGO_WEBHOOKS_PER_MINUTE', 60),
     ],
 
     /*

@@ -15,8 +15,9 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 /**
- * PayMongo's API, for checkout sessions on its hosted checkout: creating
- * one, reading it back and expiring it.
+ * PayMongo's API, for checkout sessions on its hosted checkout (creating
+ * one, reading it back and expiring it) and for the webhook PayMongo tells
+ * Nexus about paid checkouts through (registering it and listing them).
  *
  * Requests go through Laravel's HTTP client, so the outbound guard checks
  * them, and sign in with the secret key from `services.paymongo` (HTTP
@@ -113,6 +114,46 @@ final readonly class PayMongo
     }
 
     /**
+     * Register a webhook: PayMongo then sends the events to the URL, signed
+     * with the secret it answers with.
+     *
+     * @param  list<string>  $events  The event types, as PayMongo names them.
+     *
+     * @throws PayMongoRequestFailed
+     */
+    public function createWebhook(string $url, array $events): PayMongoWebhook
+    {
+        return $this->send(
+            'create webhook',
+            fn (PendingRequest $request): Response => $request->post('/v1/webhooks', ['data' => ['attributes' => ['url' => $url, 'events' => $events]]]),
+            fn (array $data): ?PayMongoWebhook => PayMongoWebhook::fromArray($data),
+            PayMongoRequestFailed::webhookNotRegistered(...),
+        );
+    }
+
+    /**
+     * The webhooks registered with PayMongo, in the secret key's mode.
+     *
+     * @return list<PayMongoWebhook>
+     *
+     * @throws PayMongoRequestFailed
+     */
+    public function webhooks(): array
+    {
+        return $this->send(
+            'list webhooks',
+            fn (PendingRequest $request): Response => $request->get('/v1/webhooks'),
+            fn (array $data): ?array => array_is_list($data)
+                ? array_values(array_filter(array_map(
+                    fn (mixed $webhook): ?PayMongoWebhook => is_array($webhook) ? PayMongoWebhook::fromArray($webhook) : null,
+                    $data,
+                )))
+                : null,
+            PayMongoRequestFailed::webhooksNotListed(...),
+        );
+    }
+
+    /**
      * Send a request about a checkout session, and read the session it answers with.
      *
      * @param  Closure(PendingRequest): Response  $send
@@ -121,6 +162,23 @@ final readonly class PayMongo
      * @throws PayMongoRequestFailed
      */
     private function session(string $name, Closure $send, Closure $failure): CheckoutSession
+    {
+        return $this->send($name, $send, CheckoutSession::fromArray(...), $failure);
+    }
+
+    /**
+     * Send a request to PayMongo, and read the `data` it answers with.
+     *
+     * @template TResult
+     *
+     * @param  Closure(PendingRequest): Response  $send
+     * @param  Closure(array<mixed>): (TResult|null)  $read  What the answer's `data` holds, or null when it isn't what was asked for.
+     * @param  Closure(): PayMongoRequestFailed  $failure
+     * @return TResult
+     *
+     * @throws PayMongoRequestFailed
+     */
+    private function send(string $name, Closure $send, Closure $read, Closure $failure): mixed
     {
         $secretKey = config('services.paymongo.secret_key');
 
@@ -142,19 +200,19 @@ final readonly class PayMongo
         }
 
         $data = $response->successful() ? $this->data($response) : null;
-        $session = $data !== null ? CheckoutSession::fromArray($data) : null;
+        $result = $data !== null ? $read($data) : null;
 
-        if (! $session instanceof CheckoutSession) {
+        if ($result === null) {
             Log::warning('A PayMongo request failed.', ['request' => $name, 'status' => $response->status()]);
 
             throw $failure();
         }
 
-        return $session;
+        return $result;
     }
 
     /**
-     * The `data` object of a JSON response, or null when it has none.
+     * The `data` of a JSON response (an object, or a list of them), or null when it has none.
      *
      * @return array<mixed>|null
      */

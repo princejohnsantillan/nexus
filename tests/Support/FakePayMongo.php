@@ -16,7 +16,8 @@ use InvalidArgumentException;
 /**
  * PayMongo's API for tests, answering through Http::fake() at
  * https://api.paymongo.com, so the real client and the outbound guard run.
- * It also gives Nexus a test secret key, which it checks on every request.
+ * It also gives Nexus a test secret key, which it checks on every request,
+ * and a webhook secret (WEBHOOK_SECRET).
  *
  *     $payMongo = FakePayMongo::fake();
  *     // … "Continue to payment" creates a session …
@@ -39,12 +40,33 @@ use InvalidArgumentException;
  * replaces an answer, such as with failure(); beforeAnswering() runs a
  * callback while a request is in flight, to play out a race.
  *
+ * It keeps webhooks too: registering one (`POST /v1/webhooks`) answers with
+ * the webhook and its new secret, and listing them (`GET /v1/webhooks`)
+ * answers with every one, secrets included, as PayMongo does. withWebhook()
+ * makes one known beforehand; respondTo('createWebhook' | 'listWebhooks')
+ * replaces an answer, and respondNormallyTo() undoes any respondTo(). For PayMongo's deliveries to Nexus's webhook,
+ * checkoutPaidEvent() and event() build an event's body, in either shape
+ * PayMongo documents, and signature() signs one as PayMongo does.
+ *
  * Afterwards, requests() returns what it received, created() the attributes
- * of each session created, and lastSessionId() the newest session's id.
+ * of each session created, lastSessionId() the newest session's id and
+ * webhooks() the webhooks it knows.
  */
 final class FakePayMongo
 {
     public const string SECRET_KEY = 'sk_test_fakepaymongo';
+
+    /**
+     * The secret Nexus's webhook deliveries are signed with.
+     */
+    public const string WEBHOOK_SECRET = 'whsk_fakepaymongo';
+
+    /**
+     * The request names respondTo() and beforeAnswering() take.
+     *
+     * @var list<string>
+     */
+    private const array REQUESTS = ['create', 'read', 'expire', 'createWebhook', 'listWebhooks'];
 
     /**
      * The sessions it knows, by id.
@@ -52,6 +74,13 @@ final class FakePayMongo
      * @var array<string, array{status: string, attributes: array<string, mixed>, payments: list<array<string, mixed>>}>
      */
     private array $sessions = [];
+
+    /**
+     * The webhooks it knows, by id, as PayMongo answers with them.
+     *
+     * @var array<string, array<string, mixed>>
+     */
+    private array $webhooks = [];
 
     /**
      * Session ids by the idempotency key they were created with.
@@ -83,11 +112,11 @@ final class FakePayMongo
     private function __construct() {}
 
     /**
-     * Give Nexus a test secret key and start answering PayMongo's API.
+     * Give Nexus a test secret key and webhook secret, and start answering PayMongo's API.
      */
     public static function fake(): self
     {
-        config(['services.paymongo.secret_key' => self::SECRET_KEY]);
+        config(['services.paymongo.secret_key' => self::SECRET_KEY, 'services.paymongo.webhook_secret' => self::WEBHOOK_SECRET]);
 
         $payMongo = new self;
 
@@ -145,7 +174,112 @@ final class FakePayMongo
     }
 
     /**
-     * Answer one kind of request (`create`, `read` or `expire`) with the responder instead.
+     * Know a webhook registered before, at the URL.
+     *
+     * @param  list<string>  $events
+     */
+    public function withWebhook(string $url, string $status = 'enabled', array $events = ['checkout_session.payment.paid'], bool $livemode = false): self
+    {
+        $this->addWebhook($url, $events, $status, $livemode);
+
+        return $this;
+    }
+
+    /**
+     * The webhooks it knows, as PayMongo answers with them.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function webhooks(): array
+    {
+        return array_values($this->webhooks);
+    }
+
+    /**
+     * The body of a `checkout_session.payment.paid` delivery for the
+     * payment's checkout session: the session with a paid payment on it,
+     * whatever PayMongo would answer about it, in PayMongo's event envelope
+     * or, with $hostedCheckoutShape, as its hosted checkout guide shows it.
+     *
+     * @return array<string, mixed>
+     */
+    public static function checkoutPaidEvent(Payment $payment, bool $livemode = false, bool $hostedCheckoutShape = false): array
+    {
+        return self::event('checkout_session.payment.paid', [
+            'id' => $payment->checkout_session_id,
+            'type' => 'checkout_session',
+            'attributes' => [
+                'checkout_url' => $payment->checkout_url,
+                'livemode' => $livemode,
+                'reference_number' => $payment->reference,
+                'status' => 'active',
+                'payments' => [[
+                    'id' => 'pay_'.Str::random(24),
+                    'type' => 'payment',
+                    'attributes' => ['amount' => $payment->amount, 'currency' => 'PHP', 'livemode' => $livemode, 'status' => 'paid', 'source' => ['type' => 'gcash']],
+                ]],
+            ],
+        ], $livemode, $hostedCheckoutShape);
+    }
+
+    /**
+     * The body of a delivery of an event of the type, about the resource:
+     * PayMongo's event envelope (the event in `data.attributes`, the
+     * resource in `data.attributes.data`) or, with $hostedCheckoutShape,
+     * the shape its hosted checkout guide shows (the event in `data`, the
+     * resource in `data.data`).
+     *
+     * @param  array<string, mixed>  $resource
+     * @return array<string, mixed>
+     */
+    public static function event(string $type, array $resource, bool $livemode = false, bool $hostedCheckoutShape = false): array
+    {
+        if ($hostedCheckoutShape) {
+            return [
+                'event_type' => 'send.webhook',
+                'data' => [
+                    'type' => $type,
+                    'resource' => $resource['type'] ?? null,
+                    'livemode' => $livemode,
+                    'organization_id' => 'org_'.Str::random(24),
+                    'created_at' => now()->toIso8601ZuluString(),
+                    'updated_at' => now()->toIso8601ZuluString(),
+                    'data' => $resource,
+                ],
+            ];
+        }
+
+        return [
+            'data' => [
+                'id' => 'evt_'.Str::random(24),
+                'type' => 'event',
+                'attributes' => [
+                    'type' => $type,
+                    'livemode' => $livemode,
+                    'data' => $resource,
+                    'previous_data' => [],
+                    'created_at' => now()->getTimestamp(),
+                    'updated_at' => now()->getTimestamp(),
+                ],
+            ],
+        ];
+    }
+
+    /**
+     * The `Paymongo-Signature` header PayMongo sends with the body: the
+     * HMAC-SHA256 of "{t}.{body}" with the secret, as `te` for a test-mode
+     * event or `li` for a live one, the other left empty.
+     */
+    public static function signature(string $body, bool $livemode = false, string $secret = self::WEBHOOK_SECRET, ?int $timestamp = null): string
+    {
+        $timestamp ??= now()->getTimestamp();
+        $signature = hash_hmac('sha256', "{$timestamp}.{$body}", $secret);
+
+        return $livemode ? "t={$timestamp},te=,li={$signature}" : "t={$timestamp},te={$signature},li=";
+    }
+
+    /**
+     * Answer one kind of request (`create`, `read`, `expire`, `createWebhook` or `listWebhooks`) with the responder instead.
      *
      * @param  Closure(Request): PromiseInterface  $responder
      */
@@ -157,8 +291,18 @@ final class FakePayMongo
     }
 
     /**
-     * Run the callback while a kind of request (`create`, `read` or `expire`)
-     * is in flight, before it is answered.
+     * Answer a kind of request as PayMongo would again, after respondTo().
+     */
+    public function respondNormallyTo(string $request): self
+    {
+        unset($this->responders[$this->requestName($request)]);
+
+        return $this;
+    }
+
+    /**
+     * Run the callback while a kind of request (`create`, `read`, `expire`,
+     * `createWebhook` or `listWebhooks`) is in flight, before it is answered.
      *
      * @param  Closure(Request): void  $callback
      */
@@ -233,6 +377,8 @@ final class FakePayMongo
             $request->method() === 'POST' && $path === '/v2/checkout_sessions' => 'create',
             $request->method() === 'GET' && preg_match('#\A/v1/checkout_sessions/[^/]+\z#', $path) === 1 => 'read',
             $request->method() === 'POST' && preg_match('#\A/v1/checkout_sessions/[^/]+/expire\z#', $path) === 1 => 'expire',
+            $request->method() === 'POST' && $path === '/v1/webhooks' => 'createWebhook',
+            $request->method() === 'GET' && $path === '/v1/webhooks' => 'listWebhooks',
             default => null,
         };
 
@@ -254,6 +400,8 @@ final class FakePayMongo
             'create' => $this->create($request),
             'read' => $this->read($id),
             'expire' => $this->expire($id),
+            'createWebhook' => $this->createWebhook($request),
+            'listWebhooks' => Http::response(['has_more' => false, 'total_records' => count($this->webhooks), 'data' => array_values($this->webhooks)]),
         };
     }
 
@@ -311,6 +459,42 @@ final class FakePayMongo
         $this->sessions[$id]['status'] = 'expired';
 
         return Http::response(['data' => $this->sessionObject($id)]);
+    }
+
+    private function createWebhook(Request $request): PromiseInterface
+    {
+        $attributes = $request->data()['data']['attributes'] ?? null;
+        $url = is_array($attributes) ? $attributes['url'] ?? null : null;
+        $events = is_array($attributes) ? $attributes['events'] ?? null : null;
+
+        if (! is_string($url) || ! is_array($events) || $events === []) {
+            return Http::response(['errors' => [['code' => 'parameter_required', 'detail' => 'url and events are required.']]], 400);
+        }
+
+        return Http::response(['data' => $this->addWebhook($url, array_values(array_filter($events, is_string(...))), 'enabled', false)]);
+    }
+
+    /**
+     * @param  list<string>  $events
+     * @return array<string, mixed>
+     */
+    private function addWebhook(string $url, array $events, string $status, bool $livemode): array
+    {
+        $id = 'hook_'.Str::random(24);
+
+        return $this->webhooks[$id] = [
+            'id' => $id,
+            'type' => 'webhook',
+            'attributes' => [
+                'events' => $events,
+                'livemode' => $livemode,
+                'secret_key' => 'whsk_'.Str::random(24),
+                'status' => $status,
+                'url' => $url,
+                'created_at' => now()->getTimestamp(),
+                'updated_at' => now()->getTimestamp(),
+            ],
+        ];
     }
 
     /**
@@ -385,7 +569,7 @@ final class FakePayMongo
 
     private function requestName(string $request): string
     {
-        return in_array($request, ['create', 'read', 'expire'], true) ? $request : throw new InvalidArgumentException("PayMongo has no {$request} request here.");
+        return in_array($request, self::REQUESTS, true) ? $request : throw new InvalidArgumentException("PayMongo has no {$request} request here.");
     }
 
     private function checkoutUrl(string $id): string

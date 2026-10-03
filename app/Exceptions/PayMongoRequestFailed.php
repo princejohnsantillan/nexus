@@ -38,4 +38,20 @@ final class PayMongoRequestFailed extends RuntimeException
     {
         return new self(__('Nexus couldn\'t check the payment with PayMongo just now. Try again in a minute.'));
     }
+
+    /**
+     * Registering a webhook failed.
+     */
+    public static function webhookNotRegistered(): self
+    {
+        return new self(__('PayMongo couldn\'t register the webhook. Check the URL is public HTTPS, then try again.'));
+    }
+
+    /**
+     * Listing the webhooks failed.
+     */
+    public static function webhooksNotListed(): self
+    {
+        return new self(__('Nexus couldn\'t list the webhooks registered with PayMongo. Try again in a minute.'));
+    }
 }

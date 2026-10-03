@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Console\Commands\ReconcilePaymentsCommand;
 use App\Console\Commands\RefreshCatalogsCommand;
 use App\Console\Commands\SendProRemindersCommand;
 use App\Models\ActivityEntry;
@@ -24,3 +25,6 @@ Schedule::command(RefreshCatalogsCommand::class)->daily()->onOneServer();
 Schedule::command(PurgeCommand::class)->daily();
 
 Schedule::command(SendProRemindersCommand::class)->hourly()->onOneServer();
+
+// The lock lasts 10 minutes, so a run that dies holding it never blocks the next one for long.
+Schedule::command(ReconcilePaymentsCommand::class)->everyTenMinutes()->onOneServer()->withoutOverlapping(10);
