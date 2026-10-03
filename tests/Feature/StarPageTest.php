@@ -190,11 +190,11 @@ it('does not find another user\'s Star', function (string $route): void {
     $this->get(route($route, $star))->assertNotFound();
 })->with(['stars.show', 'stars.tools', 'stars.prompts', 'stars.access']);
 
-it('sends guests to the welcome page', function (string $route): void {
+it('sends guests to sign in', function (string $route): void {
     $star = Star::factory()->for($this->user)->create();
     auth()->logout();
 
-    $this->get(route($route, $star))->assertRedirect(route('home'));
+    $this->get(route($route, $star))->assertRedirect(route('auth.sign-in'));
 })->with(['stars.show', 'stars.tools', 'stars.prompts', 'stars.access']);
 
 it('changes which Connections the Star includes', function (): void {

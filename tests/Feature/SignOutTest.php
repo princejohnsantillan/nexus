@@ -14,8 +14,8 @@ it('signs the user out and returns to the welcome page', function (): void {
     $this->get(route('home'))->assertOk()->assertSeeText("You're signed out.");
 });
 
-it('sends a guest who signs out to the welcome page', function (): void {
-    $this->post(route('logout'))->assertRedirect(route('home'));
+it('sends a guest who signs out to sign in', function (): void {
+    $this->post(route('logout'))->assertRedirect(route('auth.sign-in'));
 
     $this->assertGuest();
 });

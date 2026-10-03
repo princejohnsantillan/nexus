@@ -27,7 +27,7 @@ beforeEach(function (): void {
 
 describe('GitHub sign-in', function (): void {
     it('reports a refusal from GitHub in Nexus\'s words', function (): void {
-        $this->get(route('auth.github.callback', ['error' => DownstreamCanary::TEXT, 'error_description' => DownstreamCanary::TEXT, 'state' => 'abc']))->assertRedirect(route('home'));
+        $this->get(route('auth.github.callback', ['error' => DownstreamCanary::TEXT, 'error_description' => DownstreamCanary::TEXT, 'state' => 'abc']))->assertRedirect(route('auth.sign-in'));
 
         expect(session('toast.text'))->not->toContain(DownstreamCanary::TEXT)
             ->and($this->canary->sightings())->toBe([]);
@@ -40,7 +40,7 @@ describe('GitHub sign-in', function (): void {
             new PsrResponse(401, [], DownstreamCanary::TEXT),
         ));
 
-        $this->get(route('auth.github.callback'))->assertRedirect(route('home'));
+        $this->get(route('auth.github.callback'))->assertRedirect(route('auth.sign-in'));
 
         expect(session('toast.text'))->not->toContain(DownstreamCanary::TEXT)
             ->and($this->canary->sightings())->toBe([]);

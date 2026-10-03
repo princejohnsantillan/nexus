@@ -60,7 +60,7 @@ it('escapes the name a client registers with', function (): void {
 it('sends a guest to sign in first, remembering to come back to the consent screen', function (): void {
     $authorizeUrl = StarOAuthFlow::authorizeUrl($this->clientId);
 
-    $this->get($authorizeUrl)->assertRedirect(route('home'));
+    $this->get($authorizeUrl)->assertRedirect(route('auth.sign-in'));
 
     $intended = Uri::of((string) session('url.intended'));
 
@@ -137,7 +137,7 @@ it('refuses an approval with a wrong auth token', function (): void {
 });
 
 it('requires a signed-in user to approve or deny', function (string $method): void {
-    $this->call($method, '/oauth/authorize', ['auth_token' => 'x'])->assertRedirect(route('home'));
+    $this->call($method, '/oauth/authorize', ['auth_token' => 'x'])->assertRedirect(route('auth.sign-in'));
 })->with(['POST', 'DELETE']);
 
 it('gives a token only for the Star the client registered with', function (): void {

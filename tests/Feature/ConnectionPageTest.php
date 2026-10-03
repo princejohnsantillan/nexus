@@ -69,11 +69,11 @@ it('does not find a Connection by anything but its id', function (): void {
     $this->get('/connections/deepwiki')->assertNotFound();
 });
 
-it('sends guests to the welcome page', function (string $route): void {
+it('sends guests to sign in', function (string $route): void {
     $connection = Connection::factory()->for($this->user)->create();
     auth()->logout();
 
-    $this->get(route($route, $connection))->assertRedirect(route('home'));
+    $this->get(route($route, $connection))->assertRedirect(route('auth.sign-in'));
 })->with(['connections.show', 'connections.tools', 'connections.prompts']);
 
 it('edits the name and the "use this account for" note', function (): void {

@@ -2,74 +2,71 @@
     <header class="mx-auto flex w-full max-w-5xl items-center justify-between gap-4 px-6 py-4">
         <x-app-logo :href="route('home')" />
 
-        <flux:dropdown x-data align="end">
-            <flux:button variant="subtle" square :aria-label="__('Appearance')">
-                <flux:icon.sun x-show="$flux.appearance === 'light'" variant="mini" />
-                <flux:icon.moon x-show="$flux.appearance === 'dark'" variant="mini" />
-                <flux:icon.moon x-show="$flux.appearance === 'system' && $flux.dark" variant="mini" />
-                <flux:icon.sun x-show="$flux.appearance === 'system' && ! $flux.dark" variant="mini" />
-            </flux:button>
+        <div class="flex items-center gap-2">
+            <flux:dropdown x-data align="end">
+                <flux:button variant="subtle" square :aria-label="__('Appearance')">
+                    <flux:icon.sun x-show="$flux.appearance === 'light'" variant="mini" />
+                    <flux:icon.moon x-show="$flux.appearance === 'dark'" variant="mini" />
+                    <flux:icon.moon x-show="$flux.appearance === 'system' && $flux.dark" variant="mini" />
+                    <flux:icon.sun x-show="$flux.appearance === 'system' && ! $flux.dark" variant="mini" />
+                </flux:button>
 
-            <flux:menu>
-                <flux:menu.item icon="sun" x-on:click="$flux.appearance = 'light'">{{ __('Light') }}</flux:menu.item>
-                <flux:menu.item icon="moon" x-on:click="$flux.appearance = 'dark'">{{ __('Dark') }}</flux:menu.item>
-                <flux:menu.item icon="computer-desktop" x-on:click="$flux.appearance = 'system'">{{ __('System') }}</flux:menu.item>
-            </flux:menu>
-        </flux:dropdown>
+                <flux:menu>
+                    <flux:menu.item icon="sun" x-on:click="$flux.appearance = 'light'">{{ __('Light') }}</flux:menu.item>
+                    <flux:menu.item icon="moon" x-on:click="$flux.appearance = 'dark'">{{ __('Dark') }}</flux:menu.item>
+                    <flux:menu.item icon="computer-desktop" x-on:click="$flux.appearance = 'system'">{{ __('System') }}</flux:menu.item>
+                </flux:menu>
+            </flux:dropdown>
+
+            <flux:button size="sm" :href="route('auth.sign-in')">{{ __('Sign in') }}</flux:button>
+        </div>
     </header>
 
     <main class="mx-auto flex w-full max-w-5xl flex-1 flex-col px-6 py-12 sm:py-20">
         <div class="max-w-2xl">
-            <flux:badge icon="star">{{ __('Remote MCP gateway') }}</flux:badge>
+            <span class="inline-flex items-center gap-1.5 rounded-full bg-accent-wash px-2.5 py-1 text-xs font-medium text-accent-content">
+                <flux:icon.star variant="micro" class="size-3.5" />
+                {{ __('Remote MCP gateway') }}
+            </span>
 
-            <flux:heading size="xl" level="1" class="mt-6 text-4xl! leading-tight! sm:text-5xl!">
-                {{ __('Connect your MCP servers once. Use them in every AI client.') }}
+            <flux:heading size="xl" level="1" class="mt-6 text-4xl! leading-tight! font-bold! tracking-tight text-zinc-950 sm:text-5xl! dark:text-white">
+                {{ __('Connect your MCP servers once.') }}
+                <span class="text-accent-content">{{ __('Use them in every AI client.') }}</span>
             </flux:heading>
 
-            <flux:text size="lg" class="mt-6">
+            <flux:text size="lg" class="mt-6 text-zinc-600 dark:text-zinc-400">
                 {{ __('Nexus signs in to GitHub, Notion, Linear and any other remote MCP server for you, then serves them through Stars: MCP endpoints you add to Claude Code, claude.ai, Codex, Cursor and Grok. Decide what each client can do here, not in a pile of config files.') }}
             </flux:text>
 
-            <div class="mt-8 flex flex-wrap items-center gap-3">
-                <flux:button variant="primary" :href="route('auth.github')">
-                    <x-icons.github class="size-4" />
-                    {{ __('Sign in with GitHub') }}
-                </flux:button>
+            <div class="mt-8 flex flex-wrap items-center gap-x-4 gap-y-3">
+                <flux:button variant="primary" :href="route('auth.sign-in')" icon:trailing="arrow-right">{{ __('Get started') }}</flux:button>
+                <flux:text>{{ __('New here? Signing in creates your account.') }}</flux:text>
             </div>
-
-            @if ($this->devSignInIsEnabled)
-                <flux:callout icon="wrench-screwdriver" class="mt-8" :heading="__('Dev sign-in')">
-                    <flux:callout.text>{{ __('Local only. Sign in as a seeded user without a GitHub OAuth app.') }}</flux:callout.text>
-
-                    <x-slot name="actions">
-                        <flux:button size="sm" :href="route('dev.sign-in', 'dev')">{{ __('Sign in as Dev User') }}</flux:button>
-                        <flux:button size="sm" :href="route('dev.sign-in', 'second')">{{ __('Sign in as Second User') }}</flux:button>
-                    </x-slot>
-                </flux:callout>
-            @endif
         </div>
+
+        <x-star-chart class="mt-14 hidden rounded-xl ring-1 ring-zinc-950 sm:flex dark:ring-white/10" />
 
         <div class="mt-16 grid gap-4 sm:grid-cols-2">
             <flux:card class="space-y-2">
-                <flux:icon.link class="text-zinc-500 dark:text-zinc-400" />
+                <flux:icon.link class="text-accent-content" />
                 <flux:heading level="2">{{ __('Connect each server once') }}</flux:heading>
                 <flux:text>{{ __('Pick a service from the gallery or enter any remote MCP server. Your credentials are encrypted with a key of your own.') }}</flux:text>
             </flux:card>
 
             <flux:card class="space-y-2">
-                <flux:icon.star class="text-zinc-500 dark:text-zinc-400" />
+                <flux:icon.star class="text-accent-content" />
                 <flux:heading level="2">{{ __('Bundle them into Stars') }}</flux:heading>
                 <flux:text>{{ __('A Star is one MCP endpoint with the Connections you choose. Clients reach it with a token, a signed URL or by signing in to Nexus.') }}</flux:text>
             </flux:card>
 
             <flux:card class="space-y-2">
-                <flux:icon.adjustments-horizontal class="text-zinc-500 dark:text-zinc-400" />
+                <flux:icon.adjustments-horizontal class="text-accent-content" />
                 <flux:heading level="2">{{ __('Switch every tool on or off') }}</flux:heading>
                 <flux:text>{{ __('Read-only tools start on and everything else starts off, so a new Star is safe. Change it per Star at any time.') }}</flux:text>
             </flux:card>
 
             <flux:card class="space-y-2">
-                <flux:icon.queue-list class="text-zinc-500 dark:text-zinc-400" />
+                <flux:icon.pulse class="text-accent-content" />
                 <flux:heading level="2">{{ __('See what your agents did') }}</flux:heading>
                 <flux:text>{{ __('Every tool call is recorded with its time, status and duration. Arguments and results are never stored.') }}</flux:text>
             </flux:card>

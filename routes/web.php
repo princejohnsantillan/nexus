@@ -16,6 +16,7 @@ use Laravel\Passport\Http\Controllers\DenyAuthorizationController;
 
 Route::middleware('guest')->group(function (): void {
     Route::livewire('/', 'pages::welcome')->name('home');
+    Route::livewire('/sign-in', 'pages::auth.sign-in')->name('auth.sign-in');
 
     Route::get('/auth/github', GitHubRedirectController::class)->name('auth.github');
     Route::get('/auth/github/callback', GitHubCallbackController::class)->name('auth.github.callback');
