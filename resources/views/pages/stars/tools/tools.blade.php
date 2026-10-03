@@ -2,16 +2,13 @@
     <x-star-header :star="$star" current="tools" />
 
     <div class="mt-8 space-y-10">
-        <section aria-labelledby="policy-heading">
-            <flux:heading size="lg" level="2" id="policy-heading">{{ __('New-tool policy') }}</flux:heading>
-            <flux:text class="mt-1">{{ __('Decides every tool you haven\'t switched yourself, including tools a server adds later.') }}</flux:text>
-
-            <flux:radio.group wire:model.live="policy" variant="cards" class="mt-4 max-sm:flex-col" :aria-label="__('New-tool policy')">
+        <x-section-card :heading="__('New-tool policy')" :description="__('Decides every tool you haven\'t switched yourself, including tools a server adds later.')">
+            <flux:radio.group wire:model.live="policy" variant="cards" class="max-sm:flex-col" :aria-label="__('New-tool policy')">
                 @foreach (App\Enums\NewToolPolicy::cases() as $option)
                     <flux:radio :value="$option->value" :label="$option->label()" :description="$option->description()" wire:key="policy-{{ $option->value }}" />
                 @endforeach
             </flux:radio.group>
-        </section>
+        </x-section-card>
 
         @if ($this->groups === [])
             <x-empty-state icon="wrench-screwdriver" :heading="__('No tools yet')">
@@ -24,9 +21,9 @@
         @else
             <section aria-labelledby="tools-heading">
                 <div class="flex flex-wrap items-end justify-between gap-4">
-                    <div>
+                    <div class="min-w-0 sm:max-w-xl">
                         <flux:heading size="lg" level="2" id="tools-heading">{{ __('Tools') }}</flux:heading>
-                        <flux:text class="mt-1">{{ __('Clients see each tool as handle__tool. Your own switches stay when a server\'s tools are refreshed.') }}</flux:text>
+                        <flux:text class="mt-1">{{ __('Decide by risk first: a group\'s switch gives each of its tools your own choice. Clients see each tool as handle__tool, and your own switches stay when a server\'s tools are refreshed.') }}</flux:text>
                     </div>
 
                     <div class="w-full sm:w-72">
@@ -69,54 +66,74 @@
                         @elseif ($group['tools'] === [])
                             <flux:text class="mt-3">{{ __('No tools match ":search".', ['search' => trim($search)]) }}</flux:text>
                         @else
-                            <flux:table class="mt-3">
-                                <flux:table.columns>
-                                    <flux:table.column class="w-0">{{ __('On') }}</flux:table.column>
-                                    <flux:table.column>{{ __('Tool') }}</flux:table.column>
-                                    <flux:table.column>{{ __('Hints') }}</flux:table.column>
-                                    <flux:table.column>{{ __('Set by') }}</flux:table.column>
-                                </flux:table.columns>
+                            <div class="mt-4 space-y-3">
+                                @foreach ($group['risks'] as $risk)
+                                    @php
+                                        $riskId = 'risk-'.$group['connection']->id.'-'.$risk['risk']->value;
+                                        $allOn = $risk['enabled'] === count($risk['tools']);
+                                        $names = ['risk' => $risk['risk']->label(), 'connection' => $group['connection']->name];
+                                    @endphp
 
-                                <flux:table.rows>
-                                    @foreach ($group['tools'] as $tool)
-                                        <flux:table.row :key="$tool->tool->id">
-                                            <flux:table.cell>
-                                                {{-- Keyed by its state, so a switch changed on the server is drawn afresh: Flux's switch keeps its own state otherwise. --}}
-                                                <flux:switch
-                                                    wire:key="switch-{{ $tool->tool->id }}-{{ $tool->enabled ? 'on' : 'off' }}"
-                                                    :checked="$tool->enabled"
-                                                    wire:click="switchTool({{ $tool->tool->id }}, {{ $tool->enabled ? 'false' : 'true' }})"
-                                                    :aria-label="__('Switch :name on or off', ['name' => $tool->name])"
-                                                />
-                                            </flux:table.cell>
-                                            <flux:table.cell class="max-w-md whitespace-normal!">
-                                                <div class="break-all font-mono text-sm font-medium text-zinc-800 dark:text-white">{{ $tool->name }}</div>
-                                                @if ($tool->tool->title !== null)
-                                                    <div class="text-sm text-zinc-500 dark:text-zinc-400">{{ $tool->tool->title }}</div>
-                                                @endif
-                                                @if ($tool->tool->description !== null)
-                                                    <flux:text size="sm" class="mt-1 line-clamp-2">{{ $tool->tool->description }}</flux:text>
-                                                @endif
-                                            </flux:table.cell>
-                                            <flux:table.cell class="whitespace-normal!">
-                                                <x-tool-hints :tool="$tool->tool" />
-                                            </flux:table.cell>
-                                            <flux:table.cell>
-                                                @if ($tool->followsPolicy())
-                                                    <flux:tooltip :content="__('Follows the new-tool policy: :policy.', ['policy' => $star->new_tool_policy->label()])">
-                                                        <flux:badge size="sm">{{ __('Policy') }}</flux:badge>
-                                                    </flux:tooltip>
-                                                @else
-                                                    <div class="flex items-center gap-1">
-                                                        <flux:badge size="sm" color="blue">{{ __('Your choice') }}</flux:badge>
-                                                        <flux:button size="xs" variant="ghost" wire:click="resetTool({{ $tool->tool->id }})" :aria-label="__('Reset :name to the policy', ['name' => $tool->name])">{{ __('Reset') }}</flux:button>
-                                                    </div>
-                                                @endif
-                                            </flux:table.cell>
-                                        </flux:table.row>
-                                    @endforeach
-                                </flux:table.rows>
-                            </flux:table>
+                                    <div wire:key="{{ $riskId }}" x-data="{ open: true }" class="overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-white/10 dark:bg-white/[4%]">
+                                        <div class="flex items-center gap-2 bg-zinc-50 py-2 ps-2 pe-4 dark:bg-black/15">
+                                            <button
+                                                type="button"
+                                                class="flex min-w-0 flex-1 items-center gap-3 rounded-md px-2 py-1 text-start"
+                                                x-on:click="open = ! open"
+                                                aria-expanded="true"
+                                                x-bind:aria-expanded="open ? 'true' : 'false'"
+                                                aria-controls="{{ $riskId }}-tools"
+                                            >
+                                                <flux:icon.chevron-down variant="micro" class="shrink-0 text-zinc-600 transition-transform dark:text-zinc-300" x-bind:class="open ? '' : '-rotate-90'" />
+                                                <x-tool-risk :risk="$risk['risk']" />
+                                                <span class="truncate text-sm text-zinc-600 dark:text-zinc-300">{{ __(':enabled of :total on', ['enabled' => $risk['enabled'], 'total' => count($risk['tools'])]) }}</span>
+                                            </button>
+
+                                            @if ($risk['ownChoices'] > 0)
+                                                <flux:button size="xs" variant="ghost" wire:click="switchGroup({{ $group['connection']->id }}, '{{ $risk['risk']->value }}', 'reset')" :aria-label="__('Reset the :risk tools of :connection to the policy', $names)">{{ __('Reset') }}</flux:button>
+                                            @endif
+
+                                            <span class="text-sm whitespace-nowrap text-zinc-600 max-sm:hidden dark:text-zinc-300">{{ match (true) { $allOn => __('All on'), $risk['enabled'] === 0 => __('All off'), default => __('Some on') } }}</span>
+
+                                            {{-- Keyed by its state, so a switch changed on the server is drawn afresh: Flux's switch keeps its own state otherwise. --}}
+                                            <flux:switch
+                                                wire:key="group-switch-{{ $riskId }}-{{ $allOn ? 'on' : 'off' }}"
+                                                :checked="$allOn"
+                                                wire:click="switchGroup({{ $group['connection']->id }}, '{{ $risk['risk']->value }}', '{{ $allOn ? 'off' : 'on' }}')"
+                                                :aria-label="__('Switch every :risk tool of :connection on or off', $names)"
+                                            />
+                                        </div>
+
+                                        <div id="{{ $riskId }}-tools" x-show="open" class="divide-y divide-zinc-200 border-t border-zinc-200 dark:divide-white/10 dark:border-white/10">
+                                            @foreach ($risk['tools'] as $tool)
+                                                <x-permission-row wire:key="tool-{{ $tool->tool->id }}" :title="$tool->tool->title" :description="$tool->tool->description">
+                                                    <x-slot:name>{{ $tool->name }}</x-slot:name>
+                                                    <x-slot:hints><x-tool-hints :tool="$tool->tool" /></x-slot:hints>
+
+                                                    {{-- Keyed by its state, so a switch changed on the server is drawn afresh: Flux's switch keeps its own state otherwise. --}}
+                                                    <flux:switch
+                                                        wire:key="switch-{{ $tool->tool->id }}-{{ $tool->enabled ? 'on' : 'off' }}"
+                                                        :checked="$tool->enabled"
+                                                        wire:click="switchTool({{ $tool->tool->id }}, {{ $tool->enabled ? 'false' : 'true' }})"
+                                                        :aria-label="__('Switch :name on or off', ['name' => $tool->name])"
+                                                    />
+
+                                                    @if ($tool->followsPolicy())
+                                                        <flux:tooltip :content="__('Follows the new-tool policy: :policy.', ['policy' => $star->new_tool_policy->label()])">
+                                                            <span class="text-xs text-zinc-500 dark:text-zinc-400">{{ __('Policy') }}</span>
+                                                        </flux:tooltip>
+                                                    @else
+                                                        <span class="text-xs text-zinc-600 sm:whitespace-nowrap dark:text-zinc-300">
+                                                            {{ __('Your choice') }} <span aria-hidden="true">·</span>
+                                                            <button type="button" class="font-medium text-accent-content hover:underline" wire:click="resetTool({{ $tool->tool->id }})" aria-label="{{ __('Reset :name to the policy', ['name' => $tool->name]) }}">{{ __('Reset') }}</button>
+                                                        </span>
+                                                    @endif
+                                                </x-permission-row>
+                                            @endforeach
+                                        </div>
+                                    </div>
+                                @endforeach
+                            </div>
                         @endif
                     </div>
                 @endforeach

@@ -116,6 +116,98 @@ it('switches all of a Connection\'s tools on or off, or resets them to the polic
     expect(starToolStates($this->star))->toBe(['deepwiki__read_page' => [true, null], 'deepwiki__write_page' => [false, null]]);
 });
 
+it('groups each Connection\'s tools by the hints their server declared, safest first', function (): void {
+    $this->readPage->update(['destructive' => true]);
+    ConnectionTool::factory()->for($this->wiki)->create(['name' => 'add_page', 'read_only' => false, 'destructive' => false]);
+    ConnectionTool::factory()->for($this->wiki)->create(['name' => 'edit_page', 'read_only' => false, 'destructive' => null]);
+    ConnectionTool::factory()->for($this->wiki)->create(['name' => 'move_page', 'read_only' => null, 'destructive' => false]);
+    ConnectionTool::factory()->for($this->wiki)->create(['name' => 'drop_page', 'read_only' => null, 'destructive' => true]);
+    ConnectionTool::factory()->for($this->wiki)->create(['name' => 'ask_page', 'read_only' => null, 'destructive' => null, 'idempotent' => true]);
+
+    Livewire::test('pages::stars.tools', ['star' => $this->star])
+        ->assertSeeHtmlInOrder([
+            'Switch every Read-only tool of DeepWiki on or off', 'Switch deepwiki__read_page on or off',
+            'Switch every Writes tool of DeepWiki on or off', 'Switch deepwiki__add_page on or off', 'Switch deepwiki__edit_page on or off', 'Switch deepwiki__move_page on or off',
+            'Switch every Destructive tool of DeepWiki on or off', 'Switch deepwiki__drop_page on or off', 'Switch deepwiki__write_page on or off',
+            'Switch every Not declared tool of DeepWiki on or off', 'Switch deepwiki__ask_page on or off',
+        ]);
+});
+
+it('switches every tool of one risk group, and only those, on or off, or resets them to the policy', function (): void {
+    ConnectionTool::factory()->for($this->wiki)->create(['name' => 'delete_page', 'read_only' => false, 'destructive' => true]);
+    ConnectionTool::factory()->for($this->wiki)->create(['name' => 'edit_page', 'read_only' => false, 'destructive' => false]);
+    $docs = Connection::factory()->for($this->user)->create(['name' => 'Docs', 'handle' => 'docs']);
+    ConnectionTool::factory()->for($docs)->create(['name' => 'drop', 'read_only' => false, 'destructive' => true]);
+    $this->star->connections()->attach($docs);
+    $groupSwitch = 'group-switch-risk-'.$this->wiki->id.'-destructive';
+    $groupReset = 'Reset the Destructive tools of DeepWiki to the policy';
+
+    $component = Livewire::test('pages::stars.tools', ['star' => $this->star])
+        ->assertSeeHtml('wire:key="'.$groupSwitch.'-off"')
+        ->assertDontSeeHtml($groupReset)
+        ->call('switchGroup', $this->wiki->id, 'destructive', 'on')
+        ->assertDispatched('toast-show', toolsToast('Switched on 2 DeepWiki tools (Destructive).'))
+        ->assertSeeHtml('wire:key="'.$groupSwitch.'-on"')
+        ->assertSeeHtml($groupReset);
+
+    expect(starToolStates($this->star))->toBe([
+        'deepwiki__delete_page' => [true, true],
+        'deepwiki__edit_page' => [false, null],
+        'deepwiki__read_page' => [true, null],
+        'deepwiki__write_page' => [true, true],
+        'docs__drop' => [false, null],
+    ]);
+
+    $component->call('switchGroup', $this->wiki->id, 'destructive', 'off')
+        ->assertDispatched('toast-show', toolsToast('Switched off 2 DeepWiki tools (Destructive).'));
+
+    expect(starToolStates($this->star))->toMatchArray(['deepwiki__delete_page' => [false, false], 'deepwiki__write_page' => [false, false]]);
+
+    $component->call('switchGroup', $this->wiki->id, 'destructive', 'reset')
+        ->assertDispatched('toast-show', toolsToast('2 DeepWiki tools (Destructive) follow the policy again.'))
+        ->assertDontSeeHtml($groupReset);
+
+    expect($this->star->toolSwitches()->count())->toBe(0);
+});
+
+it('turns a partly-on risk group all on with its switch', function (): void {
+    ConnectionTool::factory()->for($this->wiki)->create(['name' => 'delete_page', 'read_only' => false, 'destructive' => true]);
+    resolve(SwitchStarTools::class)->handle($this->star, $this->wiki, true, ['write_page']);
+
+    Livewire::test('pages::stars.tools', ['star' => $this->star])
+        ->assertSeeTextInOrder(['Destructive', '1 of 2 on', 'Some on'])
+        ->assertSeeHtml('wire:key="group-switch-risk-'.$this->wiki->id.'-destructive-off"')
+        ->assertSeeHtml('wire:click="switchGroup('.$this->wiki->id.', \'destructive\', \'on\')"');
+});
+
+it('switches only the matching tools of a risk group while filtering', function (): void {
+    ConnectionTool::factory()->for($this->wiki)->create(['name' => 'delete_page', 'read_only' => false, 'destructive' => true]);
+
+    Livewire::test('pages::stars.tools', ['star' => $this->star])
+        ->set('search', 'delete')
+        ->assertSeeTextInOrder(['Destructive', '0 of 1 on'])
+        ->call('switchGroup', $this->wiki->id, 'destructive', 'on')
+        ->assertDispatched('toast-show', toolsToast('Switched on 1 DeepWiki tool (Destructive).'));
+
+    expect(starToolStates($this->star))->toBe([
+        'deepwiki__delete_page' => [true, true],
+        'deepwiki__read_page' => [true, null],
+        'deepwiki__write_page' => [false, null],
+    ]);
+});
+
+it('refuses to switch a risk group that doesn\'t exist, with an unknown choice, or of a Connection outside the Star', function (int $connectionId, string $risk, string $choice): void {
+    Livewire::test('pages::stars.tools', ['star' => $this->star])
+        ->call('switchGroup', $connectionId, $risk, $choice)
+        ->assertNotFound();
+
+    expect($this->star->toolSwitches()->count())->toBe(0);
+})->with([
+    'unknown risk' => [fn (): int => $this->wiki->id, 'risky', 'on'],
+    'unknown choice' => [fn (): int => $this->wiki->id, 'destructive', 'maybe'],
+    'outside the Star' => [fn (): int => Connection::factory()->for($this->user)->create()->id, 'destructive', 'on'],
+]);
+
 it('drops switches for tools the server no longer lists when a whole Connection is switched', function (): void {
     resolve(SwitchStarTools::class)->handle($this->star, $this->wiki, true);
     $this->writePage->delete();
