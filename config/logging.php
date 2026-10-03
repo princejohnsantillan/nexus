@@ -137,6 +137,15 @@ return [
             'path' => storage_path('logs/laravel.log'),
         ],
 
+        // Where the log mailer delivers mail, such as one-time sign-in codes:
+        // a file of its own, so mail never mixes with the application log.
+        'mail' => [
+            'driver' => 'single',
+            'path' => storage_path('logs/mail.log'),
+            'level' => 'debug',
+            'replace_placeholders' => true,
+        ],
+
     ],
 
 ];
