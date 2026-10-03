@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Encryption\SecretCipher;
+use App\Enums\IdentityProvider;
 use App\Enums\StarAccessMode;
 use App\Models\DataKey;
 use App\Models\SignInIdentity;
@@ -12,6 +13,8 @@ use Illuminate\Contracts\Encryption\DecryptException;
 use Laravel\Passport\Client;
 use Laravel\Passport\RefreshToken;
 use Laravel\Passport\Token;
+use Laravel\Socialite\Facades\Socialite;
+use Laravel\Socialite\Two\User as SocialiteUser;
 use Livewire\Livewire;
 use Tests\Support\StarOAuthFlow;
 
@@ -168,3 +171,69 @@ it('keeps the account when the confirmation does not match the GitHub login', fu
     'another login' => ['someone-else', "That doesn't match. Type octocat exactly to confirm."],
     'different case' => ['Octocat', "That doesn't match. Type octocat exactly to confirm."],
 ]);
+
+it('removes a sign-in method after confirming, while another one remains', function (): void {
+    $google = SignInIdentity::factory()->for($this->user)->google('mona@gmail.com')->create();
+
+    Livewire::test('pages::settings.index')
+        ->assertSeeHtml('aria-label="Remove Google, mona@gmail.com"')
+        ->assertSeeText(['Remove Google?', 'You will no longer sign in to this account with mona@gmail.com.'])
+        ->call('removeIdentity', $google->id)
+        ->assertHasNoErrors()
+        ->assertDispatched('toast-show', fn (string $event, array $params): bool => $params['slots']['text'] === 'Removed Google. You can no longer sign in with mona@gmail.com.'
+            && $params['dataset']['variant'] === 'success')
+        ->assertDontSeeHtml('aria-label="Remove GitHub, @octocat"');
+
+    $this->assertModelMissing($google);
+    expect($this->user->signInIdentities()->pluck('login')->all())->toBe(['octocat']);
+    $this->assertAuthenticatedAs($this->user);
+});
+
+it('removes GitHub for good, so signing in with that GitHub account afterwards creates a new account', function (): void {
+    $this->user->update(['github_id' => 583231, 'github_login' => 'octocat']);
+    $gitHub = $this->user->signInIdentities()->sole();
+    $gitHub->update(['provider_user_id' => '583231']);
+    SignInIdentity::factory()->for($this->user)->google('mona@gmail.com')->create();
+
+    Livewire::test('pages::settings.index')
+        ->call('removeIdentity', $gitHub->id)
+        ->assertHasNoErrors();
+
+    expect($this->user->fresh())
+        ->github_id->toBeNull()
+        ->github_login->toBeNull();
+
+    $this->post(route('logout'));
+    Socialite::fake('github', SocialiteUser::fake(['id' => 583231, 'nickname' => 'octocat', 'name' => 'Mona Lisa Octocat']));
+
+    $this->get(route('auth.github.callback'))->assertRedirect(route('stars.index'));
+
+    $newUser = SignInIdentity::findFor(IdentityProvider::GitHub, '583231')?->user;
+
+    expect($newUser)->toBeInstanceOf(User::class)
+        ->and($newUser?->is($this->user))->toBeFalse()
+        ->and($this->user->signInIdentities()->pluck('provider')->all())->toBe([IdentityProvider::Google]);
+});
+
+it('keeps the only sign-in method, so the account always has a way in', function (): void {
+    $gitHub = $this->user->signInIdentities()->sole();
+
+    Livewire::test('pages::settings.index')
+        ->assertDontSeeHtml('aria-label="Remove GitHub, @octocat"')
+        ->call('removeIdentity', $gitHub->id)
+        ->assertHasErrors('identity')
+        ->assertSeeText("This is the only way you sign in, so it can't be removed. Add another sign-in method first.");
+
+    $this->assertModelExists($gitHub);
+});
+
+it('does not remove another user\'s sign-in method', function (): void {
+    SignInIdentity::factory()->for($this->user)->google('mona@gmail.com')->create();
+    $theirs = SignInIdentity::factory()->for(User::factory()->signsInWithGitHub('hubot'))->google('hubot@gmail.com')->create();
+
+    Livewire::test('pages::settings.index')
+        ->call('removeIdentity', $theirs->id)
+        ->assertNotFound();
+
+    $this->assertModelExists($theirs);
+});

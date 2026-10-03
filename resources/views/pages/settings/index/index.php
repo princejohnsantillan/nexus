@@ -3,8 +3,11 @@
 declare(strict_types=1);
 
 use App\Actions\DeleteAccount;
+use App\Actions\RemoveSignInIdentity;
+use App\Auth\GoogleSignInProvider;
 use App\Models\SignInIdentity;
 use App\Models\User;
+use Flux\Flux;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Auth;
@@ -35,6 +38,31 @@ return new #[Title('Settings')] class extends Component
     public function identities(): Collection
     {
         return $this->user->signInIdentities->sortBy('id')->values();
+    }
+
+    #[Computed]
+    public function googleSignInIsEnabled(): bool
+    {
+        return GoogleSignInProvider::isConfigured();
+    }
+
+    /**
+     * Remove one of the user's sign-in identities, as long as another one remains.
+     */
+    public function removeIdentity(int $identityId, RemoveSignInIdentity $removeSignInIdentity): void
+    {
+        $identity = $this->user->signInIdentities()->findOrFail($identityId);
+
+        $removeSignInIdentity->handle($identity);
+
+        $this->user->unsetRelation('signInIdentities');
+        unset($this->identities, $this->deletionConfirmation);
+
+        $this->dispatch('modal-close', name: "remove-sign-in-identity-{$identityId}", scope: $this->getId());
+        Flux::toast(variant: 'success', text: __('Removed :provider. You can no longer sign in with :name.', [
+            'provider' => $identity->provider->label(),
+            'name' => $identity->displayName(),
+        ]));
     }
 
     /**

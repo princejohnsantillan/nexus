@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Providers;
 
 use App\Auth\GitHubSignInProvider;
+use App\Auth\GoogleSignInProvider;
 use App\Auth\PassportClientRepository;
 use App\Connectors\ConnectorCatalog;
 use App\Mcp\StarCaller;
@@ -62,6 +63,7 @@ class AppServiceProvider extends ServiceProvider
         $this->configureDefaults();
         $this->guardOutboundRequests();
         $this->configureGitHubSignIn();
+        $this->configureGoogleSignIn();
         $this->bindOwnRecords();
         $this->limitStarCalls();
         $this->configureStarOAuth();
@@ -150,6 +152,17 @@ class AppServiceProvider extends ServiceProvider
         Socialite::extend('github', fn (): AbstractProvider => Socialite::buildProvider(
             GitHubSignInProvider::class,
             config()->array('services.github'),
+        ));
+    }
+
+    /**
+     * Sign in with Socialite's Google driver, through Google's account chooser.
+     */
+    protected function configureGoogleSignIn(): void
+    {
+        Socialite::extend('google', fn (): AbstractProvider => Socialite::buildProvider(
+            GoogleSignInProvider::class,
+            config()->array('services.google'),
         ));
     }
 
