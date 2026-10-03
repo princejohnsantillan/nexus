@@ -4,7 +4,7 @@
 
         <div class="grid min-w-0 flex-1 leading-tight">
             <span class="truncate font-medium text-zinc-800 dark:text-white">{{ auth()->user()->name }}</span>
-            <span class="truncate text-xs text-zinc-500 dark:text-zinc-400">{{ '@'.auth()->user()->github_login }}</span>
+            <span class="truncate text-xs text-zinc-500 dark:text-zinc-400">{{ auth()->user()->signInName() }}</span>
         </div>
     </div>
 

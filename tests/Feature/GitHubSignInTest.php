@@ -2,9 +2,13 @@
 
 declare(strict_types=1);
 
+use App\Enums\IdentityProvider;
+use App\Models\SignInIdentity;
 use App\Models\User;
 use GuzzleHttp\Exception\ConnectException;
 use GuzzleHttp\Psr7\Request as PsrRequest;
+use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Support\Facades\DB;
 use Laravel\Socialite\Facades\Socialite;
 use Laravel\Socialite\Two\InvalidStateException;
 use Laravel\Socialite\Two\User as SocialiteUser;
@@ -48,7 +52,7 @@ it('explains that GitHub sign-in is not set up when there is no GitHub OAuth app
     $this->get(route('auth.sign-in'))->assertSeeText("GitHub sign-in isn't set up on this Nexus yet.");
 });
 
-it('creates the account on the first sign-in', function (): void {
+it('creates the account and its GitHub identity on the first sign-in', function (): void {
     fakeGitHubUser();
 
     $this->get(route('auth.github.callback'))->assertRedirect(route('stars.index'));
@@ -56,19 +60,29 @@ it('creates the account on the first sign-in', function (): void {
     $user = User::query()->sole();
 
     expect($user)
-        ->github_id->toBe(583231)
-        ->github_login->toBe('octocat')
         ->name->toBe('Mona Lisa Octocat')
         ->email->toBe('octocat@github.com')
-        ->avatar_url->toBe('https://avatars.githubusercontent.com/u/583231?v=4');
+        ->avatar_url->toBe('https://avatars.githubusercontent.com/u/583231?v=4')
+        ->and($user->signInIdentities()->sole())
+        ->provider->toBe(IdentityProvider::GitHub)
+        ->provider_user_id->toBe('583231')
+        ->login->toBe('octocat');
 
     $this->assertAuthenticatedAs($user);
 });
 
-it('matches a returning user by GitHub id and refreshes their profile', function (): void {
-    $user = User::factory()->create([
-        'github_id' => 583231,
-        'github_login' => 'old-login',
+it('keeps the old GitHub columns up to date for code that still reads them', function (): void {
+    fakeGitHubUser();
+
+    $this->get(route('auth.github.callback'));
+
+    expect(User::query()->sole())
+        ->github_id->toBe(583231)
+        ->github_login->toBe('octocat');
+});
+
+it('finds a returning user by their GitHub identity and refreshes their profile and login', function (): void {
+    $user = User::factory()->signsInWithGitHub('old-login', githubId: 583231)->create([
         'name' => 'Old Name',
         'email' => 'old@example.com',
         'avatar_url' => 'https://avatars.githubusercontent.com/u/583231?v=1',
@@ -81,28 +95,71 @@ it('matches a returning user by GitHub id and refreshes their profile', function
     expect(User::query()->count())->toBe(1);
 
     expect($user->fresh())
-        ->github_login->toBe('octocat')
         ->name->toBe('Mona Lisa Octocat')
         ->email->toBe('octocat@github.com')
         ->avatar_url->toBe('https://avatars.githubusercontent.com/u/583231?v=4');
 
+    expect($user->signInIdentities()->sole())
+        ->provider_user_id->toBe('583231')
+        ->login->toBe('octocat');
+
     $this->assertAuthenticatedAs($user);
 });
 
-it('never signs in to another account that has the same login or email', function (): void {
-    $other = User::factory()->create([
-        'github_id' => 1,
-        'github_login' => 'octocat',
-        'email' => 'octocat@github.com',
-    ]);
+it('gives a user who signed up before identities existed their GitHub identity', function (): void {
+    $user = User::factory()->create(['github_id' => 583231, 'github_login' => 'octocat']);
 
     fakeGitHubUser();
 
     $this->get(route('auth.github.callback'))->assertRedirect(route('stars.index'));
 
-    $user = User::query()->where('github_id', 583231)->sole();
+    expect(User::query()->count())->toBe(1)
+        ->and($user->signInIdentities()->sole())
+        ->provider->toBe(IdentityProvider::GitHub)
+        ->provider_user_id->toBe('583231');
 
-    expect($user->is($other))->toBeFalse();
+    $this->assertAuthenticatedAs($user);
+});
+
+it('signs in to the account a simultaneous first sign-in just created, instead of failing', function (): void {
+    $competing = null;
+
+    // The other sign-in creates the account after this one looked for it and before it inserts its own.
+    DB::listen(function (QueryExecuted $query) use (&$competing): void {
+        if ($competing === null && str_contains($query->sql, 'from "users" where "github_id"')) {
+            $competing = User::factory()->signsInWithGitHub('octocat', githubId: 583231)->create(['github_id' => 583231, 'name' => 'First tab']);
+        }
+    });
+
+    fakeGitHubUser();
+
+    $this->get(route('auth.github.callback'))->assertRedirect(route('stars.index'));
+
+    expect($competing)->toBeInstanceOf(User::class)
+        ->and(User::query()->count())->toBe(1)
+        ->and(SignInIdentity::query()->count())->toBe(1)
+        ->and($competing->fresh()?->name)->toBe('Mona Lisa Octocat');
+
+    $this->assertAuthenticatedAs($competing);
+});
+
+it('never signs in to another account that has the same login or email', function (): void {
+    $sameLogin = User::factory()->signsInWithGitHub('octocat', githubId: 1)->create();
+    $sameEmail = User::factory()
+        ->has(SignInIdentity::factory()->email('octocat@github.com'), 'signInIdentities')
+        ->create(['email' => 'octocat@github.com']);
+
+    fakeGitHubUser();
+
+    $this->get(route('auth.github.callback'))->assertRedirect(route('stars.index'));
+
+    $user = SignInIdentity::findFor(IdentityProvider::GitHub, '583231')?->user;
+
+    expect($user)->toBeInstanceOf(User::class)
+        ->and($user?->is($sameLogin))->toBeFalse()
+        ->and($user?->is($sameEmail))->toBeFalse()
+        ->and($sameLogin->signInIdentities()->pluck('login')->all())->toBe(['octocat'])
+        ->and($sameEmail->signInIdentities()->count())->toBe(1);
 
     $this->assertAuthenticatedAs($user);
 });

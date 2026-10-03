@@ -28,7 +28,7 @@ function consentForms(TestResponse $response): array
 }
 
 beforeEach(function (): void {
-    $this->owner = User::factory()->create(['name' => 'Ada Lovelace', 'github_login' => 'ada']);
+    $this->owner = User::factory()->signsInWithGitHub('ada')->create(['name' => 'Ada Lovelace']);
     $wiki = Connection::factory()->for($this->owner)->connected()->create(['handle' => 'wiki']);
     ConnectionTool::factory()->for($wiki)->count(2)->sequence(['name' => 'search', 'read_only' => true], ['name' => 'fetch', 'read_only' => true])->create();
     $this->star = Star::factory()->for($this->owner)->including($wiki)->withAccessMode(StarAccessMode::OAuth)->create(['name' => 'Work']);
