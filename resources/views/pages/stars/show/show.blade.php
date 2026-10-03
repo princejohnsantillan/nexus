@@ -54,7 +54,7 @@
                 </flux:text>
 
                 <div class="mt-4 max-w-3xl">
-                    <x-copyable-snippet :snippet="'export '.$this->tokenVariable.'=nxs_…'" />
+                    <x-code-panel :code="'export '.$this->tokenVariable.'=nxs_…'" />
                 </div>
             @endif
 
@@ -72,13 +72,13 @@
                             @endif
                         </flux:text>
 
-                        <x-copyable-snippet :snippet="$setup['snippet']" class="mt-2" />
+                        <x-code-panel :code="$setup['snippet']" :file="$setup['file']" :label="$setup['instruction'] !== null ? __('URL') : null" class="mt-2" />
 
                         @if ($setup['login'] !== null)
                             <flux:text size="sm" class="mt-3">{{ $setup['login']['instruction'] }}</flux:text>
 
                             @if ($setup['login']['snippet'] !== null)
-                                <x-copyable-snippet :snippet="$setup['login']['snippet']" class="mt-2" />
+                                <x-code-panel :code="$setup['login']['snippet']" class="mt-2" />
                             @endif
                         @endif
                     </div>

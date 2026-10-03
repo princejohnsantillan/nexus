@@ -6,6 +6,73 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
+/*
+ * The Star chart design system: ink on white like a printed atlas, with one
+ * ultramarine (Atlas blue) for "on" and "next". The README's Conventions
+ * section maps each design token to the utility that draws it.
+ */
 @theme {
     --font-sans: Inter, ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+    --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+
+    /*
+     * Flux's gray, re-assigned to the Star chart's cool neutrals: Wash (50),
+     * Rule (200), Rule strong (300), Graphite (600) and Ink (950). The other
+     * steps keep Tailwind's zinc lightness, so 500 (Muted) stays a shade
+     * darker than the design's #7c828e and Flux's secondary text stays legible.
+     */
+    --color-zinc-50: #f6f7f9;
+    --color-zinc-100: #eef0f3;
+    --color-zinc-200: #e4e6eb;
+    --color-zinc-300: #cdd1d9;
+    --color-zinc-400: #a3a9b5;
+    --color-zinc-500: #6c727e;
+    --color-zinc-600: #565c69;
+    --color-zinc-700: #3a3f4a;
+    --color-zinc-800: #24282f;
+    --color-zinc-900: #171a20;
+    --color-zinc-950: #0e1116;
+
+    /* Atlas blue, as Flux's accent. */
+    --color-accent: #2f45d8;
+    --color-accent-content: #2f45d8;
+    --color-accent-foreground: #ffffff;
+    --color-accent-wash: #eef0fd;
+
+    /* Flux's danger red (destructive buttons, invalid fields), re-assigned to signal red. */
+    --color-red-500: #c8322b;
+    --color-red-600: #ad2a24;
+
+    /* Status colours, each with the wash it sits on. */
+    --color-success: #15803d;
+    --color-success-wash: #eaf6ee;
+    --color-warning: #b45309;
+    --color-warning-wash: #fdf3e2;
+    --color-danger: #c8322b;
+    --color-danger-wash: #fcedec;
+    --color-danger-rule: #f1c9c6;
+}
+
+@layer theme {
+    .dark {
+        --color-accent: #5468f0;
+        --color-accent-content: #97a4ff;
+        --color-accent-foreground: #ffffff;
+        --color-accent-wash: color-mix(in oklab, #5468f0 18%, transparent);
+
+        --color-success: #4ade80;
+        --color-success-wash: color-mix(in oklab, #4ade80 12%, transparent);
+        --color-warning: #fbbf24;
+        --color-warning-wash: color-mix(in oklab, #fbbf24 12%, transparent);
+        --color-danger: #fca5a5;
+        --color-danger-wash: color-mix(in oklab, #f87171 12%, transparent);
+        --color-danger-rule: color-mix(in oklab, #f87171 30%, transparent);
+    }
+}
+
+@layer components {
+    /* The current sidebar item is a raised white pill with the accent icon. */
+    [data-flux-sidebar-item][data-current] [data-flux-icon] {
+        color: var(--color-accent-content);
+    }
 }

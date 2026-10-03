@@ -115,17 +115,58 @@ Set the page title with `#[Title('…')]` on the class. Pages use the app layout
 
 - `layouts::app` ([`resources/views/layouts/app.blade.php`](resources/views/layouts/app.blade.php)) is the signed-in app: a Flux sidebar with Stars, Connections and Activity that collapses into a menu on small screens, and a profile menu with the appearance switch. It is the default page layout.
 - `layouts::public` is for public pages such as the welcome page. Choose it with `#[Layout('layouts::public')]`.
-- Both include [`partials/head.blade.php`](resources/views/partials/head.blade.php), which loads the Inter font, the Vite assets and `@fluxAppearance`; both end with `@fluxScripts`.
-- Shared pieces live in `resources/views/components`: `<x-empty-state>` (every list needs a helpful empty state), `<x-appearance-switch>`, `<x-app-logo>`, `<x-icons.github>`, `<x-connection-header>` (a Connection's logo, name, status and row of sub-page links), `<x-connection-status>`, `<x-account-label>` (the account a Connection signed in as and its "use for" note, inline; add `separated` to put a " · " before each part when it follows other text), `<x-tool-hint>` (one hint as yes, no or not stated), `<x-tool-hints>` (the hints a tool declared true, as badges), `<x-star-header>` (a Star's name, description and row of sub-page links), `<x-connection-picker>` (checkbox cards for choosing a Star's Connections; bind it like a checkbox group), `<x-copyable-snippet>` (a block of code or config with a copy button), `<x-own-oauth-app>` (the optional client ID and secret of an OAuth app the user registered on a custom server, with the callback URL to register; bind `clientId` and `clientSecret`) and `<x-connector-logo>` (a service's logo: `:connector="$connection->connector()"`, on a tile at `size="md"` for cards and headers or `sm` for lists and pickers, or bare at `xs` for badges; a server icon for a custom server).
+- Both include [`partials/head.blade.php`](resources/views/partials/head.blade.php), which loads the fonts (`@fonts`), the Vite assets and `@fluxAppearance`; both end with `@fluxScripts`.
+- Shared pieces live in `resources/views/components`: `<x-empty-state>` (every list needs a helpful empty state), `<x-appearance-switch>`, `<x-app-logo>`, `<x-icons.github>`, `<x-connection-header>` (a Connection's logo, name, status and row of sub-page links), `<x-connection-status>` (a Connection's status as a pill in its status colour), `<x-account-label>` (the account a Connection signed in as and its "use for" note, inline; add `separated` to put a " · " before each part when it follows other text), `<x-tool-hint>` (one hint as yes, no or not stated; `tone` colours a yes like that hint's badge), `<x-tool-hints>` (the hints a tool declared true, as badges: read-only green, destructive red, open-world amber, idempotent neutral), `<x-star-header>` (a Star's name, description and row of sub-page links), `<x-connection-picker>` (checkbox cards for choosing a Star's Connections; bind it like a checkbox group), `<x-own-oauth-app>` (the optional client ID and secret of an OAuth app the user registered on a custom server, with the callback URL to register; bind `clientId` and `clientSecret`) and `<x-connector-logo>` (a service's logo: `:connector="$connection->connector()"`, on a tile at `size="md"` for cards and headers or `sm` for lists and pickers, or bare at `xs` for badges; a server icon for a custom server). The Star chart components (section and danger cards, stat tiles, the sparkline and the code panel) are described [below](#the-star-chart-design-system).
 - Route parameters for records resolve only within the signed-in user's own data (`bindOwnRecords()` in `AppServiceProvider`), so another user's Connection is a 404, never a 403. Bind each new record type there the same way. The MCP endpoint (`/mcp/{star}`) is the exception: it has no session, so it binds nothing and its access middleware finds the Star.
 - Every page except the welcome page requires sign-in: add app routes inside the `auth` group in [`routes/web.php`](routes/web.php). Guests are sent to the welcome page, and signed-in visitors to the welcome page go to the app.
 - Toasts: in a Livewire action call `Flux::toast(...)`. To show one after a redirect, flash `toast` with its text and a variant (`success`, `warning` or `danger`): `to_route('home')->with('toast', ['variant' => 'success', 'text' => __('Saved.')])`. Both layouts render it with `<x-flash-toast>`.
 
 ### UI with Flux free
 
-Use only Flux's free components (layouts, navlist and navbar, button, input, textarea, native select, checkbox, radio, switch, field, heading and text, badge, callout, card, table, pagination, modal, toast, dropdown and menu, tooltip, avatar, profile, separator, icon, brand) with the default theme. Pro components (tabs, accordion, popover, command, autocomplete, searchable or multiple select, date picker, chart) are not available. Icons are [Heroicons](https://heroicons.com) by name, e.g. `<flux:icon.star />`. Dark mode follows Flux's appearance setting (light, dark or system), stored in the browser.
+Use only Flux's free components (layouts, navlist and navbar, button, input, textarea, native select, checkbox, radio, switch, field, heading and text, badge, callout, card, table, pagination, modal, toast, dropdown and menu, tooltip, avatar, profile, separator, icon, brand), themed as the [Star chart](#the-star-chart-design-system) below. Pro components (tabs, accordion, popover, command, autocomplete, searchable or multiple select, date picker, chart) are not available: use a segmented `flux:radio.group` for tabs and pickers, a `flux:modal variant="flyout"` for drawers and `<x-sparkline>` for small charts. Icons are [Heroicons](https://heroicons.com) by name, e.g. `<flux:icon.star />`; an icon Heroicons lacks goes in `resources/views/flux/icon` in Flux's custom icon format, like `<flux:icon.pulse />` for Activity. Dark mode follows Flux's appearance setting (light, dark or system), stored in the browser.
 
 Flux's switch keeps its own on/off state once drawn, and doesn't follow a changed `checked` attribute when Livewire updates the page. When the server decides a switch's state (as on a Star's Tools page, where one click can change many), key it by that state, e.g. `wire:key="switch-{{ $id }}-{{ $on ? 'on' : 'off' }}"`, so a changed switch is drawn afresh.
+
+### The Star chart design system
+
+Nexus looks like a printed star chart: ink on white, hairline borders instead of shadows, and one ultramarine, Atlas blue, for what is on and what to do next. Status colours appear only where status lives. The tokens are set in [`resources/css/app.css`](resources/css/app.css), each with a dark-mode value, so use the utilities below rather than raw colours, and give every neutral a `dark:` partner as the existing views do.
+
+| Token | Utility | Use |
+| --- | --- | --- |
+| Paper / Wash | `bg-white` / `bg-zinc-50` | page and card ground / sidebar, table headers, card footers |
+| Rule / Rule strong | `border-zinc-200` / `border-zinc-300` | hairlines / inputs |
+| Muted / Graphite / Ink | `text-zinc-500` / `text-zinc-600` / `text-zinc-950` | icons and meta / secondary text / text, dark buttons, the code panel |
+| Atlas blue | `bg-accent`, `text-accent-content`, `text-accent-foreground`, `bg-accent-wash` | Flux's accent: primary buttons, switches that are on, focus rings, the current sidebar item, links |
+| Success, Warning, Danger | `text-success` on `bg-success-wash`, `text-warning` on `bg-warning-wash`, `text-danger` on `bg-danger-wash` (`border-danger-rule` around it) | connected, OK, read-only / needs sign-in, attention, limits / errors, destructive |
+
+- Flux's gray (`zinc`) is re-assigned to the Star chart's cool neutrals and its `red-500` and `red-600` to signal red, so Flux's own components follow the design. Atlas blue is Flux's accent, set the way [Flux's theming](https://fluxui.dev/docs/theming) documents it: `--color-accent`, `--color-accent-content` and `--color-accent-foreground`, with dark values under `.dark`.
+- Type: Inter for everything people read; JetBrains Mono (`font-mono`) for anything people type or paste: handles, tool names, tokens, URLs and code. Both load through `@fonts` from the `fonts` list in [`vite.config.js`](vite.config.js).
+- Shape: a 4px grid; radius 6 for inputs (`rounded-md`), 8 for buttons (`rounded-lg`) and 12 for cards (`rounded-xl`).
+
+Build sections from these components in `resources/views/components`:
+
+- `<x-section-card>`: one section of a page in a card, with a `heading`, an optional `description`, the body as its slot, and an optional footer with a `hint` slot on the left and an `actions` slot on the right. Give it `as="form"` and `wire:submit` to make the card the form, so a submit button in the footer submits it.
+- `<x-danger-card>`: a section card for a destructive action, with a red-tinted footer. Its hint says "This can't be undone." unless you pass one; put the action, usually a `flux:modal.trigger` for the confirmation, in `actions`.
+- `<x-stat-strip>` of `<x-stat-tile>`s: figures in one card, side by side (stacked on a phone). A tile has a `label` and `value`, optional `secondary` text beside the value, a `tone` (`success`, `warning` or `danger`) for the value and a `spark` of recent values, oldest first, drawn as an `<x-sparkline :values="…" />`.
+- `<x-code-panel>`: code, config or a command on a dark panel. Its header names the `file` it goes in, or says "terminal" (or your own `label`), and its Copy button copies exactly the `code` shown.
+
+```blade
+<x-section-card as="form" wire:submit="saveDetails" :heading="__('Details')" :description="__('Agents see the description, so say what the Star is for.')">
+    <flux:input wire:model="name" :label="__('Name')" />
+
+    <x-slot:hint>{{ __('Renaming keeps the endpoint URL.') }}</x-slot:hint>
+    <x-slot:actions>
+        <flux:button type="submit" variant="primary" size="sm">{{ __('Save') }}</flux:button>
+    </x-slot:actions>
+</x-section-card>
+
+<x-stat-strip>
+    <x-stat-tile :label="__('Calls · 24h')" value="1,284" :spark="[3, 5, 4, 8, 6, 9]" />
+    <x-stat-tile :label="__('Errors · 24h')" value="3" secondary="0.2%" tone="danger" />
+</x-stat-strip>
+
+<x-code-panel file="~/.codex/config.toml" :code="$snippet" />
+```
 
 ### Tests
 
