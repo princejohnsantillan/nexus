@@ -1,4 +1,4 @@
-<div class="mx-auto w-full max-w-5xl">
+<div @class(['mx-auto w-full max-w-5xl', 'pb-32 sm:pb-24' => ! $this->changes->isEmpty()]) x-data="unsavedChangesGuard('leave-star')" x-bind="guard">
     <x-star-header :star="$star" current="overview" />
 
     <x-stat-strip class="mt-8">
@@ -169,38 +169,38 @@
         </x-section-card>
 
         <div class="grid gap-6">
-            @if ($this->connections->isEmpty())
-                <x-section-card :heading="__('Connections')" :description="__('The Star offers the tools of the Connections you tick.')">
-                    <x-empty-state icon="link" :heading="__('No Connections yet')">
-                        {{ __('Connect a remote MCP server, then come back to add it to this Star.') }}
+            <form wire:submit="save" class="grid gap-6">
+                @if ($this->connections->isEmpty())
+                    <x-section-card :heading="__('Connections')" :description="__('The Star offers the tools of the Connections you tick.')">
+                        <x-empty-state icon="link" :heading="__('No Connections yet')">
+                            {{ __('Connect a remote MCP server, then come back to add it to this Star.') }}
 
-                        <x-slot:actions>
-                            <flux:button variant="primary" icon="plus" :href="route('connections.add')" wire:navigate>{{ __('Add connection') }}</flux:button>
-                        </x-slot:actions>
-                    </x-empty-state>
+                            <x-slot:actions>
+                                <flux:button variant="primary" icon="plus" :href="route('connections.add')" wire:navigate>{{ __('Add connection') }}</flux:button>
+                            </x-slot:actions>
+                        </x-empty-state>
+                    </x-section-card>
+                @else
+                    <x-section-card :heading="__('Connections')" :description="__('The Star offers the tools of the Connections you tick.')">
+                        <x-connection-picker :connections="$this->connections" :unsaved="$this->changes->connectionIds" wire:model.live="connectionIds" :aria-label="__('Connections')" />
+
+                        <x-slot:hint>{{ __('Taking one out forgets the switches you set for its tools here.') }}</x-slot:hint>
+                    </x-section-card>
+                @endif
+
+                <x-section-card :heading="__('Details')" :description="__('Agents see the description, so say what the Star is for.')">
+                    <div class="space-y-6">
+                        <flux:input wire:model.live="name" :label="__('Name')" maxlength="100" />
+                        <flux:textarea wire:model.live="description" :label="__('Description')" :badge="__('Optional')" rows="2" maxlength="500" />
+                    </div>
+
+                    <x-slot:hint>{{ __('Renaming keeps the endpoint URL, so clients keep working.') }}</x-slot:hint>
                 </x-section-card>
-            @else
-                <x-section-card as="form" wire:submit="saveConnections" :heading="__('Connections')" :description="__('The Star offers the tools of the Connections you tick.')">
-                    <x-connection-picker :connections="$this->connections" wire:model="connectionIds" :aria-label="__('Connections')" />
 
-                    <x-slot:hint>{{ __('Taking one out forgets the switches you set for its tools here.') }}</x-slot:hint>
-                    <x-slot:actions>
-                        <flux:button type="submit" variant="primary" size="sm">{{ __('Save connections') }}</flux:button>
-                    </x-slot:actions>
-                </x-section-card>
-            @endif
-
-            <x-section-card as="form" wire:submit="saveDetails" :heading="__('Details')" :description="__('Agents see the description, so say what the Star is for.')">
-                <div class="space-y-6">
-                    <flux:input wire:model="name" :label="__('Name')" maxlength="100" />
-                    <flux:textarea wire:model="description" :label="__('Description')" :badge="__('Optional')" rows="2" maxlength="500" />
-                </div>
-
-                <x-slot:hint>{{ __('Renaming keeps the endpoint URL, so clients keep working.') }}</x-slot:hint>
-                <x-slot:actions>
-                    <flux:button type="submit" variant="primary" size="sm">{{ __('Save details') }}</flux:button>
-                </x-slot:actions>
-            </x-section-card>
+                @unless ($this->changes->isEmpty())
+                    <x-unsaved-changes-bar :consequences="$this->changes->consequences" />
+                @endunless
+            </form>
 
             <x-danger-card :heading="__('Delete this Star')" :description="__('Clients using its endpoint stop working, and its tokens and connected apps are revoked. Your Connections stay.')">
                 <x-slot:actions>
@@ -211,6 +211,23 @@
             </x-danger-card>
         </div>
     </div>
+
+    <flux:modal name="leave-star" class="w-full max-w-lg">
+        <div class="space-y-6">
+            <div>
+                <flux:heading size="lg">{{ __('Leave without saving?') }}</flux:heading>
+                <flux:text class="mt-2">{{ __('Your changes to this Star\'s Connections and details aren\'t saved. Leaving the page discards them.') }}</flux:text>
+            </div>
+
+            <div class="flex justify-end gap-2">
+                <flux:modal.close>
+                    <flux:button variant="ghost">{{ __('Stay') }}</flux:button>
+                </flux:modal.close>
+
+                <flux:button variant="danger" x-on:click="leave()">{{ __('Leave without saving') }}</flux:button>
+            </div>
+        </div>
+    </flux:modal>
 
     <flux:modal name="delete-star" class="w-full max-w-lg">
         <div class="space-y-6">

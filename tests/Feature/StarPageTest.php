@@ -4,15 +4,18 @@ declare(strict_types=1);
 
 use App\Actions\SwitchStarTools;
 use App\Enums\ActivityStatus;
+use App\Enums\NewToolPolicy;
 use App\Enums\StarAccessMode;
 use App\Models\ActivityEntry;
 use App\Models\Connection;
 use App\Models\ConnectionTool;
 use App\Models\Star;
+use App\Models\StarPromptSwitch;
 use App\Models\StarToolSwitch;
 use App\Models\User;
 use Dom\Element;
 use Dom\HTMLDocument;
+use Illuminate\Database\Eloquent\Factories\Sequence;
 use Laravel\Passport\Client;
 use Livewire\Livewire;
 use Tests\Support\StarClient;
@@ -123,10 +126,11 @@ it('shows the Star\'s Connections and settings in cards', function (): void {
     $this->get(route('stars.show', $star))
         ->assertSeeTextInOrder([
             'Set up a client',
-            'Connections', 'DeepWiki', 'deepwiki', '2 tools', 'Taking one out forgets the switches you set for its tools here.', 'Save connections',
-            'Details', 'Renaming keeps the endpoint URL, so clients keep working.', 'Save details',
+            'Connections', 'DeepWiki', 'deepwiki', '2 tools', 'Taking one out forgets the switches you set for its tools here.',
+            'Details', 'Renaming keeps the endpoint URL, so clients keep working.',
             'Delete this Star', 'This can\'t be undone.', 'Delete Star',
-        ]);
+        ])
+        ->assertDontSeeText('Unsaved changes');
 });
 
 /**
@@ -228,7 +232,7 @@ it('changes which Connections the Star includes', function (): void {
     Livewire::test('pages::stars.show', ['star' => $star])
         ->assertSet('connectionIds', [(string) $wiki->id])
         ->set('connectionIds', [(string) $docs->id])
-        ->call('saveConnections')
+        ->call('save')
         ->assertHasNoErrors()
         ->assertDispatched('toast-show', starToast('Saved. The Star includes 1 Connection.'));
 
@@ -246,13 +250,13 @@ it('forgets the switches of a Connection taken out of the Star', function (): vo
 
     Livewire::test('pages::stars.show', ['star' => $star])
         ->set('connectionIds', [(string) $docs->id])
-        ->call('saveConnections');
+        ->call('save');
 
     expect($star->toolSwitches()->pluck('tool_name')->all())->toBe(['write_doc']);
 
     Livewire::test('pages::stars.show', ['star' => $star])
         ->set('connectionIds', [(string) $wiki->id, (string) $docs->id])
-        ->call('saveConnections');
+        ->call('save');
 
     expect($star->toolSwitches()->pluck('tool_name')->all())->toBe(['write_doc']);
 });
@@ -263,10 +267,13 @@ it('refuses another user\'s Connection', function (): void {
 
     Livewire::test('pages::stars.show', ['star' => $star])
         ->set('connectionIds', [(string) $someoneElses->id])
-        ->call('saveConnections')
-        ->assertHasErrors(['connectionIds.0' => 'Choose only your own Connections.']);
+        ->set('name', 'Office')
+        ->call('save')
+        ->assertHasErrors(['connectionIds.0' => 'Choose only your own Connections.'])
+        ->assertNotDispatched('toast-show');
 
-    expect($star->connections()->count())->toBe(0);
+    expect($star->connections()->count())->toBe(0)
+        ->and($star->refresh()->name)->not->toBe('Office');
 });
 
 it('says when the user has no Connections to add', function (): void {
@@ -284,7 +291,7 @@ it('renames the Star and edits its description, keeping its URL', function (): v
     Livewire::test('pages::stars.show', ['star' => $star])
         ->set('name', ' Office ')
         ->set('description', 'For the office laptop')
-        ->call('saveDetails')
+        ->call('save')
         ->assertHasNoErrors()
         ->assertDispatched('toast-show', starToast('Saved.'))
         ->assertSeeText('Office');
@@ -293,15 +300,178 @@ it('renames the Star and edits its description, keeping its URL', function (): v
         ->and(route('stars.show', $star))->toBe($url);
 });
 
-it('requires a name', function (): void {
+it('requires a name, saving none of the changes without one', function (): void {
+    $wiki = Connection::factory()->for($this->user)->create();
     $star = Star::factory()->for($this->user)->create(['name' => 'Work']);
 
     Livewire::test('pages::stars.show', ['star' => $star])
-        ->set('name', '')
-        ->call('saveDetails')
-        ->assertHasErrors(['name' => 'required']);
+        ->set('name', ' ')
+        ->set('connectionIds', [(string) $wiki->id])
+        ->call('save')
+        ->assertHasErrors(['name' => 'required'])
+        ->assertNotDispatched('toast-show')
+        ->assertSeeText('Fix the fields marked in red to save.')
+        ->assertSet('hasUnsavedChanges', true);
 
-    expect($star->refresh()->name)->toBe('Work');
+    expect($star->refresh()->name)->toBe('Work')
+        ->and($star->connections()->count())->toBe(0);
+});
+
+/**
+ * Each Connection in the picker by name, with whether it is marked "Not saved".
+ *
+ * @return array<string, bool>
+ */
+function starConnectionRows(string $html): array
+{
+    $document = HTMLDocument::createFromString($html, LIBXML_NOERROR);
+    $rows = [];
+
+    foreach ($document->querySelectorAll('[data-flux-checkbox-cards]') as $row) {
+        $rows[trim((string) $row->querySelector('[data-flux-heading]')?->textContent)] = $row->querySelector('[data-not-saved]') instanceof Element;
+    }
+
+    return $rows;
+}
+
+it('shows the unsaved-changes bar only while the Connections or details differ from the Star as stored', function (): void {
+    $wiki = Connection::factory()->for($this->user)->create();
+    $star = Star::factory()->for($this->user)->create(['name' => 'Work', 'description' => null]);
+
+    Livewire::test('pages::stars.show', ['star' => $star])
+        ->assertDontSeeText('Unsaved changes')
+        ->assertSet('hasUnsavedChanges', false)
+        ->set('name', 'Office')
+        ->assertSeeText(['Unsaved changes', 'Renaming the Star keeps its URL', 'Discard', 'Save changes'])
+        ->assertSet('hasUnsavedChanges', true)
+        ->set('name', ' Work ')
+        ->set('connectionIds', [(string) $wiki->id])
+        ->assertSeeText('Unsaved changes')
+        ->set('connectionIds', [])
+        ->assertDontSeeText('Unsaved changes')
+        ->assertSet('hasUnsavedChanges', false)
+        ->set('description', 'For the office laptop')
+        ->assertSeeText(['Unsaved changes', 'Agents see the new description']);
+});
+
+it('asks before leaving the page with unsaved changes', function (): void {
+    $star = Star::factory()->for($this->user)->create();
+
+    Livewire::test('pages::stars.show', ['star' => $star])
+        ->assertSeeHtml('x-data="unsavedChangesGuard(\'leave-star\')"')
+        ->assertSeeText(['Leave without saving?', 'Stay', 'Leave without saving']);
+});
+
+it('marks the Connections ticked or unticked since the last save as not saved', function (): void {
+    $github = Connection::factory()->for($this->user)->create(['name' => 'GitHub']);
+    $linear = Connection::factory()->for($this->user)->create(['name' => 'Linear']);
+    $wiki = Connection::factory()->for($this->user)->create(['name' => 'DeepWiki']);
+    $star = Star::factory()->for($this->user)->including($github, $linear)->create();
+
+    $page = Livewire::test('pages::stars.show', ['star' => $star])
+        ->set('connectionIds', [(string) $github->id, (string) $wiki->id]);
+
+    expect(starConnectionRows($page->html()))->toBe(['DeepWiki' => true, 'GitHub' => false, 'Linear' => true]);
+});
+
+it('says how many tools adding a Connection turns on under the Star\'s new-tool policy', function (NewToolPolicy $policy, string $consequence): void {
+    $wiki = Connection::factory()->for($this->user)->create(['name' => 'DeepWiki']);
+    ConnectionTool::factory()->for($wiki)->count(3)->create(['read_only' => true]);
+    ConnectionTool::factory()->for($wiki)->create(['read_only' => false]);
+    ConnectionTool::factory()->for($wiki)->create(['read_only' => null]);
+    $star = Star::factory()->for($this->user)->create(['new_tool_policy' => $policy]);
+
+    Livewire::test('pages::stars.show', ['star' => $star])
+        ->set('connectionIds', [(string) $wiki->id])
+        ->assertSeeText($consequence);
+})->with([
+    'read-only tools on' => [NewToolPolicy::ReadOnly, 'Adding DeepWiki turns on its 3 read-only tools'],
+    'all tools on' => [NewToolPolicy::All, 'Adding DeepWiki turns on its 5 tools'],
+    'all tools off' => [NewToolPolicy::None, 'Adding DeepWiki turns on none of its tools'],
+]);
+
+it('says how many switches taking a Connection out forgets', function (): void {
+    $linear = Connection::factory()->for($this->user)->create(['name' => 'Linear']);
+    $docs = Connection::factory()->for($this->user)->create(['name' => 'Docs']);
+    $star = Star::factory()->for($this->user)->including($linear, $docs)->create();
+    StarToolSwitch::factory()->for($star)->for($linear)->count(3)->sequence(fn (Sequence $sequence): array => ['tool_name' => 'tool_'.$sequence->index])->create();
+    StarPromptSwitch::factory()->for($star)->for($linear)->create();
+    StarToolSwitch::factory()->for($star)->for($docs)->create();
+
+    Livewire::test('pages::stars.show', ['star' => $star])
+        ->set('connectionIds', [(string) $docs->id])
+        ->assertSeeText('Removing Linear forgets 4 switches');
+});
+
+it('says how many tools taking out a Connection without switches turns off', function (): void {
+    $linear = Connection::factory()->for($this->user)->create(['name' => 'Linear']);
+    ConnectionTool::factory()->for($linear)->count(2)->create(['read_only' => true]);
+    ConnectionTool::factory()->for($linear)->create(['read_only' => false]);
+    $star = Star::factory()->for($this->user)->including($linear)->create();
+
+    Livewire::test('pages::stars.show', ['star' => $star])
+        ->set('connectionIds', [])
+        ->assertSeeText('Removing Linear turns off its 2 read-only tools');
+});
+
+it('says what each change does, Connections by name first', function (): void {
+    $linear = Connection::factory()->for($this->user)->create(['name' => 'Linear']);
+    $wiki = Connection::factory()->for($this->user)->create(['name' => 'DeepWiki']);
+    ConnectionTool::factory()->for($wiki)->create(['read_only' => true]);
+    $star = Star::factory()->for($this->user)->including($linear)->create(['description' => 'For work']);
+    StarToolSwitch::factory()->for($star)->for($linear)->create();
+
+    Livewire::test('pages::stars.show', ['star' => $star])
+        ->set('connectionIds', [(string) $wiki->id])
+        ->set('name', 'Office')
+        ->set('description', '')
+        ->assertSeeText('Adding DeepWiki turns on its 1 read-only tool · Removing Linear forgets 1 switch · Renaming the Star keeps its URL · Agents no longer see a description');
+});
+
+it('saves the Connections and details together with one toast', function (): void {
+    $linear = Connection::factory()->for($this->user)->create(['name' => 'Linear']);
+    $wiki = Connection::factory()->for($this->user)->create(['name' => 'DeepWiki']);
+    $github = Connection::factory()->for($this->user)->create(['name' => 'GitHub']);
+    $star = Star::factory()->for($this->user)->including($linear, $github)->create(['name' => 'Work', 'description' => null]);
+    StarToolSwitch::factory()->for($star)->for($linear)->create();
+
+    $page = Livewire::test('pages::stars.show', ['star' => $star])
+        ->set('connectionIds', [(string) $github->id, (string) $wiki->id])
+        ->set('name', 'Office')
+        ->set('description', 'For the office laptop')
+        ->call('save')
+        ->assertHasNoErrors()
+        ->assertDispatched('toast-show', starToast('Saved. The Star includes 2 Connections.'))
+        ->assertDontSeeText('Unsaved changes')
+        ->assertSet('hasUnsavedChanges', false);
+
+    expect(collect(data_get($page->effects, 'dispatches'))->where('name', 'toast-show'))->toHaveCount(1)
+        ->and($star->refresh()->only(['name', 'description']))->toBe(['name' => 'Office', 'description' => 'For the office laptop'])
+        ->and($star->connections()->orderBy('name')->pluck('name')->all())->toBe(['DeepWiki', 'GitHub'])
+        ->and($star->toolSwitches()->count())->toBe(0);
+});
+
+it('discards unsaved changes, back to the Star as stored', function (): void {
+    $wiki = Connection::factory()->for($this->user)->create();
+    $docs = Connection::factory()->for($this->user)->create();
+    $star = Star::factory()->for($this->user)->including($wiki)->create(['name' => 'Work', 'description' => 'For work']);
+
+    Livewire::test('pages::stars.show', ['star' => $star])
+        ->set('connectionIds', [(string) $docs->id])
+        ->set('name', '')
+        ->set('description', 'Something else')
+        ->call('save')
+        ->assertHasErrors('name')
+        ->call('discard')
+        ->assertHasNoErrors()
+        ->assertSet('connectionIds', [(string) $wiki->id])
+        ->assertSet('name', 'Work')
+        ->assertSet('description', 'For work')
+        ->assertDontSeeText('Unsaved changes')
+        ->assertSet('hasUnsavedChanges', false);
+
+    expect($star->refresh()->only(['name', 'description']))->toBe(['name' => 'Work', 'description' => 'For work'])
+        ->and($star->connections()->pluck('connections.id')->all())->toBe([$wiki->id]);
 });
 
 it('deletes the Star and its switches after confirming, keeping the Connections', function (): void {
@@ -312,7 +482,9 @@ it('deletes the Star and its switches after confirming, keeping the Connections'
 
     Livewire::test('pages::stars.show', ['star' => $star])
         ->assertSeeText('Delete Work?')
+        ->set('name', 'Unsaved')
         ->call('delete')
+        ->assertSet('hasUnsavedChanges', false)
         ->assertRedirect(route('stars.index'));
 
     $this->assertModelMissing($star);

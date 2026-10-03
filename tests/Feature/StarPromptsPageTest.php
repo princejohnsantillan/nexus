@@ -163,7 +163,7 @@ it('forgets a Connection\'s prompt switches when it is taken out of the Star', f
 
     Livewire::test('pages::stars.show', ['star' => $this->star])
         ->set('connectionIds', [])
-        ->call('saveConnections');
+        ->call('save');
 
     expect($this->star->promptSwitches()->count())->toBe(0);
 });
