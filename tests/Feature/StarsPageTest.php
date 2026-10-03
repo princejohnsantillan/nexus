@@ -101,6 +101,7 @@ it('draws a sparkline of a Star\'s calls over the last two weeks, only when it h
 
 it('reads every Star\'s calls from Activity in one query, and counts the Stars once', function (): void {
     $this->freezeTime();
+    $this->user->forceFill(['getting_started_closed_at' => now()])->save();
     $connection = Connection::factory()->for($this->user)->create();
     $stars = Star::factory()->for($this->user)->including($connection)->count(3)->create();
 

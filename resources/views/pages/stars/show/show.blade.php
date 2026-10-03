@@ -14,7 +14,7 @@
     </x-stat-strip>
 
     <div class="mt-6 grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_24rem]">
-        <x-section-card :heading="__('Set up a client')">
+        <x-section-card id="setup" class="scroll-mt-6" :heading="__('Set up a client')">
             @if ($star->access_mode === App\Enums\StarAccessMode::SignedUrl)
                 <flux:text>
                     {{ __('Each snippet below holds the Star\'s signed URL and nothing else. Keep them out of shared or committed config files; if the URL leaks, rotate it on the') }}
