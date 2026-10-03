@@ -61,12 +61,13 @@ class UserFactory extends Factory
     }
 
     /**
-     * Indicate that the user had Pro, which has ended, so they are on Free.
+     * Indicate that the user had Pro, which ended this many days ago
+     * (yesterday unless you say), so they are on Free.
      */
-    public function proEnded(): static
+    public function proEnded(int $daysAgo = 1): static
     {
         return $this->state(fn (array $attributes): array => [
-            'pro_until' => now()->subDay(),
+            'pro_until' => now()->subDays($daysAgo),
         ]);
     }
 

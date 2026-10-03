@@ -42,6 +42,10 @@ use Laravel\Passport\HasApiTokens;
  * is in the future, and on Free otherwise (plan()). Paying moves it forward
  * from nextProStart(); nothing renews it on its own.
  *
+ * `pro_ends_soon_emailed_for` and `pro_ended_emailed_for` keep the
+ * `pro_until` the "Pro ends soon" and "Pro has ended" emails were last sent
+ * for, so each goes once per end date (App\Billing\ProReminders).
+ *
  * @property int $id
  * @property string $name
  * @property string|null $email
@@ -53,6 +57,8 @@ use Laravel\Passport\HasApiTokens;
  * @property CarbonImmutable|null $updated_at
  * @property CarbonImmutable|null $getting_started_closed_at
  * @property CarbonImmutable|null $pro_until
+ * @property CarbonImmutable|null $pro_ends_soon_emailed_for
+ * @property CarbonImmutable|null $pro_ended_emailed_for
  * @property-read DatabaseNotificationCollection<int, DatabaseNotification> $notifications
  * @property-read int|null $notifications_count
  *
@@ -68,6 +74,8 @@ use Laravel\Passport\HasApiTokens;
  * @method static \Illuminate\Database\Eloquent\Builder<static>|User whereGithubLogin($value)
  * @method static \Illuminate\Database\Eloquent\Builder<static>|User whereId($value)
  * @method static \Illuminate\Database\Eloquent\Builder<static>|User whereName($value)
+ * @method static \Illuminate\Database\Eloquent\Builder<static>|User whereProEndedEmailedFor($value)
+ * @method static \Illuminate\Database\Eloquent\Builder<static>|User whereProEndsSoonEmailedFor($value)
  * @method static \Illuminate\Database\Eloquent\Builder<static>|User whereProUntil($value)
  * @method static \Illuminate\Database\Eloquent\Builder<static>|User whereRememberToken($value)
  * @method static \Illuminate\Database\Eloquent\Builder<static>|User whereUpdatedAt($value)
@@ -106,6 +114,8 @@ class User extends Authenticatable implements OAuthenticatable
             'github_id' => 'integer',
             'getting_started_closed_at' => 'datetime',
             'pro_until' => 'datetime',
+            'pro_ends_soon_emailed_for' => 'datetime',
+            'pro_ended_emailed_for' => 'datetime',
         ];
     }
 

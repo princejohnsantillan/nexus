@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Console\Commands\RefreshCatalogsCommand;
+use App\Console\Commands\SendProRemindersCommand;
 use App\Models\ActivityEntry;
 use App\Models\EmailCode;
 use Illuminate\Database\Console\PruneCommand;
@@ -20,3 +21,5 @@ Schedule::command(PruneCommand::class, ['--model' => [ActivityEntry::class, Emai
 Schedule::command(RefreshCatalogsCommand::class)->daily()->onOneServer();
 
 Schedule::command(PurgeCommand::class)->daily();
+
+Schedule::command(SendProRemindersCommand::class)->hourly()->onOneServer();
