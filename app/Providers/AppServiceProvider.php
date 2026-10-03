@@ -69,6 +69,7 @@ class AppServiceProvider extends ServiceProvider
         $this->limitStarCalls();
         $this->configureStarOAuth();
         $this->limitOAuthRegistrations();
+        $this->limitPayMongoWebhooks();
     }
 
     /**
@@ -268,6 +269,16 @@ class AppServiceProvider extends ServiceProvider
     protected function limitOAuthRegistrations(): void
     {
         RateLimiter::for('mcp-registration', fn (Request $request): Limit => Limit::perHour(config()->integer('nexus.limits.oauth_registrations_per_hour'))
+            ->by($request->ip() ?? 'unknown'));
+    }
+
+    /**
+     * Anyone can reach PayMongo's webhook, so deliveries are limited per IP
+     * address. PayMongo tries a refused delivery again later.
+     */
+    protected function limitPayMongoWebhooks(): void
+    {
+        RateLimiter::for('paymongo-webhooks', fn (Request $request): Limit => Limit::perMinute(config()->integer('nexus.limits.paymongo_webhooks_per_minute'))
             ->by($request->ip() ?? 'unknown'));
     }
 }

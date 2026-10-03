@@ -7,6 +7,7 @@ use App\Models\Payment;
 use App\Models\User;
 use GuzzleHttp\Promise\PromiseInterface;
 use Illuminate\Http\Client\Request;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Livewire\Livewire;
@@ -17,7 +18,8 @@ use Tests\Support\FakePayMongo;
  * PayMongo failing, with text Nexus doesn't know (DownstreamCanary::TEXT)
  * in its answer or the transfer's error, never puts that text in front of
  * the user, in the log or in the database: starting a checkout, reading it
- * back on the return page, and expiring a cancelled one.
+ * back on the return page, expiring a cancelled one, reconciling pending
+ * payments, and registering or listing webhooks.
  */
 
 beforeEach(function (): void {
@@ -82,4 +84,35 @@ it('still says a cancelled checkout charged nothing', function (Closure $failure
         ->and($reads)->toBe(2)
         ->and($this->canary->sightings())->toBe([])
         ->and(json_encode(DB::table('payments')->get()))->not->toContain(DownstreamCanary::PREFIX);
+})->with('PayMongo failures');
+
+it('leaves pending payments pending when reconciling', function (Closure $failure): void {
+    $recent = Payment::factory()->for($this->user)->create(['created_at' => now()->subMinutes(10)]);
+    $stale = Payment::factory()->for($this->user)->create(['created_at' => now()->subDays(2)]);
+    $this->payMongo->open($recent)->open($stale)->respondTo('read', $failure)->respondTo('expire', $failure);
+
+    Artisan::call('nexus:billing:reconcile');
+
+    expect(Artisan::output())->not->toContain(DownstreamCanary::PREFIX)
+        ->and($this->canary->sightings())->toBe([])
+        ->and($recent->fresh()->status)->toBe(PaymentStatus::Pending)
+        ->and($stale->fresh()->status)->toBe(PaymentStatus::Pending);
+})->with('PayMongo failures');
+
+it('says only that the webhook couldn\'t be registered', function (Closure $failure): void {
+    $this->payMongo->respondTo('createWebhook', $failure);
+
+    expect(Artisan::call('nexus:paymongo:webhook', ['url' => 'https://nexus.example.com/webhooks/paymongo']))->toBe(1)
+        ->and(Artisan::output())->toContain('PayMongo couldn\'t register the webhook. Check the URL is public HTTPS, then try again.')
+        ->not->toContain(DownstreamCanary::PREFIX)
+        ->and($this->canary->sightings())->toBe([]);
+})->with('PayMongo failures');
+
+it('says only that the webhooks couldn\'t be listed', function (Closure $failure): void {
+    $this->payMongo->respondTo('listWebhooks', $failure);
+
+    expect(Artisan::call('nexus:paymongo:webhook', ['--list' => true]))->toBe(1)
+        ->and(Artisan::output())->toContain('Nexus couldn\'t list the webhooks registered with PayMongo. Try again in a minute.')
+        ->not->toContain(DownstreamCanary::PREFIX)
+        ->and($this->canary->sightings())->toBe([]);
 })->with('PayMongo failures');
