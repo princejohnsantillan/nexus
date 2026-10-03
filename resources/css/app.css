@@ -70,6 +70,20 @@
     }
 }
 
+@layer base {
+    /* Focus rings take the accent. Flux leaves them to the browser's own ring, so this one rule covers its fields, buttons and links too. */
+    :focus-visible {
+        outline: 2px solid var(--color-accent);
+        outline-offset: 2px;
+    }
+}
+
+/* Flux's groups that ring when something inside has focus (such as a segmented radio group) draw the browser's ring outside any layer, so this has to as well. */
+.has-focus-visible\:outline-default:has(*:focus-visible) {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+}
+
 @layer components {
     /* The current sidebar item is a raised white pill with the accent icon. */
     [data-flux-sidebar-item][data-current] [data-flux-icon] {

@@ -30,7 +30,7 @@ $icon = match (true) {
 
         <button
             type="button"
-            class="inline-flex h-6.5 shrink-0 items-center gap-1.5 rounded-md bg-white/8 px-2 text-xs font-medium text-zinc-200 hover:bg-white/15 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+            class="inline-flex h-6.5 shrink-0 items-center gap-1.5 rounded-md bg-white/8 px-2 text-xs font-medium text-zinc-200 hover:bg-white/15"
             x-on:click="navigator.clipboard.writeText($refs.code.textContent).then(() => { copied = true; setTimeout(() => copied = false, 2000) })"
             x-bind:data-copied="copied"
             data-code-panel-copy
