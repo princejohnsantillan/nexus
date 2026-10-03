@@ -31,7 +31,7 @@ class SendProRemindersCommand extends Command
 
             $sent = $reminders->send($reminder);
 
-            $this->components->info(trans_choice('Emailed ":email" to :count user.|Emailed ":email" to :count users.', $sent, ['email' => $reminder->label()]));
+            $this->components->info(trans_choice('Queued ":email" for :count user.|Queued ":email" for :count users.', $sent, ['email' => $reminder->label()]));
         }
 
         return self::SUCCESS;

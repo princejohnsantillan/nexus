@@ -61,4 +61,15 @@ enum ProReminder: string
             self::Ended => [$now->subHours(self::ENDED_WITHIN_HOURS), $now],
         };
     }
+
+    /**
+     * Whether the email is due at the moment for Pro ending at `$proUntil`:
+     * whether `$proUntil` falls in its window().
+     */
+    public function isDue(CarbonImmutable $proUntil, CarbonImmutable $now): bool
+    {
+        [$after, $until] = $this->window($now);
+
+        return $proUntil->isAfter($after) && $proUntil->lessThanOrEqualTo($until);
+    }
 }

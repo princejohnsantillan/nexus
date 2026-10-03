@@ -551,7 +551,7 @@ The values live in [`config/nexus.php`](config/nexus.php) under `plans`: each pl
 - **Once per end date.** Each email's column on `users`, `pro_ends_soon_emailed_for` or `pro_ended_emailed_for`, keeps the `pro_until` it went for. Extending Pro moves `pro_until`, so the new end date gets its own emails, and an email that hasn't gone yet waits for the new date.
 - **Who is skipped:** users with no email address (they get the email if they add one while it's due), and anyone who never had Pro.
 - [`App\Billing\ProReminders`](app/Billing/ProReminders.php) finds who is due (`due($reminder)`) and sends (`send($reminder)`), one `App\Enums\ProReminder` at a time. It claims each user with one conditional update (only while `pro_until` is unchanged and the email hasn't gone for it) before queueing the email, so overlapping runs, or a payment landing meanwhile, never send an email twice or for the wrong date.
-- The email is `App\Notifications\ProReminderNotification`. It is queued, unlike a sign-in code, since nothing in it is secret, and it isn't sent if Pro was extended while it waited in the queue. Dates are in Philippine time (`BillingCalendar::date()`).
+- The email is `App\Notifications\ProReminderNotification`. It is queued, unlike a sign-in code, since nothing in it is secret. When the queue gets to it, it checks it still holds: it isn't sent if Pro was extended meanwhile, or if it is no longer due (a "Pro ends soon" reached after Pro ended, or a "Pro has ended" reached more than 48 hours after). Dates are in Philippine time (`BillingCalendar::date()`).
 - **Trying it locally:** give a user Pro that ends in a few days, list who would be emailed with `--dry-run`, then send and run the queue. The emails land in `storage/logs/mail.log`.
 
     ```bash

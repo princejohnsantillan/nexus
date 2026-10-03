@@ -68,11 +68,11 @@ it('sends each reminder once per end date, however often it runs', function (): 
     Notification::fake();
 
     $this->artisan('nexus:billing:remind')
-        ->expectsOutputToContain('Emailed "Pro ends soon" to 1 user.')
-        ->expectsOutputToContain('Emailed "Pro has ended" to 1 user.')
+        ->expectsOutputToContain('Queued "Pro ends soon" for 1 user.')
+        ->expectsOutputToContain('Queued "Pro has ended" for 1 user.')
         ->assertSuccessful();
     $this->artisan('nexus:billing:remind')
-        ->expectsOutputToContain('Emailed "Pro ends soon" to 0 users.')
+        ->expectsOutputToContain('Queued "Pro ends soon" for 0 users.')
         ->assertSuccessful();
     $this->travel(1)->day();
     $this->artisan('nexus:billing:remind')->assertSuccessful();
@@ -211,6 +211,28 @@ it('drops a queued email once Pro has been extended', function (): void {
     $this->assertDatabaseEmpty('jobs');
     $this->assertDatabaseEmpty('failed_jobs');
 });
+
+it('sends a queued email late only while it is still due', function (string $proUntil, string $workedAt, array $expected): void {
+    config(['queue.default' => 'database']);
+    User::factory()->create(['pro_until' => CarbonImmutable::parse($proUntil, 'UTC')]);
+    Event::fake([NotificationSent::class]);
+    $this->artisan('nexus:billing:remind')->assertSuccessful();
+    $this->travelTo(CarbonImmutable::parse($workedAt, 'UTC'));
+    $this->artisan('nexus:billing:remind')->assertSuccessful();
+
+    $this->artisan('queue:work', ['--stop-when-empty' => true, '--sleep' => 0])->assertSuccessful();
+
+    expect(Event::dispatched(NotificationSent::class)
+        ->map(fn (array $arguments): array => [$arguments[0]->notification->reminder, $arguments[0]->notification->proUntil->toDateTimeString()])
+        ->values()
+        ->all())->toBe($expected);
+    $this->assertDatabaseEmpty('jobs');
+    $this->assertDatabaseEmpty('failed_jobs');
+})->with([
+    '"ends soon" a day late, before Pro ends' => ['2026-10-08 12:00:00', '2026-10-04 12:00:00', [[ProReminder::EndsSoon, '2026-10-08 12:00:00']]],
+    '"ends soon" once Pro has ended' => ['2026-10-03 12:01:00', '2026-10-03 12:02:00', [[ProReminder::Ended, '2026-10-03 12:01:00']]],
+    '"has ended" more than 48 hours after Pro ended' => ['2026-10-03 11:00:00', '2026-10-05 12:00:00', []],
+]);
 
 it('runs every hour, on one server', function (): void {
     $this->artisan('schedule:list')->assertSuccessful();

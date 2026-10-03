@@ -19,8 +19,8 @@ use Illuminate\Queue\Attributes\DeleteWhenMissingModels;
  * The email that the user's Pro ends soon, or has ended, for the
  * `pro_until` it was written for (App\Billing\ProReminders sends it). It is
  * queued, unlike a sign-in code: nothing in it is secret. It isn't sent if
- * Pro was extended while it waited in the queue, and its job is dropped if
- * the user was deleted.
+ * Pro was extended, or the email stopped being due, while it waited in the
+ * queue, and its job is dropped if the user was deleted.
  */
 #[DeleteWhenMissingModels]
 class ProReminderNotification extends Notification implements ShouldQueue
@@ -44,11 +44,15 @@ class ProReminderNotification extends Notification implements ShouldQueue
 
     /**
      * Whether the email still holds when it goes out: the user's Pro still
-     * ends when it says.
+     * ends when it says, and the email is still due. A "Pro ends soon" that
+     * waited until Pro ended, or a "Pro has ended" that waited past its 48
+     * hours, isn't sent.
      */
     public function shouldSend(object $notifiable, string $channel): bool
     {
-        return $notifiable instanceof User && $notifiable->pro_until?->equalTo($this->proUntil) === true;
+        return $notifiable instanceof User
+            && $notifiable->pro_until?->equalTo($this->proUntil) === true
+            && $this->reminder->isDue($this->proUntil, CarbonImmutable::now());
     }
 
     /**
