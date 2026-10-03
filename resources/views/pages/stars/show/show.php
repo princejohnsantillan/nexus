@@ -41,11 +41,13 @@ return new #[Title('Star')] class extends Component
     public string $client = '';
 
     /**
-     * When the page was opened (a Unix time): "Check it works" turns green
-     * for a call from then on.
+     * What the Star had heard when the page was opened: "Check it works"
+     * turns green for anything after it (`StarCallers::watermark()`).
+     *
+     * @var array{activity: int, tokens: array<int, int|null>, apps: array<int, int|null>}
      */
     #[Locked]
-    public int $openedAt = 0;
+    public array $heardWhenOpened = ['activity' => 0, 'tokens' => [], 'apps' => []];
 
     /**
      * When "Check it works" last started listening (a Unix time).
@@ -75,7 +77,8 @@ return new #[Title('Star')] class extends Component
         $this->description = $this->star->description ?? '';
         $this->resetConnections();
         $this->client = McpClient::preferredFor($this->star->access_mode, request()->cookie(self::CLIENT_COOKIE))->value;
-        $this->openedAt = $this->listeningSince = now()->getTimestamp();
+        $this->heardWhenOpened = resolve(StarCallers::class)->watermark($this->star);
+        $this->listeningSince = now()->getTimestamp();
     }
 
     /**
@@ -192,13 +195,13 @@ return new #[Title('Star')] class extends Component
     }
 
     /**
-     * When the Star last heard from the chosen client since the page was
+     * When the Star last heard from the chosen client after the page was
      * opened, or null when it hasn't yet.
      */
     #[Computed]
     public function heardAt(): ?CarbonImmutable
     {
-        return resolve(StarCallers::class)->lastHeardFrom($this->star, $this->chosenClient, now()->setTimestamp($this->openedAt));
+        return resolve(StarCallers::class)->lastHeardFrom($this->star, $this->chosenClient, $this->heardWhenOpened);
     }
 
     /**

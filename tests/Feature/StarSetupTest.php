@@ -300,18 +300,34 @@ it('copies the chosen client\'s setup as a prompt, with the endpoint and without
         PROMPT)->not->toContain($token)->not->toContain(substr($token, 0, 12));
 });
 
-it('puts each client\'s steps in its prompt, holding no secret beyond the snippet', function (StarAccessMode $mode, string $client, string $command): void {
+it('puts each client\'s steps in its prompt, holding no secret beyond the snippet', function (StarAccessMode $mode, string $client, string $command, string $check): void {
     $star = Star::factory()->for($this->user)->withAccessMode($mode)->create(['name' => 'Work', 'slug' => 'work']);
 
     $prompt = setupPrompt(Livewire::test('pages::stars.show', ['star' => $star])->set('client', $client)->html());
 
     expect($prompt)->toContain('Endpoint: '.url('/mcp/'.$star->public_id)."\n")
         ->toContain(str_replace('{url}', $star->clientUrl(), $command))
+        ->toEndWith($check)
         ->and(substr_count($prompt, 'signature='))->toBe($mode === StarAccessMode::SignedUrl ? 1 : 0);
 })->with([
-    'Claude Code with a token' => [StarAccessMode::Token, 'claude-code', "Run this in a terminal:\n\n```\nclaude mcp add-json --scope user nexus-work"],
-    'claude.ai with the signed URL' => [StarAccessMode::SignedUrl, 'claude-ai', "Open Settings → Connectors, choose \"Add custom connector\" and paste this URL:\n\n```\n{url}\n```"],
-    'Grok with OAuth' => [StarAccessMode::OAuth, 'grok', "Add this to ~/.grok/config.toml, keeping anything already in it:\n\n```\n[mcp_servers.nexus-work]\nurl = \"{url}\"\n```\n\n2. Then open /mcps in Grok, choose nexus-work and press i to sign in."],
+    'Claude Code with a token' => [
+        StarAccessMode::Token,
+        'claude-code',
+        "Run this in a terminal:\n\n```\nclaude mcp add-json --scope user nexus-work",
+        '3. Restart Claude Code if it is running, and check that nexus-work lists its tools.',
+    ],
+    'claude.ai with the signed URL, checked with a tool call' => [
+        StarAccessMode::SignedUrl,
+        'claude-ai',
+        "Open Settings → Connectors, choose \"Add custom connector\" and paste this URL:\n\n```\n{url}\n```",
+        '2. Restart claude.ai if it is running, and call one of nexus-work\'s tools to check it works. A signed URL doesn\'t say which client uses it, so Nexus notes only tool calls, not listing them.',
+    ],
+    'Grok with OAuth' => [
+        StarAccessMode::OAuth,
+        'grok',
+        "Add this to ~/.grok/config.toml, keeping anything already in it:\n\n```\n[mcp_servers.nexus-work]\nurl = \"{url}\"\n```\n\n2. Then open /mcps in Grok, choose nexus-work and press i to sign in.",
+        '3. Restart Grok if it is running, and check that nexus-work lists its tools.',
+    ],
 ]);
 
 it('listens for the chosen client and turns green when the Star hears from it', function (StarAccessMode $mode, Closure $call): void {
@@ -357,6 +373,45 @@ it('keeps listening through calls from before the page opened or from another cl
 
     expect(setupCheck($page->call('$refresh')->html())['state'])->toBe('listening');
 });
+
+it('counts a call made just after the page opened, but not one just before, within one second', function (StarAccessMode $mode, Closure $before, Closure $after): void {
+    $this->travelTo('2026-10-03 12:00:00.068');
+    $star = Star::factory()->for($this->user)->withAccessMode($mode)->create(['name' => 'Work']);
+    $before($star);
+    $this->travelTo('2026-10-03 12:00:00.112');
+    $page = Livewire::test('pages::stars.show', ['star' => $star])->set('client', 'cursor');
+
+    expect(setupCheck($page->html())['state'])->toBe('listening');
+
+    $this->travelTo('2026-10-03 12:00:00.500');
+    $after($star);
+
+    expect(setupCheck($page->call('$refresh')->html())['text'])->toStartWith('Cursor reached Work');
+})->with([
+    'Activity entries' => [
+        StarAccessMode::Token,
+        fn (Star $star) => ActivityEntry::factory()->for($star->user)->create(['star_id' => $star->id, 'client_name' => 'Cursor']),
+        fn (Star $star) => ActivityEntry::factory()->for($star->user)->create(['star_id' => $star->id, 'client_name' => 'Cursor']),
+    ],
+    'a new token' => [
+        StarAccessMode::Token,
+        fn (Star $star) => StarToken::factory()->for($star)->create(['name' => 'Laptop'])->markUsed(),
+        fn (Star $star) => StarToken::factory()->for($star)->create(['name' => 'Cursor'])->markUsed(),
+    ],
+    'a token that was idle when the page opened' => [
+        StarAccessMode::Token,
+        function (Star $star): void {
+            StarToken::factory()->for($star)->create(['name' => 'Laptop'])->markUsed();
+            StarToken::factory()->for($star)->create(['name' => 'Cursor']);
+        },
+        fn (Star $star) => $star->tokens()->where('name', 'Cursor')->firstOrFail()->markUsed(),
+    ],
+    'connected apps' => [
+        StarAccessMode::OAuth,
+        fn (Star $star) => StarOAuthClient::factory()->for($star)->approved()->create(['client_id' => Client::factory()->asPublic()->createOne(['name' => 'Laptop'])->id])->markUsed(),
+        fn (Star $star) => StarOAuthClient::factory()->for($star)->approved()->create(['client_id' => Client::factory()->asPublic()->createOne(['name' => 'Cursor'])->id])->markUsed(),
+    ],
+]);
 
 it('stops listening after ten minutes, and listens again when asked', function (): void {
     $this->travelTo('2026-10-03 12:00:00');

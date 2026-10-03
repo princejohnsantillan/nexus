@@ -81,7 +81,9 @@ final readonly class ClientSetup
             $steps[] = $setup['login']['instruction'].($setup['login']['snippet'] !== null ? "\n\n".$this->fenced($setup['login']['snippet']) : '');
         }
 
-        $steps[] = __('Restart :client if it is running, and check that :name lists its tools.', $replace);
+        $steps[] = $star->access_mode === StarAccessMode::SignedUrl
+            ? __('Restart :client if it is running, and call one of :name\'s tools to check it works. A signed URL doesn\'t say which client uses it, so Nexus notes only tool calls, not listing them.', $replace)
+            : __('Restart :client if it is running, and check that :name lists its tools.', $replace);
 
         $intro = [
             __('Add the Nexus Star ":star" to :client as the remote MCP server :name.', $replace),
