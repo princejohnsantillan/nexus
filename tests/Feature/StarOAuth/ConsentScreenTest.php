@@ -63,7 +63,7 @@ it('shows Nexus and the client, what the client can do, where it returns to and 
         ->assertSeeHtml('<title>Approve access · Nexus</title>')
         ->assertSeeTextInOrder([
             'Allow Claude to use your Star “Work”?',
-            'Signed in as', 'Ada Lovelace', 'Not you?',
+            'Signed in as', 'Ada Lovelace (@ada)', 'Not you?',
             'What Claude can do',
             'Only approve it if you just added this Star to Claude yourself.',
             'Call the 2 tools switched on in this Star',
@@ -175,7 +175,7 @@ it('signs the user out on "Not you?" and brings them back to the same consent sc
 
     $this->get($authorizeUrl)->assertRedirect();
 
-    Socialite::fake('github', SocialiteUser::fake(['id' => $this->owner->github_id, 'nickname' => 'ada', 'name' => 'Ada Lovelace']));
+    Socialite::fake('github', SocialiteUser::fake(['id' => $this->owner->signInIdentities->sole()->provider_user_id, 'nickname' => 'ada', 'name' => 'Ada Lovelace']));
 
     expectSameAddress((string) $this->get(route('auth.github.callback'))->assertRedirect()->headers->get('Location'), $authorizeUrl);
     $this->assertAuthenticatedAs($this->owner);
