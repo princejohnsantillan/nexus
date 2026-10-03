@@ -7,6 +7,8 @@ use App\Models\SignInIdentity;
 use App\Models\User;
 use GuzzleHttp\Exception\ConnectException;
 use GuzzleHttp\Psr7\Request as PsrRequest;
+use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Support\Facades\DB;
 use Laravel\Socialite\Facades\Socialite;
 use Laravel\Socialite\Two\InvalidStateException;
 use Laravel\Socialite\Two\User as SocialiteUser;
@@ -117,6 +119,28 @@ it('gives a user who signed up before identities existed their GitHub identity',
         ->provider_user_id->toBe('583231');
 
     $this->assertAuthenticatedAs($user);
+});
+
+it('signs in to the account a simultaneous first sign-in just created, instead of failing', function (): void {
+    $competing = null;
+
+    // The other sign-in creates the account after this one looked for it and before it inserts its own.
+    DB::listen(function (QueryExecuted $query) use (&$competing): void {
+        if ($competing === null && str_contains($query->sql, 'from "users" where "github_id"')) {
+            $competing = User::factory()->signsInWithGitHub('octocat', githubId: 583231)->create(['github_id' => 583231, 'name' => 'First tab']);
+        }
+    });
+
+    fakeGitHubUser();
+
+    $this->get(route('auth.github.callback'))->assertRedirect(route('stars.index'));
+
+    expect($competing)->toBeInstanceOf(User::class)
+        ->and(User::query()->count())->toBe(1)
+        ->and(SignInIdentity::query()->count())->toBe(1)
+        ->and($competing->fresh()?->name)->toBe('Mona Lisa Octocat');
+
+    $this->assertAuthenticatedAs($competing);
 });
 
 it('never signs in to another account that has the same login or email', function (): void {
