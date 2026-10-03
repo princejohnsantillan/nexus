@@ -12,6 +12,7 @@ use App\Models\StarToken;
 use App\Stars\ClientSetup;
 use Flux\Flux;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Locked;
@@ -41,6 +42,8 @@ return new #[Title('Star access')] class extends Component
     public function mount(): void
     {
         $this->accessMode = $this->star->access_mode->value;
+
+        $this->suggestTokenName(request()->query('new_token'));
     }
 
     /**
@@ -102,16 +105,16 @@ return new #[Title('Star access')] class extends Component
 
         $this->reset('name');
         $this->forgetTokens();
-
-        $this->dispatch('modal-show', name: 'new-token', scope: $this->getId());
     }
 
     /**
-     * Forget the token just created, once its modal closes.
+     * Forget the token just created, once its modal closes, so the modal
+     * opens on the form next time.
      */
     public function forgetNewToken(): void
     {
         $this->newToken = null;
+        $this->resetValidation();
     }
 
     public function revoke(int $tokenId): void
@@ -178,6 +181,32 @@ return new #[Title('Star access')] class extends Component
 
         $this->dispatch('modal-close', name: 'rotate-signed-url', scope: $this->getId());
         Flux::toast(variant: 'success', text: __('Rotated. The old URL no longer works, so give your clients the new one.'));
+    }
+
+    /**
+     * Open the form for a new token with the name a link suggests, such as
+     * the client the overview's setup was showing ("Create a token for
+     * Cursor"), when the Star can have another. Anything but a plain name
+     * (letters, digits, spaces and . _ - ( ), at most 100 characters) is
+     * ignored, and so is a Star that can't have another token.
+     */
+    private function suggestTokenName(mixed $suggested): void
+    {
+        if ($this->star->access_mode !== StarAccessMode::Token || $this->limitMessage !== null) {
+            return;
+        }
+
+        $isPlainName = is_string($suggested) && Validator::make(['name' => $suggested], [
+            'name' => ['required', 'string', 'max:100', 'regex:/^[\pL\pN][\pL\pN .()_-]*$/uD'],
+        ])->passes();
+
+        if (! $isPlainName) {
+            return;
+        }
+
+        $this->name = trim($suggested);
+
+        $this->dispatch('modal-show', name: 'new-token', scope: $this->getId());
     }
 
     private function forgetTokens(): void
